@@ -1,0 +1,73 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      lgtm:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgres://app:app@db:5432/app?sslmode=disable
+      TLS_CERT_FILE: /certs/cert.pem
+      TLS_KEY_FILE: /certs/key.pem
+    ports:
+      - "8088:8080"
+      - "2525:2525"
+      - "2465:2465"
+      - "1143:1143"
+      - "1993:1993"
+    volumes:
+      - ./certs:/certs
+
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    ports:
+      - "3000:3000" # Grafana
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail-config.yaml:/etc/promtail/config.yaml
+    command: ["-config.file=/etc/promtail/config.yaml"]
+    depends_on:
+      - lgtm
+
+  migrate:
+    image: migrate/migrate:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ${PWD}/migrations:/migrations
+    entrypoint: ["/usr/bin/migrate"]
+    command: [
+      "-source=file:///migrations",
+      "-database=postgres://app:app@db:5432/app?sslmode=disable",
+      "-verbose",
+      "up"
+    ]
+
+volumes:
+  db_data:
