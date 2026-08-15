@@ -1,0 +1,47 @@
+# ClusterIP service for HTTP API (used by the Ingress)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "workspace.fullname" . }}
+  labels:
+    {{- include "workspace.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "workspace.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+{{- if .Values.mailService.enabled }}
+# LoadBalancer service for raw TCP mail ports (SMTP / SMTPS / IMAP / IMAPS).
+# MetalLB assigns the cluster LB IP to this service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "workspace.fullname" . }}-mail
+  labels:
+    {{- include "workspace.labels" . | nindent 4 }}
+  {{- with .Values.mailService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.mailService.type }}
+  selector:
+    {{- include "workspace.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: smtp
+      port: {{ .Values.mailService.ports.smtp.port }}
+      targetPort: smtp
+    - name: smtps
+      port: {{ .Values.mailService.ports.smtps.port }}
+      targetPort: smtps
+    - name: imap
+      port: {{ .Values.mailService.ports.imap.port }}
+      targetPort: imap
+    - name: imaps
+      port: {{ .Values.mailService.ports.imaps.port }}
+      targetPort: imaps
+{{- end }}

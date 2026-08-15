@@ -150,6 +150,23 @@ func (s *IMAPServer) handle(conn net.Conn) {
 			}
 			write(tag + " OK " + cmd + " completed")
 
+		case "CREATE":
+			if authed == nil {
+				write(tag + " NO not authenticated")
+				continue
+			}
+			if len(parts) < 3 {
+				write(tag + " BAD")
+				continue
+			}
+			name := strings.Trim(parts[2], "\"")
+			_, err := s.mboxes.Create(ctx, authed.ID, name)
+			if err != nil {
+				write(tag + " NO cannot create mailbox")
+				continue
+			}
+			write(tag + " OK CREATE completed")
+
 		case "LOGIN":
 			if len(parts) < 4 {
 				write(tag + " BAD")
@@ -177,6 +194,7 @@ func (s *IMAPServer) handle(conn net.Conn) {
 			)
 
 			authed = u
+			_ = s.mboxes.EnsureDefaults(ctx, authed.ID)
 			write(tag + " OK [CAPABILITY IMAP4rev1 AUTH=PLAIN LOGIN] LOGIN completed")
 
 		case "AUTHENTICATE":
@@ -231,6 +249,7 @@ func (s *IMAPServer) handle(conn net.Conn) {
 			}
 
 			authed = u
+			_ = s.mboxes.EnsureDefaults(ctx, authed.ID)
 			logWithTrace(ctx, slog.LevelInfo, "imap auth success (PLAIN)", "user", user)
 			write(tag + " OK AUTHENTICATE completed")
 
@@ -781,18 +800,24 @@ func writeFetchLiteral(w *bufio.Writer, prefix, literal string) error {
 }
 
 func mailboxAttributes(name string) string {
-	attrs := []string{"\\HasNoChildren"}
-	switch strings.ToLower(name) {
-	case "sent":
-		attrs = append(attrs, "\\Sent")
-	case "drafts":
-		attrs = append(attrs, "\\Drafts")
-	case "trash":
-		attrs = append(attrs, "\\Trash")
-	case "archive":
-		attrs = append(attrs, "\\Archive")
-	}
-	return strings.Join(attrs, " ")
+    attrs := []string{"\\HasNoChildren"}
+    switch strings.ToLower(name) {
+    case "sent":
+        attrs = append(attrs, "\\Sent")
+    case "drafts":
+        attrs = append(attrs, "\\Drafts")
+    case "trash":
+        attrs = append(attrs, "\\Trash")
+    case "archive":
+        attrs = append(attrs, "\\Archive")
+    case "spam", "junk":
+        attrs = append(attrs, "\\Junk")
+    case "all":
+        attrs = append(attrs, "\\All")
+    case "important":
+        attrs = append(attrs, "\\Important")
+    }
+    return strings.Join(attrs, " ")
 }
 
 func parseLiteralMarker(marker string) (int, bool) {

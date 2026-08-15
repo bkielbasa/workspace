@@ -5,6 +5,8 @@ import (
     "crypto/rsa"
     "crypto/sha256"
     "encoding/base64"
+    "crypto/x509"
+    "encoding/pem"
     "fmt"
     "strings"
 )
@@ -101,4 +103,23 @@ func canonicalizeHeaderValue(v string) string {
     // collapse whitespace
     parts := strings.Fields(v)
     return strings.Join(parts, " ")
+}
+
+func LoadDKIMPrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
+    block, _ := pem.Decode(pemBytes)
+    if block == nil {
+        return nil, fmt.Errorf("invalid PEM")
+    }
+    if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+        return key, nil
+    }
+    k, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+    if err != nil {
+        return nil, err
+    }
+    rsaKey, ok := k.(*rsa.PrivateKey)
+    if !ok {
+        return nil, fmt.Errorf("not RSA key")
+    }
+    return rsaKey, nil
 }

@@ -1,0 +1,61 @@
+image:
+  repository: bartlomiejklimczak/workspace
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# DATABASE_URL is injected via secret (see databaseUrlSecret).
+# Set databaseUrlSecret.name to a k8s Secret with key DATABASE_URL.
+databaseUrlSecret:
+  name: workspace-db
+  key: DATABASE_URL
+
+# TLS certificate secret (cert-manager issues this via the ingress).
+# The app uses these for direct TLS on mail ports (SMTPS/IMAPS).
+tls:
+  secretName: workspace-tls
+  # Set to false to disable TLS on mail ports (plain SMTP/IMAP only).
+  enabled: true
+
+# DKIM signing. Create a k8s Secret with key `dkim_private.key` and set secretName.
+dkim:
+  enabled: false
+  secretName: workspace-dkim
+  domain: ""
+  selector: "default"
+
+# HTTP ingress (nginx, for web API / CardDAV / CalDAV / autoconfig)
+ingress:
+  enabled: true
+  className: nginx
+  host: mail.example.com
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod-dns
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+# LoadBalancer Service for raw TCP mail ports.
+# On this cluster MetalLB assigns 192.168.1.30.
+mailService:
+  enabled: true
+  type: LoadBalancer
+  annotations: {}
+  # Ports exposed: 25 (SMTP), 465 (SMTPS), 143 (IMAP), 993 (IMAPS)
+  # Maps standard external ports → non-privileged container ports.
+  ports:
+    smtp:
+      port: 25
+      targetPort: 2525
+    smtps:
+      port: 465
+      targetPort: 2465
+    imap:
+      port: 143
+      targetPort: 1143
+    imaps:
+      port: 993
+      targetPort: 1993
+
+resources: {}
+
+# Migrations init container runs `migrate up` before the app starts.
+migrate:
+  image: migrate/migrate:latest

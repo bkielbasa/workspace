@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+    "strings"
 
 	"github.com/google/uuid"
 )
@@ -16,6 +17,9 @@ var defaultMailboxes = []string{
 	"Drafts",
 	"Trash",
 	"Archive",
+	"Spam",
+	"All",
+	"Important",
 }
 
 type Mailbox struct {
@@ -152,4 +156,48 @@ func (m *Mailboxes) GetByName(ctx context.Context, userID uuid.UUID, name string
 	}
 
 	return mailbox, nil
+}
+
+func (m *Mailboxes) Create(ctx context.Context, userID uuid.UUID, name string) (*Mailbox, error) {
+    mb := &Mailbox{}
+    err := m.db.QueryRowContext(
+        ctx,
+        `
+        INSERT INTO mailboxes (user_id, name)
+        VALUES ($1, $2)
+        RETURNING id, user_id, name, uid_validity, created_at
+        `,
+        userID,
+        name,
+    ).Scan(
+        &mb.ID,
+        &mb.UserID,
+        &mb.Name,
+        &mb.UIDValidity,
+        &mb.CreatedAt,
+    )
+    if err != nil {
+        return nil, fmt.Errorf("create mailbox: %w", err)
+    }
+    return mb, nil
+}
+
+func (m *Mailboxes) EnsureDefaults(ctx context.Context, userID uuid.UUID) error {
+    existing, err := m.List(ctx, userID)
+    if err != nil {
+        return err
+    }
+    have := make(map[string]struct{}, len(existing))
+    for _, mb := range existing {
+        have[strings.ToLower(mb.Name)] = struct{}{}
+    }
+    for _, name := range defaultMailboxes {
+        if _, ok := have[strings.ToLower(name)]; ok {
+            continue
+        }
+        if _, err := m.Create(ctx, userID, name); err != nil {
+            return err
+        }
+    }
+    return nil
 }

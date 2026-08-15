@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "workspace.fullname" . }}-migrations
+  labels:
+    {{- include "workspace.labels" . | nindent 4 }}
+data:
+  001_users.up.sql: |
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+    CREATE TABLE users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX users_email_idx ON users(email);
+
+  002_mailboxes.up.sql: |
+    CREATE TABLE mailboxes (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id, name)
+    );
+
+    CREATE INDEX mailboxes_user_id_idx ON mailboxes(user_id);
+
+  003_messages.up.sql: |
+    CREATE TABLE messages (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        mailbox_id UUID NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
+        message_id TEXT,
+        sender TEXT NOT NULL,
+        recipients TEXT[] NOT NULL DEFAULT '{}',
+        subject TEXT,
+        in_reply_to TEXT,
+        references_header TEXT,
+        raw_message TEXT NOT NULL,
+        mime_type TEXT,
+        charset TEXT,
+        size_bytes BIGINT NOT NULL DEFAULT 0,
+        seen BOOLEAN NOT NULL DEFAULT FALSE,
+        flagged BOOLEAN NOT NULL DEFAULT FALSE,
+        answered BOOLEAN NOT NULL DEFAULT FALSE,
+        deleted BOOLEAN NOT NULL DEFAULT FALSE,
+        draft BOOLEAN NOT NULL DEFAULT FALSE,
+        received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        sent_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX messages_mailbox_id_idx ON messages(mailbox_id);
+    CREATE INDEX messages_message_id_idx ON messages(message_id);
+    CREATE INDEX messages_received_at_idx ON messages(received_at DESC);
+    CREATE INDEX messages_sender_idx ON messages(sender);
+
+  004_outbox.up.sql: |
+    CREATE TABLE IF NOT EXISTS outbox (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        recipient TEXT NOT NULL,
+        data TEXT NOT NULL,
+        attempts INT NOT NULL DEFAULT 0,
+        next_attempt_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_outbox_next_attempt ON outbox (next_attempt_at);
+
+  005_uids.up.sql: |
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS uid BIGSERIAL;
+    CREATE INDEX IF NOT EXISTS idx_messages_mailbox_uid ON messages (mailbox_id, uid);
+
+  006_contacts.up.sql: |
+    CREATE TABLE IF NOT EXISTS contacts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL,
+        email TEXT NOT NULL,
+        name TEXT,
+        etag TEXT NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_user_email ON contacts(user_id, email);
+
+  007_events.up.sql: |
+    CREATE TABLE IF NOT EXISTS events (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL,
+        title TEXT,
+        starts_at TIMESTAMP NOT NULL,
+        ends_at TIMESTAMP NOT NULL,
+        etag TEXT NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_id);
+
+  008_threads.up.sql: |
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS thread_id UUID;
+    CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id);
+
+  009_labels.up.sql: |
+    CREATE TABLE IF NOT EXISTS labels (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL,
+        name TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS message_labels (
+        message_id UUID NOT NULL,
+        label_id UUID NOT NULL,
+        PRIMARY KEY (message_id, label_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_labels_user ON labels(user_id);
+
+  010_mailbox_uid_validity.up.sql: |
+    ALTER TABLE mailboxes ADD COLUMN IF NOT EXISTS uid_validity BIGINT NOT NULL DEFAULT 1;
+
+  010_mailbox_uid_validity.down.sql: |
+    ALTER TABLE mailboxes DROP COLUMN IF EXISTS uid_validity;

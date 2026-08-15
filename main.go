@@ -6,6 +6,8 @@ import (
     "log"
     "net/http"
     "crypto/tls"
+    "os"
+    "fmt"
     
     "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -108,7 +110,7 @@ func main() {
     worker := &Worker{
         outbox:   delivery.outbox,
         delivery: delivery,
-        dkim:     nil, // wire real key via config later
+        dkim:     initDKIM(),
     }
     log.Printf("starting worker...")
     worker.Start()
@@ -139,6 +141,43 @@ func main() {
     })
     mux.HandleFunc("/.well-known/caldav", func(w http.ResponseWriter, r *http.Request) {
         http.Redirect(w, r, "/cal/", http.StatusMovedPermanently)
+    })
+
+    // Autoconfig for email + CardDAV + CalDAV
+    mux.HandleFunc("/.well-known/autoconfig/mail/config-v1.1.xml", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+        host := r.Host
+        fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<clientConfig version="1.1">
+  <emailProvider id="local">
+    <domain>%s</domain>
+
+    <incomingServer type="imap">
+      <hostname>%s</hostname>
+      <port>1143</port>
+      <socketType>STARTTLS</socketType>
+      <authentication>password-cleartext</authentication>
+      <username>%%EMAILADDRESS%%</username>
+    </incomingServer>
+
+    <outgoingServer type="smtp">
+      <hostname>%s</hostname>
+      <port>2525</port>
+      <socketType>STARTTLS</socketType>
+      <authentication>password-cleartext</authentication>
+      <username>%%EMAILADDRESS%%</username>
+    </outgoingServer>
+
+    <addressBook type="carddav">
+      <url>https://%s/dav/</url>
+    </addressBook>
+
+    <calendar type="caldav">
+      <url>https://%s/cal/</url>
+    </calendar>
+
+  </emailProvider>
+</clientConfig>`, host, host, host, host, host)
     })
 
 	mux.HandleFunc("POST /users", users.CreateHandler)
@@ -178,4 +217,34 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func initDKIM() *DKIM {
+    domain := getEnv("DKIM_DOMAIN", "")
+    selector := getEnv("DKIM_SELECTOR", "default")
+    keyPath := getEnv("DKIM_PRIVATE_KEY_FILE", "")
+
+    if domain == "" || keyPath == "" {
+        return nil
+    }
+
+    data, err := os.ReadFile(keyPath)
+    if err != nil {
+        log.Printf("dkim disabled: %v", err)
+        return nil
+    }
+
+    key, err := LoadDKIMPrivateKey(data)
+    if err != nil {
+        log.Printf("dkim disabled: %v", err)
+        return nil
+    }
+
+    log.Printf("dkim enabled for domain %s (selector=%s)", domain, selector)
+
+    return &DKIM{
+        Domain:   domain,
+        Selector: selector,
+        Private:  key,
+    }
 }
