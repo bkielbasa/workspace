@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -76,32 +77,36 @@ type argonParams struct {
 }
 
 func decodePasswordHash(encoded string) (*argonParams, []byte, []byte, error) {
+	// format: $argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 6 {
+		return nil, nil, nil, errors.New("invalid argon2id hash format")
+	}
+
+	if parts[1] != "argon2id" {
+		return nil, nil, nil, errors.New("unsupported hash algorithm")
+	}
+
 	var version int
+	_, err := fmt.Sscanf(parts[2], "v=%d", &version)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("parse version: %w", err)
+	}
 
 	var memory uint32
 	var time uint32
 	var threads uint8
-
-	var saltEncoded string
-	var hashEncoded string
-
-	_, err := fmt.Sscanf(
-		encoded,
-		"$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
-		&version,
-		&memory,
-		&time,
-		&threads,
-		&saltEncoded,
-		&hashEncoded,
-	)
+	_, err = fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &time, &threads)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("parse hash: %w", err)
+		return nil, nil, nil, fmt.Errorf("parse params: %w", err)
 	}
 
 	if version != 19 {
 		return nil, nil, nil, errors.New("unsupported argon2 version")
 	}
+
+	saltEncoded := parts[4]
+	hashEncoded := parts[5]
 
 	salt, err := base64.RawStdEncoding.DecodeString(saltEncoded)
 	if err != nil {
