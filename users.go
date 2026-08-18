@@ -322,8 +322,15 @@ func (u *Users) Authenticate(ctx context.Context, email, password string) (*User
         return nil, errors.New("user disabled")
     }
 
-    if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-        return nil, errors.New("invalid password")
+    // support both argon2id (set via ChangePassword) and bcrypt (set via Create)
+    if strings.HasPrefix(user.PasswordHash, "$argon2id$") {
+        if !CheckPassword(user.PasswordHash, password) {
+            return nil, errors.New("invalid password")
+        }
+    } else {
+        if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+            return nil, errors.New("invalid password")
+        }
     }
 
     return user, nil
