@@ -42,6 +42,10 @@ func (u *Users) CreateHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusConflict, err.Error())
 			return
 		}
+		if errors.Is(err, ErrDomainNotAllowed) {
+			writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
 
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return

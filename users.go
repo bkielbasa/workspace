@@ -15,6 +15,7 @@ import (
 var (
 	ErrUserNotFound      = errors.New("user not found")
 	ErrUserAlreadyExists = errors.New("user already exists")
+	ErrDomainNotAllowed  = errors.New("domain not allowed")
 )
 
 type User struct {
@@ -30,10 +31,26 @@ type User struct {
 type Users struct {
 	db        *sql.DB
 	mailboxes *Mailboxes
+	domains   *Domains
 }
 
 func (u *Users) Create(ctx context.Context, email, password, displayName string) (*User, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
+
+	// validate the email's domain is registered
+	parts := strings.SplitN(email, "@", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return nil, fmt.Errorf("invalid email address")
+	}
+	if u.domains != nil {
+		ok, err := u.domains.Exists(ctx, parts[1])
+		if err != nil {
+			return nil, fmt.Errorf("domain check: %w", err)
+		}
+		if !ok {
+			return nil, ErrDomainNotAllowed
+		}
+	}
 
     passwordHashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
     if err != nil {

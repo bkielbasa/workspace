@@ -18,6 +18,7 @@ type Delivery struct {
 	mail      *Mail
 	outbox    *Outbox
 	threads   *Threads
+	aliases   *Aliases
 }
 
 func (d *Delivery) Deliver(
@@ -34,6 +35,17 @@ func (d *Delivery) Deliver(
 		"raw_recipient", rawRecipient,
 		"normalized_recipient", recipient,
 	)
+
+	// resolve aliases before user lookup
+	if d.aliases != nil {
+		if dest, err := d.aliases.Resolve(ctx, recipient); err == nil && dest != "" {
+			logWithTrace(ctx, slog.LevelInfo, "alias resolved",
+				"address", recipient,
+				"destination", dest,
+			)
+			recipient = dest
+		}
+	}
 
 	user, err := d.users.GetByEmail(ctx, recipient)
 	if err != nil {

@@ -27,7 +27,7 @@ dkim:
 ingress:
   enabled: true
   className: nginx
-  host: mail.example.com
+  host: mail.cloudlift.pl
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod-dns
     nginx.ingress.kubernetes.io/ssl-redirect: "true"

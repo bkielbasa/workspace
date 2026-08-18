@@ -45,9 +45,17 @@ func main() {
         db: db,
     }
 
+    domains := &Domains{db: db}
+
+    aliases := &Aliases{
+        db:      db,
+        domains: domains,
+    }
+
 	users := &Users{
 		db:        db,
 		mailboxes: mailboxes,
+		domains:   domains,
 	}
 
     mail := &Mail{
@@ -73,6 +81,7 @@ func main() {
         mail:      mail,
         outbox:    &Outbox{db: db},
         threads:   &Threads{db: db},
+        aliases:   aliases,
     }
 
 
@@ -180,7 +189,24 @@ func main() {
 </clientConfig>`, host, host, host, host, host)
     })
 
-	mux.HandleFunc("POST /users", users.CreateHandler)
+	// domains
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// domains
+	mux.HandleFunc("POST /domains", domains.CreateHandler)
+	mux.HandleFunc("GET /domains", domains.ListHandler)
+	mux.HandleFunc("GET /domains/{id}", domains.GetHandler)
+	mux.HandleFunc("DELETE /domains/{id}", domains.DeleteHandler)
+
+	// aliases (scoped under domains)
+	mux.HandleFunc("POST /domains/{domainID}/aliases", aliases.CreateHandler)
+	mux.HandleFunc("GET /domains/{domainID}/aliases", aliases.ListHandler)
+	mux.HandleFunc("DELETE /domains/{domainID}/aliases/{id}", aliases.DeleteHandler)
+
+	// users (scoped under domains for creation)
+	mux.HandleFunc("POST /domains/{domainID}/users", domains.CreateUserHandler(users))
 	mux.HandleFunc("GET /users", users.ListHandler)
 	mux.HandleFunc("GET /users/{id}", users.GetHandler)
 	mux.HandleFunc("PATCH /users/{id}", users.UpdateHandler)
