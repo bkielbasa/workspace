@@ -23,7 +23,7 @@ func prepareMessage(raw, from, to string) string {
     }
 
     if h["message-id"] == "" {
-        headers = fmt.Sprintf("Message-ID: <%d@mail.local>\r\n%s", time.Now().UnixNano(), headers)
+        headers = fmt.Sprintf("Message-ID: <%d@%s>\r\n%s", time.Now().UnixNano(), mailHostname, headers)
     }
 
     if h["from"] == "" {

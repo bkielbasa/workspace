@@ -108,6 +108,17 @@ func main() {
 		}
 	}()
 
+	// Submission port. Mail clients default to 587 with STARTTLS when they are
+	// configured by hand, so this listener is what most setup wizards probe;
+	// 465 alone is not enough.
+	log.Printf("starting SMTP submission on :2587")
+	submission := NewSMTPServer(":2587", delivery, users, tlsCfg)
+	go func() {
+		if err := submission.ListenAndServe(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
 	if tlsCfg != nil {
 		log.Printf("starting SMTPS on :2465")
 		smtps := NewSMTPTLSServer(":2465", delivery, users, tlsCfg)

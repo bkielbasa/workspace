@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	stdmail "net/mail"
 	"strings"
@@ -71,9 +72,19 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 		rw.Flush()
 	}
 
-	write("220 mail.local ESMTP ready")
+	write("220 " + mailHostname + " ESMTP ready")
 
-	tlsEnabled := false
+	// On the implicit-TLS listener the connection is already encrypted, so the
+	// session must start in the TLS state: otherwise STARTTLS is advertised
+	// inside TLS and a client taking us up on it would negotiate a nested
+	// handshake.
+	tlsEnabled := s.wrapped
+
+	logWithTrace(ctx, slog.LevelInfo, "smtp connection",
+		"remote", conn.RemoteAddr().String(),
+		"local", conn.LocalAddr().String(),
+		"implicit_tls", s.wrapped,
+	)
 
 	var from string
 	var to []string
@@ -86,9 +97,19 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 		}
 		line = strings.TrimSpace(line)
 
+		// Log the command verb only; AUTH lines and message data carry
+		// credentials and message content.
+		if verb := strings.ToUpper(strings.Fields(line + " ")[0]); verb != "" {
+			logWithTrace(ctx, slog.LevelInfo, "smtp cmd",
+				"verb", verb,
+				"remote", conn.RemoteAddr().String(),
+				"tls", tlsEnabled,
+			)
+		}
+
 		switch {
 		case strings.HasPrefix(strings.ToUpper(line), "EHLO"):
-			write("250-mail.local")
+			write("250-" + mailHostname)
 			write("250-PIPELINING")
 			write("250-8BITMIME")
 			write("250-AUTH LOGIN PLAIN")
@@ -148,6 +169,12 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 
 			user, err := s.users.Authenticate(contextBackground(), email, pass)
 			incSMTPAuth(contextBackground(), err == nil)
+			logWithTrace(ctx, slog.LevelInfo, "smtp auth attempt (PLAIN)",
+				"user", email,
+				"remote", conn.RemoteAddr().String(),
+				"tls", tlsEnabled,
+				"ok", err == nil,
+			)
 			if err != nil {
 				write("535 auth failed")
 				continue
@@ -167,6 +194,12 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 
 			user, err := s.users.Authenticate(contextBackground(), username, password)
 			incSMTPAuth(contextBackground(), err == nil)
+			logWithTrace(ctx, slog.LevelInfo, "smtp auth attempt (LOGIN)",
+				"user", username,
+				"remote", conn.RemoteAddr().String(),
+				"tls", tlsEnabled,
+				"ok", err == nil,
+			)
 			if err != nil {
 				write("535 auth failed")
 				continue

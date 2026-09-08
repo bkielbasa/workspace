@@ -80,6 +80,12 @@ func (s *IMAPServer) handle(conn net.Conn) {
 	ctx, sessionSpan := tracer.Start(context.Background(), "imap.session")
 	defer sessionSpan.End()
 
+	logWithTrace(ctx, slog.LevelInfo, "imap connection",
+		"remote", conn.RemoteAddr().String(),
+		"local", conn.LocalAddr().String(),
+		"implicit_tls", s.tlsConfig != nil,
+	)
+
 	for {
 		line, err := rw.ReadString('\n')
 		if err != nil {

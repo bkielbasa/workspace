@@ -41,6 +41,8 @@ spec:
               containerPort: 8080
             - name: smtp
               containerPort: 2525
+            - name: submission
+              containerPort: 2587
             - name: smtps
               containerPort: 2465
             - name: imap

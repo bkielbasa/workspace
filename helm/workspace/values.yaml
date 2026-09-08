@@ -42,12 +42,17 @@ mailService:
   enabled: true
   type: LoadBalancer
   annotations: {}
-  # Ports exposed: 25 (SMTP), 465 (SMTPS), 143 (IMAP), 993 (IMAPS)
+  # Ports exposed: 25 (SMTP), 587 (submission), 465 (SMTPS), 143 (IMAP),
+  # 993 (IMAPS). 587/STARTTLS is what mail clients default to when an account
+  # is configured by hand.
   # Maps standard external ports → non-privileged container ports.
   ports:
     smtp:
       port: 25
       targetPort: 2525
+    submission:
+      port: 587
+      targetPort: 2587
     smtps:
       port: 465
       targetPort: 2465

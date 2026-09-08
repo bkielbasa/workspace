@@ -145,7 +145,7 @@ func deliverSMTP(host, recipient string, message *Message) error {
 		return err
 	}
 	defer client.Close()
-	if err := client.Hello("mail.local"); err != nil {
+	if err := client.Hello(mailHostname); err != nil {
 		return err
 	}
 	if ok, _ := client.Extension("STARTTLS"); ok {
