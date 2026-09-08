@@ -153,10 +153,10 @@ func (m *Mail) Get(ctx context.Context, id uuid.UUID) (*Message, error) {
 			mailbox_id,
 			uid,
 
-			message_id,
+message_id,
 
 			sender,
-			recipients,
+			array_to_string(recipients, ',') AS recipients,
 
 			subject,
 
@@ -166,6 +166,7 @@ func (m *Mail) Get(ctx context.Context, id uuid.UUID) (*Message, error) {
 			raw_message,
 
 			mime_type,
+
 			charset,
 
 			size_bytes,
@@ -228,19 +229,25 @@ func (m *Mail) Get(ctx context.Context, id uuid.UUID) (*Message, error) {
 		return nil, fmt.Errorf("get message: %w", err)
 	}
 
-	// convert recipients string -> []string
-	if recipientsRaw != "" {
-		parts := strings.Split(recipientsRaw, ",")
-		message.Recipients = make([]string, 0, len(parts))
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				message.Recipients = append(message.Recipients, p)
-			}
-		}
-	}
+	message.Recipients = parseRecipients(recipientsRaw)
 
 	return message, nil
+}
+
+// parseRecipients converts a comma-joined recipients string into a slice.
+func parseRecipients(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	recipients := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			recipients = append(recipients, p)
+		}
+	}
+	return recipients
 }
 
 func (m *Mail) List(ctx context.Context, mailboxID uuid.UUID, limit, offset int) ([]Message, error) {
@@ -260,7 +267,7 @@ func (m *Mail) List(ctx context.Context, mailboxID uuid.UUID, limit, offset int)
 			message_id,
 
 			sender,
-			recipients,
+			array_to_string(recipients, ',') AS recipients,
 
 			subject,
 
@@ -336,10 +343,7 @@ func (m *Mail) List(ctx context.Context, mailboxID uuid.UUID, limit, offset int)
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
 
-		// convert recipients string -> []string
-		if recipientsRaw != "" {
-			message.Recipients = strings.Split(recipientsRaw, ",")
-		}
+		message.Recipients = parseRecipients(recipientsRaw)
 
 		logWithTrace(ctx, slog.LevelDebug, "mail.List row",
 			"id", message.ID.String(),

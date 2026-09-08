@@ -411,7 +411,7 @@ func (s *IMAPServer) handle(conn net.Conn) {
 				flags := flagsFor(full)
 				raw := full.RawMessage
 
-				date := full.ReceivedAt.Format(time.RFC1123Z)
+				date := full.ReceivedAt.Format("2-Jan-2006 15:04:05 -0700")
 				size := len(raw)
 
 				envelope := formatEnvelope(full, date)
@@ -521,7 +521,7 @@ func (s *IMAPServer) handle(conn net.Conn) {
 					raw := full.RawMessage
 
 					seq := idx + 1
-					date := full.ReceivedAt.Format(time.RFC1123Z)
+					date := full.ReceivedAt.Format("2-Jan-2006 15:04:05 -0700")
 					size := len(raw)
 
 					envelope := formatEnvelope(full, date)
