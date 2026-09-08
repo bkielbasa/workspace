@@ -55,6 +55,92 @@ func (s *SMTPServer) ListenAndServe() error {
 	}
 }
 
+// readAuthCredentials runs the RFC 4954 AUTH exchange for the PLAIN and LOGIN
+// mechanisms and returns the credentials the client supplied.
+//
+// Both mechanisms may carry an initial response on the AUTH command itself,
+// and both must equally work when the client waits to be challenged. Outlook
+// sends the username inline as "AUTH LOGIN <base64>": a server that ignores
+// the initial response and challenges for a username anyway receives the
+// client's password in reply, so authentication can never succeed.
+//
+// Any protocol-level failure is reported to the client here and reported as
+// ok=false; the caller only has to abandon the command.
+func readAuthCredentials(mechanism, initial string, r *bufio.Reader, write func(string)) (username, password string, ok bool) {
+	// read returns the next client line, resolving the "*" cancellation.
+	read := func() (string, bool) {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return "", false
+		}
+		line = strings.TrimSpace(line)
+		if line == "*" {
+			write("501 authentication canceled")
+			return "", false
+		}
+		return line, true
+	}
+
+	// challenge prompts with a base64 string and decodes the reply.
+	challenge := func(prompt string) (string, bool) {
+		write("334 " + prompt)
+		line, ok := read()
+		if !ok {
+			return "", false
+		}
+		decoded, err := base64Decode(line)
+		if err != nil {
+			write("501 invalid base64")
+			return "", false
+		}
+		return decoded, true
+	}
+
+	switch mechanism {
+	case "PLAIN":
+		encoded := initial
+		if encoded == "" {
+			// An empty challenge asks for the whole payload.
+			write("334 ")
+			if encoded, ok = read(); !ok {
+				return "", "", false
+			}
+		}
+		decoded, err := base64Decode(encoded)
+		if err != nil {
+			write("501 invalid base64")
+			return "", "", false
+		}
+		// base64(authzid \0 authcid \0 password)
+		segments := strings.Split(decoded, "\x00")
+		if len(segments) < 3 {
+			write("501 invalid auth format")
+			return "", "", false
+		}
+		return segments[1], segments[2], true
+
+	case "LOGIN":
+		if initial != "" {
+			decoded, err := base64Decode(initial)
+			if err != nil {
+				write("501 invalid base64")
+				return "", "", false
+			}
+			username = decoded
+		} else if username, ok = challenge("VXNlcm5hbWU6"); !ok { // "Username:"
+			return "", "", false
+		}
+		if password, ok = challenge("UGFzc3dvcmQ6"); !ok { // "Password:"
+			return "", "", false
+		}
+		return username, password, true
+
+	default:
+		write("504 unrecognized authentication type")
+		return "", "", false
+	}
+}
+
 func (s *SMTPServer) handleConn(conn net.Conn) {
 	defer conn.Close()
 
@@ -112,7 +198,11 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 			write("250-" + mailHostname)
 			write("250-PIPELINING")
 			write("250-8BITMIME")
-			write("250-AUTH LOGIN PLAIN")
+			// Only offer AUTH once the channel is encrypted, so clients never
+			// consider sending credentials in the clear.
+			if tlsEnabled || s.tlsConfig == nil {
+				write("250-AUTH LOGIN PLAIN")
+			}
 			if !tlsEnabled && s.tlsConfig != nil {
 				write("250-STARTTLS")
 			}
@@ -147,54 +237,33 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 			from = ""
 			to = nil
 
-		case strings.HasPrefix(strings.ToUpper(line), "AUTH PLAIN"):
-			// AUTH PLAIN base64(\0user\0pass)
-			parts := strings.Split(line, " ")
-			if len(parts) < 3 {
-				write("501 invalid auth")
+		case strings.HasPrefix(strings.ToUpper(line), "AUTH "):
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				write("501 syntax: AUTH mechanism [initial-response]")
 				continue
 			}
-			decoded, err := base64Decode(parts[2])
-			if err != nil {
-				write("501 invalid base64")
+			// Credentials must not travel in the clear. When no certificate is
+			// configured at all (local development) there is no TLS to require.
+			if !tlsEnabled && s.tlsConfig != nil {
+				write("538 encryption required for requested authentication mechanism")
 				continue
 			}
-			seg := strings.Split(decoded, "\x00")
-			if len(seg) < 3 {
-				write("501 invalid auth format")
+			mechanism := strings.ToUpper(fields[1])
+			initial := ""
+			if len(fields) > 2 {
+				initial = fields[2]
+			}
+
+			username, password, ok := readAuthCredentials(mechanism, initial, rw.Reader, write)
+			if !ok {
 				continue
 			}
-			email := seg[1]
-			pass := seg[2]
-
-			user, err := s.users.Authenticate(contextBackground(), email, pass)
-			incSMTPAuth(contextBackground(), err == nil)
-			logWithTrace(ctx, slog.LevelInfo, "smtp auth attempt (PLAIN)",
-				"user", email,
-				"remote", conn.RemoteAddr().String(),
-				"tls", tlsEnabled,
-				"ok", err == nil,
-			)
-			if err != nil {
-				write("535 auth failed")
-				continue
-			}
-			authedUser = user
-			write("235 authenticated")
-
-		case strings.HasPrefix(strings.ToUpper(line), "AUTH LOGIN"):
-			write("334 VXNlcm5hbWU6") // "Username:" base64
-
-			uline, _ := rw.ReadString('\n')
-			username, _ := base64Decode(strings.TrimSpace(uline))
-
-			write("334 UGFzc3dvcmQ6") // "Password:"
-			pline, _ := rw.ReadString('\n')
-			password, _ := base64Decode(strings.TrimSpace(pline))
 
 			user, err := s.users.Authenticate(contextBackground(), username, password)
 			incSMTPAuth(contextBackground(), err == nil)
-			logWithTrace(ctx, slog.LevelInfo, "smtp auth attempt (LOGIN)",
+			logWithTrace(ctx, slog.LevelInfo, "smtp auth attempt",
+				"mechanism", mechanism,
 				"user", username,
 				"remote", conn.RemoteAddr().String(),
 				"tls", tlsEnabled,

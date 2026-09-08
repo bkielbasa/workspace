@@ -24,7 +24,12 @@ spec:
     - host: {{ . }}
       http:
         paths:
-          {{- range (list "/autodiscover/" "/.well-known/") }}
+          {{- /*
+            Discovery paths served on the autodiscover/autoconfig hosts.
+            Thunderbird requests /mail/config-v1.1.xml on the autoconfig host,
+            which is not under /.well-known/, so it needs its own rule.
+          */}}
+          {{- range (list "/autodiscover/" "/.well-known/" "/mail/config-v1.1.xml") }}
           - path: {{ . }}
             pathType: Prefix
             backend:

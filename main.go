@@ -4,13 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
-	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
-	"strings"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -157,16 +153,6 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Canonical mail host advertised in discovery responses. In production this
-	// is set explicitly via MAIL_HOST; the Host header is only a local-dev
-	// fallback and is never parsed or rewritten.
-	mailHost := func(r *http.Request) string {
-		if cfg.mailHost != "" {
-			return cfg.mailHost
-		}
-		return r.Host
-	}
-
 	// Apple client discovery (required for auto-config of CardDAV/CalDAV)
 	mux.HandleFunc("/.well-known/carddav", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/dav/", http.StatusMovedPermanently)
@@ -175,119 +161,8 @@ func main() {
 		http.Redirect(w, r, "/cal/", http.StatusMovedPermanently)
 	})
 
-	// Autoconfig for email + CardDAV + CalDAV
-	mux.HandleFunc("/.well-known/autoconfig/mail/config-v1.1.xml", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-		host := mailHost(r)
-		fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
-<clientConfig version="1.1">
-  <emailProvider id="local">
-    <domain>%s</domain>
-
-    <incomingServer type="imap">
-      <hostname>%s</hostname>
-      <port>993</port>
-      <socketType>SSL</socketType>
-      <authentication>password-cleartext</authentication>
-      <username>%%EMAILADDRESS%%</username>
-    </incomingServer>
-
-    <outgoingServer type="smtp">
-      <hostname>%s</hostname>
-      <port>465</port>
-      <socketType>SSL</socketType>
-      <authentication>password-cleartext</authentication>
-      <username>%%EMAILADDRESS%%</username>
-    </outgoingServer>
-
-    <addressBook type="carddav">
-      <url>https://%s/dav/</url>
-    </addressBook>
-
-    <calendar type="caldav">
-      <url>https://%s/cal/</url>
-    </calendar>
-
-  </emailProvider>
-</clientConfig>`, host, host, host, host, host)
-	})
-
-	// Microsoft Outlook / iOS autodiscover. The client POSTs (or GETs)
-	// Outlook Mobile / Exchange clients first probe the JSON protocol at
-	// /autodiscover/autodiscover.json/v1.0/<email>. We do not implement the
-	// full JSON schema; a 302 to the classic XML endpoint is the standard,
-	// supported fallback and keeps the response settings in one format.
-	mux.HandleFunc("/autodiscover/autodiscover.json/", func(w http.ResponseWriter, r *http.Request) {
-		query := ""
-		if email := strings.Trim(strings.TrimPrefix(r.URL.Path, "/autodiscover/autodiscover.json/v1.0/"), "/"); email != "" {
-			query = "?Email=" + url.QueryEscape(email)
-		} else if r.URL.RawQuery != "" {
-			query = "?" + r.URL.RawQuery
-		}
-		scheme := "https"
-		if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
-			scheme = p
-		}
-		host := r.Host
-		if host == "" {
-			host = cfg.mailHost
-		}
-		http.Redirect(w, r, scheme+"://"+host+"/autodiscover/autodiscover.xml"+query, http.StatusFound)
-	})
-
-	// /autodiscover/autodiscover.xml and expects a settings response.
-	mux.HandleFunc("/autodiscover/autodiscover.xml", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-
-		email := r.URL.Query().Get("Email")
-		if email == "" {
-			// Outlook POSTs an XML body containing <EMailAddress>...</EMailAddress>
-			body, _ := io.ReadAll(io.LimitReader(r.Body, 16*1024))
-			if i := strings.Index(string(body), "<EMailAddress>"); i >= 0 {
-				rest := string(body)[i+len("<EMailAddress>"):]
-				if j := strings.Index(rest, "</EMailAddress>"); j >= 0 {
-					email = strings.TrimSpace(rest[:j])
-				}
-			}
-		}
-
-		host := mailHost(r)
-
-		login := email
-		if login == "" {
-			login = "@" + host
-		}
-
-		fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
-<Autodiscover xmlns="http://schemas.microsoft.com/exchange/2010/autodiscover">
-  <Response xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a">
-    <Account>
-      <AccountType>email</AccountType>
-      <Action>settings</Action>
-      <Protocol>
-        <Type>IMAP</Type>
-        <Server>%s</Server>
-        <Port>993</Port>
-        <DomainRequired>off</DomainRequired>
-        <LoginName>%s</LoginName>
-        <SPA>off</SPA>
-        <SSL>on</SSL>
-        <AuthRequired>on</AuthRequired>
-      </Protocol>
-      <Protocol>
-        <Type>SMTP</Type>
-        <Server>%s</Server>
-        <Port>465</Port>
-        <DomainRequired>off</DomainRequired>
-        <LoginName>%s</LoginName>
-        <SPA>off</SPA>
-        <SSL>on</SSL>
-        <AuthRequired>on</AuthRequired>
-      </Protocol>
-    </Account>
-  </Response>
-</Autodiscover>`, host, login, host, login)
-	})
+	// Mail client auto-configuration (Autodiscover + Mozilla autoconfig).
+	(&discovery{mailHost: mailHostname, domains: domains}).register(mux)
 
 	// domains
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

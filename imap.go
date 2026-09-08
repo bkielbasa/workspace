@@ -58,6 +58,72 @@ func (s *IMAPServer) ListenAndServe() error {
 	}
 }
 
+// readIMAPCredentials runs the AUTHENTICATE exchange for the SASL mechanisms
+// named in the server's capability list.
+//
+// Both mechanisms accept an initial response (RFC 4959 SASL-IR) and both must
+// also work when the client waits for a continuation request. LOGIN is
+// advertised, so it has to be implemented: a client that picks an advertised
+// mechanism the server then rejects cannot authenticate at all.
+func readIMAPCredentials(mechanism, initial string, r *bufio.Reader, write func(string)) (username, password string, ok bool) {
+	// Continuation requests are "+" SP [base64], and "*" cancels.
+	challenge := func(prompt string) (string, bool) {
+		write("+ " + prompt)
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return "", false
+		}
+		line = strings.TrimSpace(line)
+		if line == "*" {
+			return "", false
+		}
+		decoded, err := base64Decode(line)
+		if err != nil {
+			return "", false
+		}
+		return decoded, true
+	}
+
+	switch mechanism {
+	case "PLAIN":
+		// base64(authzid \0 authcid \0 password), either inline or in
+		// response to an empty continuation request.
+		decoded := ""
+		if initial != "" {
+			payload, err := base64Decode(initial)
+			if err != nil {
+				return "", "", false
+			}
+			decoded = payload
+		} else if decoded, ok = challenge(""); !ok {
+			return "", "", false
+		}
+		segments := strings.Split(decoded, "\x00")
+		if len(segments) < 3 {
+			return "", "", false
+		}
+		return segments[1], segments[2], true
+
+	case "LOGIN":
+		if initial != "" {
+			decoded, err := base64Decode(initial)
+			if err != nil {
+				return "", "", false
+			}
+			username = decoded
+		} else if username, ok = challenge("VXNlcm5hbWU6"); !ok { // "Username:"
+			return "", "", false
+		}
+		if password, ok = challenge("UGFzc3dvcmQ6"); !ok { // "Password:"
+			return "", "", false
+		}
+		return username, password, true
+
+	default:
+		return "", "", false
+	}
+}
+
 func (s *IMAPServer) handle(conn net.Conn) {
 	defer conn.Close()
 
@@ -69,7 +135,7 @@ func (s *IMAPServer) handle(conn net.Conn) {
 	}
 
 	// Greeting with capabilities (Apple Mail requires this)
-	write("* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN AUTH=LOGIN IDLE NAMESPACE UIDPLUS] ready")
+	write("* OK [CAPABILITY IMAP4rev1 SASL-IR AUTH=PLAIN AUTH=LOGIN IDLE NAMESPACE UIDPLUS] ready")
 
 	var authed *User
 	var selected *Mailbox
@@ -120,7 +186,7 @@ func (s *IMAPServer) handle(conn net.Conn) {
 
 		switch cmd {
 		case "CAPABILITY":
-			caps := "IMAP4rev1 AUTH=PLAIN AUTH=LOGIN IDLE NAMESPACE UIDPLUS"
+			caps := "IMAP4rev1 SASL-IR AUTH=PLAIN AUTH=LOGIN IDLE NAMESPACE UIDPLUS"
 			write("* CAPABILITY " + caps)
 			write(tag + " OK CAPABILITY completed")
 
@@ -202,7 +268,7 @@ func (s *IMAPServer) handle(conn net.Conn) {
 
 			authed = u
 			_ = s.mboxes.EnsureDefaults(ctx, authed.ID)
-			write(tag + " OK [CAPABILITY IMAP4rev1 AUTH=PLAIN LOGIN] LOGIN completed")
+			write(tag + " OK [CAPABILITY IMAP4rev1 SASL-IR AUTH=PLAIN AUTH=LOGIN IDLE NAMESPACE UIDPLUS] LOGIN completed")
 
 		case "AUTHENTICATE":
 			if len(parts) < 3 {
@@ -211,54 +277,30 @@ func (s *IMAPServer) handle(conn net.Conn) {
 			}
 
 			mech := strings.ToUpper(parts[2])
-			if mech != "PLAIN" {
-				write(tag + " NO unsupported auth")
-				continue
-			}
-
-			var payload string
-
-			// support inline AUTHENTICATE PLAIN <base64>
+			initial := ""
 			if len(parts) >= 4 {
-				payload = parts[3]
-			} else {
-				write("+")
-				line, err := rw.ReadString('\n')
-				if err != nil {
-					write(tag + " NO auth failed")
-					continue
-				}
-				payload = strings.TrimSpace(line)
+				initial = parts[3]
 			}
 
-			decoded, err := base64Decode(payload)
-			if err != nil {
+			user, pass, ok := readIMAPCredentials(mech, initial, rw.Reader, write)
+			if !ok {
 				write(tag + " NO auth failed")
 				continue
 			}
 
-			creds := strings.Split(decoded, "\x00")
-			if len(creds) < 3 {
-				write(tag + " NO auth failed")
-				continue
-			}
-
-			user := creds[1]
-			pass := creds[2]
-
-			logWithTrace(ctx, slog.LevelInfo, "imap auth attempt (PLAIN)", "user", user)
+			logWithTrace(ctx, slog.LevelInfo, "imap auth attempt", "mechanism", mech, "user", user)
 
 			u, err := s.users.Authenticate(ctx, user, pass)
 			incIMAPLogin(ctx, err == nil)
 			if err != nil {
-				logWithTrace(ctx, slog.LevelError, "imap auth failed (PLAIN)", "user", user, "error", err)
+				logWithTrace(ctx, slog.LevelError, "imap auth failed", "mechanism", mech, "user", user, "error", err)
 				write(tag + " NO auth failed")
 				continue
 			}
 
 			authed = u
 			_ = s.mboxes.EnsureDefaults(ctx, authed.ID)
-			logWithTrace(ctx, slog.LevelInfo, "imap auth success (PLAIN)", "user", user)
+			logWithTrace(ctx, slog.LevelInfo, "imap auth success", "mechanism", mech, "user", user)
 			write(tag + " OK AUTHENTICATE completed")
 
 		case "SELECT":
