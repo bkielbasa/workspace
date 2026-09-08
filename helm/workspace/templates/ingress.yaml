@@ -24,7 +24,7 @@ spec:
     - host: {{ . }}
       http:
         paths:
-          {{- range (list "/autodiscover/autodiscover.xml" "/.well-known/") }}
+          {{- range (list "/autodiscover/" "/.well-known/") }}
           - path: {{ . }}
             pathType: Prefix
             backend:

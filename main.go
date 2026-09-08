@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -200,6 +201,28 @@ func main() {
 	})
 
 	// Microsoft Outlook / iOS autodiscover. The client POSTs (or GETs)
+	// Outlook Mobile / Exchange clients first probe the JSON protocol at
+	// /autodiscover/autodiscover.json/v1.0/<email>. We do not implement the
+	// full JSON schema; a 302 to the classic XML endpoint is the standard,
+	// supported fallback and keeps the response settings in one format.
+	mux.HandleFunc("/autodiscover/autodiscover.json/", func(w http.ResponseWriter, r *http.Request) {
+		query := ""
+		if email := strings.Trim(strings.TrimPrefix(r.URL.Path, "/autodiscover/autodiscover.json/v1.0/"), "/"); email != "" {
+			query = "?Email=" + url.QueryEscape(email)
+		} else if r.URL.RawQuery != "" {
+			query = "?" + r.URL.RawQuery
+		}
+		scheme := "https"
+		if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
+			scheme = p
+		}
+		host := r.Host
+		if host == "" {
+			host = cfg.mailHost
+		}
+		http.Redirect(w, r, scheme+"://"+host+"/autodiscover/autodiscover.xml"+query, http.StatusFound)
+	})
+
 	// /autodiscover/autodiscover.xml and expects a settings response.
 	mux.HandleFunc("/autodiscover/autodiscover.xml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
