@@ -217,6 +217,10 @@ func main() {
 		if host == "mail.local" {
 			host = "mail.cloudlift.run"
 		}
+		// Requests via autodiscover./autoconfig. reveal only the bare domain.
+		if !strings.HasPrefix(host, "mail.") {
+			host = "mail." + host
+		}
 
 		login := email
 		if login == "" {
