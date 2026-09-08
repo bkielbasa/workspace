@@ -128,3 +128,26 @@ data:
 
   010_mailbox_uid_validity.down.sql: |
     ALTER TABLE mailboxes DROP COLUMN IF EXISTS uid_validity;
+
+  011_domains.up.sql: |
+    CREATE TABLE IF NOT EXISTS domains (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS domains_name_idx ON domains (name);
+
+  012_aliases.up.sql: |
+    CREATE TABLE IF NOT EXISTS aliases (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        domain_id UUID NOT NULL REFERENCES domains (id) ON DELETE CASCADE,
+        address TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS aliases_address_idx ON aliases (address);
+    CREATE INDEX IF NOT EXISTS aliases_domain_id_idx ON aliases (domain_id);
