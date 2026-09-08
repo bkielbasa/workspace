@@ -21,6 +21,23 @@ type Delivery struct {
 	aliases   *Aliases
 }
 
+// IsLocal reports whether the recipient resolves to a local mailbox
+// (an existing user, possibly via an alias). Used to gate unauthenticated
+// inbound SMTP so the server never acts as an open relay.
+func (d *Delivery) IsLocal(ctx context.Context, recipient string) error {
+	recipient = strings.TrimSpace(recipient)
+	recipient = strings.Trim(recipient, "<>")
+
+	if d.aliases != nil {
+		if dest, err := d.aliases.Resolve(ctx, recipient); err == nil && dest != "" {
+			recipient = dest
+		}
+	}
+
+	_, err := d.users.GetByEmail(ctx, recipient)
+	return err
+}
+
 func (d *Delivery) Deliver(
 	ctx context.Context,
 	recipient string,

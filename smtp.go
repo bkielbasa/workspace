@@ -175,13 +175,18 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 			write("235 authenticated")
 
 		case strings.HasPrefix(strings.ToUpper(line), "MAIL FROM:"):
-			if authedUser == nil {
-				write("530 authentication required")
-				continue
-			}
-			// enforce sender = authenticated user
 			sender := extractEmail(line)
-			if !strings.EqualFold(sender, authedUser.Email) {
+			// empty sender (<>) is a valid DSN/bounce envelope
+			if sender != "" {
+				if _, err := stdmail.ParseAddress(sender); err != nil {
+					write("501 invalid sender")
+					continue
+				}
+			}
+			// Authenticated users must use their own address as the envelope
+			// sender; unauthenticated (inbound MX) connections are not checked
+			// here — relay control happens at DATA time.
+			if authedUser != nil && !strings.EqualFold(sender, authedUser.Email) {
 				write("550 sender mismatch")
 				continue
 			}
@@ -198,7 +203,7 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 			write("250 OK")
 
 		case strings.ToUpper(line) == "DATA":
-			if authedUser == nil || from == "" || len(to) == 0 {
+			if from == "" || len(to) == 0 {
 				write("503 valid MAIL FROM and RCPT TO required before DATA")
 				continue
 			}
@@ -232,6 +237,25 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 				References: smtpHeader(raw, "References"),
 				SizeBytes:  int64(len(raw)),
 			}
+			if authedUser == nil {
+				// Unauthenticated connection (inbound from the internet via MX):
+				// accept delivery only to existing local mailboxes. Anything else
+				// is rejected so the server is never an open relay.
+				relayDenied := ""
+				for _, rcpt := range to {
+					if e := s.delivery.IsLocal(contextBackground(), rcpt); e != nil {
+						relayDenied = rcpt
+						break
+					}
+				}
+				if relayDenied != "" {
+					write(fmt.Sprintf("550 relay not permitted: %s", relayDenied))
+					from = ""
+					to = nil
+					continue
+				}
+			}
+
 			var err error
 			_, dataSpan := tracer.Start(ctx, "smtp.deliver")
 			for _, rcpt := range to {
@@ -239,19 +263,18 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 					err = e
 				}
 			}
-			if err != nil {
-				dataSpan.RecordError(err)
-			}
 			dataSpan.End()
 			if err != nil {
 				write("550 delivery failed")
-			} else {
+			} else if authedUser != nil {
 				if err := s.saveSent(ctx, authedUser, msg); err != nil {
 					log.Printf("store sent copy: %v", err)
 					write("451 could not save sent copy")
 				} else {
 					write("250 OK")
 				}
+			} else {
+				write("250 OK queued")
 			}
 
 			// reset state
