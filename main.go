@@ -163,16 +163,16 @@ func main() {
 
     <incomingServer type="imap">
       <hostname>%s</hostname>
-      <port>1143</port>
-      <socketType>STARTTLS</socketType>
+      <port>993</port>
+      <socketType>SSL</socketType>
       <authentication>password-cleartext</authentication>
       <username>%%EMAILADDRESS%%</username>
     </incomingServer>
 
     <outgoingServer type="smtp">
       <hostname>%s</hostname>
-      <port>2525</port>
-      <socketType>STARTTLS</socketType>
+      <port>465</port>
+      <socketType>SSL</socketType>
       <authentication>password-cleartext</authentication>
       <username>%%EMAILADDRESS%%</username>
     </outgoingServer>
