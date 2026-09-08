@@ -20,7 +20,7 @@ func main() {
 
 	initLogger()
 
-	shutdown := initTracer(context.Background())
+	shutdown := initTelemetry(context.Background())
 	defer shutdown()
 
 	initMetrics()

@@ -149,6 +149,7 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 			pass := seg[2]
 
 			user, err := s.users.Authenticate(contextBackground(), email, pass)
+			incSMTPAuth(contextBackground(), err == nil)
 			if err != nil {
 				write("535 auth failed")
 				continue
@@ -167,6 +168,7 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 			password, _ := base64Decode(strings.TrimSpace(pline))
 
 			user, err := s.users.Authenticate(contextBackground(), username, password)
+			incSMTPAuth(contextBackground(), err == nil)
 			if err != nil {
 				write("535 auth failed")
 				continue

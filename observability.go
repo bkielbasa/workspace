@@ -1,43 +1,77 @@
 package main
 
 import (
-    "context"
-    "log"
-    "time"
+	"context"
+	"log"
+	"os"
+	"time"
 
-    "go.opentelemetry.io/otel"
-    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-    "go.opentelemetry.io/otel/sdk/resource"
-    sdktrace "go.opentelemetry.io/otel/sdk/trace"
-    semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
-func initTracer(ctx context.Context) func() {
-    exporter, err := otlptracehttp.New(ctx,
-        otlptracehttp.WithEndpoint("lgtm:4318"),
-        otlptracehttp.WithInsecure(),
-    )
-    if err != nil {
-        log.Printf("otel exporter error: %v", err)
-        return func() {}
-    }
+// otlpEndpoint returns the OTLP receiver used by the cluster's observability
+// stack (Grafana Alloy), overridable per environment.
+func otlpEndpoint() string {
+	if v := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); v != "" {
+		return v
+	}
+	return "alloy.monitoring:4318"
+}
 
-    res, _ := resource.New(ctx,
-        resource.WithAttributes(
-            semconv.ServiceName("workspace"),
-        ),
-    )
+func initTelemetry(ctx context.Context) func() {
+	stop := func() {}
 
-    tp := sdktrace.NewTracerProvider(
-        sdktrace.WithBatcher(exporter),
-        sdktrace.WithResource(res),
-    )
+	sel, _ := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName("workspace"),
+		),
+	)
 
-    otel.SetTracerProvider(tp)
+	exp, err := otlptracehttp.New(ctx,
+		otlptracehttp.WithEndpoint(otlpEndpoint()),
+		otlptracehttp.WithInsecure(),
+	)
+	if err != nil {
+		log.Printf("otel trace exporter error: %v", err)
+		return stop
+	}
 
-    return func() {
-        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-        defer cancel()
-        _ = tp.Shutdown(ctx)
-    }
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exp),
+		sdktrace.WithResource(sel),
+	)
+	otel.SetTracerProvider(tp)
+
+	// Expose the app's counters as Prometheus metrics via the same OTLP
+	// receiver; new runtime/host metrics are intentionally limited to app
+	// instrumentation so the dashboards stay scoped to the service.
+	mexp, err := otlpmetrichttp.New(ctx,
+		otlpmetrichttp.WithEndpoint(otlpEndpoint()),
+		otlpmetrichttp.WithInsecure(),
+	)
+	if err != nil {
+		log.Printf("otel metric exporter error: %v", err)
+		return stop
+	}
+
+	mp := metric.NewMeterProvider(
+		metric.WithReader(metric.NewPeriodicReader(mexp, metric.WithInterval(15*time.Second))),
+		metric.WithResource(sel),
+	)
+	otel.SetMeterProvider(mp)
+
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = mp.Shutdown(ctx)
+		_ = tp.Shutdown(ctx)
+	}
 }

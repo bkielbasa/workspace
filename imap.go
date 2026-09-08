@@ -180,6 +180,7 @@ func (s *IMAPServer) handle(conn net.Conn) {
 			)
 
 			u, err := s.users.Authenticate(ctx, user, pass)
+			incIMAPLogin(ctx, err == nil)
 			if err != nil {
 				logWithTrace(ctx, slog.LevelError, "imap auth failed",
 					"user", user,
@@ -242,6 +243,7 @@ func (s *IMAPServer) handle(conn net.Conn) {
 			logWithTrace(ctx, slog.LevelInfo, "imap auth attempt (PLAIN)", "user", user)
 
 			u, err := s.users.Authenticate(ctx, user, pass)
+			incIMAPLogin(ctx, err == nil)
 			if err != nil {
 				logWithTrace(ctx, slog.LevelError, "imap auth failed (PLAIN)", "user", user, "error", err)
 				write(tag + " NO auth failed")
@@ -800,24 +802,24 @@ func writeFetchLiteral(w *bufio.Writer, prefix, literal string) error {
 }
 
 func mailboxAttributes(name string) string {
-    attrs := []string{"\\HasNoChildren"}
-    switch strings.ToLower(name) {
-    case "sent":
-        attrs = append(attrs, "\\Sent")
-    case "drafts":
-        attrs = append(attrs, "\\Drafts")
-    case "trash":
-        attrs = append(attrs, "\\Trash")
-    case "archive":
-        attrs = append(attrs, "\\Archive")
-    case "spam", "junk":
-        attrs = append(attrs, "\\Junk")
-    case "all":
-        attrs = append(attrs, "\\All")
-    case "important":
-        attrs = append(attrs, "\\Important")
-    }
-    return strings.Join(attrs, " ")
+	attrs := []string{"\\HasNoChildren"}
+	switch strings.ToLower(name) {
+	case "sent":
+		attrs = append(attrs, "\\Sent")
+	case "drafts":
+		attrs = append(attrs, "\\Drafts")
+	case "trash":
+		attrs = append(attrs, "\\Trash")
+	case "archive":
+		attrs = append(attrs, "\\Archive")
+	case "spam", "junk":
+		attrs = append(attrs, "\\Junk")
+	case "all":
+		attrs = append(attrs, "\\All")
+	case "important":
+		attrs = append(attrs, "\\Important")
+	}
+	return strings.Join(attrs, " ")
 }
 
 func parseLiteralMarker(marker string) (int, bool) {
