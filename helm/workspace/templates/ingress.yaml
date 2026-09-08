@@ -29,7 +29,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "workspace.fullname" . }}
+                name: {{ include "workspace.fullname" $ }}
                 port:
                   name: http
           {{- end }}
