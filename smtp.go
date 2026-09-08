@@ -20,20 +20,21 @@ type SMTPServer struct {
 	delivery  *Delivery
 	users     *Users
 	tlsConfig *tls.Config
+	wrapped   bool
 }
 
-func NewSMTPServer(addr string, d *Delivery, u *Users) *SMTPServer {
-	return &SMTPServer{addr: addr, delivery: d, users: u}
+func NewSMTPServer(addr string, d *Delivery, u *Users, tlsCfg *tls.Config) *SMTPServer {
+	return &SMTPServer{addr: addr, delivery: d, users: u, tlsConfig: tlsCfg}
 }
 
 func NewSMTPTLSServer(addr string, d *Delivery, u *Users, tlsCfg *tls.Config) *SMTPServer {
-	return &SMTPServer{addr: addr, delivery: d, users: u, tlsConfig: tlsCfg}
+	return &SMTPServer{addr: addr, delivery: d, users: u, tlsConfig: tlsCfg, wrapped: true}
 }
 
 func (s *SMTPServer) ListenAndServe() error {
 	var ln net.Listener
 	var err error
-	if s.tlsConfig != nil {
+	if s.wrapped {
 		ln, err = tls.Listen("tcp", s.addr, s.tlsConfig)
 	} else {
 		ln, err = net.Listen("tcp", s.addr)
@@ -91,7 +92,7 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 			write("250-PIPELINING")
 			write("250-8BITMIME")
 			write("250-AUTH LOGIN PLAIN")
-			if !tlsEnabled {
+			if !tlsEnabled && s.tlsConfig != nil {
 				write("250-STARTTLS")
 			}
 			write("250 OK")
@@ -104,17 +105,14 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 				write("454 TLS already active")
 				continue
 			}
+			if s.tlsConfig == nil || len(s.tlsConfig.Certificates) == 0 {
+				write("454 TLS unavailable: no server certificate configured")
+				continue
+			}
 
 			write("220 Ready to start TLS")
 
-			// NOTE: self-signed / placeholder cert; replace in production
-			cert, err := tls.X509KeyPair(localCert, localKey)
-			if err != nil {
-				log.Println("tls cert error:", err)
-				return
-			}
-
-			tlsConn := tls.Server(conn, &tls.Config{Certificates: []tls.Certificate{cert}})
+			tlsConn := tls.Server(conn, s.tlsConfig)
 			if err := tlsConn.Handshake(); err != nil {
 				log.Println("tls handshake error:", err)
 				return
@@ -344,11 +342,3 @@ func base64Decode(s string) (string, error) {
 func contextBackground() context.Context {
 	return context.Background()
 }
-
-var localCert = []byte(`-----BEGIN CERTIFICATE-----
-MIIB...fake
------END CERTIFICATE-----`)
-
-var localKey = []byte(`-----BEGIN RSA PRIVATE KEY-----
-MIIB...fake
------END RSA PRIVATE KEY-----`)

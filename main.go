@@ -86,14 +86,6 @@ func main() {
 		aliases:   aliases,
 	}
 
-	log.Printf("starting SMTP on :2525")
-	smtp := NewSMTPServer(":2525", delivery, users)
-	go func() {
-		if err := smtp.ListenAndServe(); err != nil {
-			log.Fatal(err)
-		}
-	}()
-
 	certFile := getEnv("TLS_CERT_FILE", "")
 	keyFile := getEnv("TLS_KEY_FILE", "")
 	var tlsCfg *tls.Config
@@ -107,6 +99,15 @@ func main() {
 	} else {
 		log.Printf("TLS disabled (no cert/key provided)")
 	}
+
+	log.Printf("starting SMTP on :2525")
+	smtp := NewSMTPServer(":2525", delivery, users, tlsCfg)
+	go func() {
+		if err := smtp.ListenAndServe(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
 	if tlsCfg != nil {
 		log.Printf("starting SMTPS on :2465")
 		smtps := NewSMTPTLSServer(":2465", delivery, users, tlsCfg)
