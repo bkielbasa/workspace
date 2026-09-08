@@ -67,6 +67,10 @@ spec:
             - name: DKIM_PRIVATE_KEY_FILE
               value: "/dkim/dkim_private.key"
             {{- end }}
+            {{- with .Values.mailHost }}
+            - name: MAIL_HOST
+              value: {{ . | quote }}
+            {{- end }}
           volumeMounts:
             - name: migrations
               mountPath: /migrations

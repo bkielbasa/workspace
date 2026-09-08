@@ -144,6 +144,16 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	// Canonical mail host advertised in discovery responses. In production this
+	// is set explicitly via MAIL_HOST; the Host header is only a local-dev
+	// fallback and is never parsed or rewritten.
+	mailHost := func(r *http.Request) string {
+		if cfg.mailHost != "" {
+			return cfg.mailHost
+		}
+		return r.Host
+	}
+
 	// Apple client discovery (required for auto-config of CardDAV/CalDAV)
 	mux.HandleFunc("/.well-known/carddav", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/dav/", http.StatusMovedPermanently)
@@ -155,7 +165,7 @@ func main() {
 	// Autoconfig for email + CardDAV + CalDAV
 	mux.HandleFunc("/.well-known/autoconfig/mail/config-v1.1.xml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-		host := r.Host
+		host := mailHost(r)
 		fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <clientConfig version="1.1">
   <emailProvider id="local">
@@ -206,21 +216,7 @@ func main() {
 			}
 		}
 
-		host := r.Host
-		// autodiscover.cloudlift.run / autoconfig.cloudlift.run -> mail.cloudlift.run
-		for _, prefix := range []string{"autodiscover.", "autoconfig.", "www."} {
-			if strings.HasPrefix(host, prefix) {
-				host = strings.TrimPrefix(host, prefix)
-				break
-			}
-		}
-		if host == "mail.local" {
-			host = "mail.cloudlift.run"
-		}
-		// Requests via autodiscover./autoconfig. reveal only the bare domain.
-		if !strings.HasPrefix(host, "mail.") {
-			host = "mail." + host
-		}
+		host := mailHost(r)
 
 		login := email
 		if login == "" {

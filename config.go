@@ -5,12 +5,14 @@ import "os"
 type config struct {
 	httpAddr    string
 	databaseURL string
+	mailHost    string
 }
 
 func loadConfig() config {
 	cfg := config{
 		httpAddr:    getEnv("HTTP_ADDR", ":8080"),
 		databaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/workspace?sslmode=disable"),
+		mailHost:    getEnv("MAIL_HOST", ""),
 	}
 
 	return cfg

@@ -59,3 +59,7 @@ resources: {}
 # Migrations init container runs `migrate up` before the app starts.
 migrate:
   image: migrate/migrate:latest
+
+# Canonical hostname advertised in autoconfig/autodiscover responses.
+# Leave empty to fall back to the request Host header (local dev only).
+mailHost: ""
