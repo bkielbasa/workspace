@@ -248,13 +248,15 @@ func (d *discovery) autodiscoverJSON(w http.ResponseWriter, r *http.Request) {
 		protocol = "AutodiscoverV1"
 	}
 
-	// Only the v1 document is served; every other protocol belongs to
-	// Exchange and must be reported as unsupported rather than answered with
-	// a document the client cannot use.
+	// Every other protocol here is an Exchange service this server does not
+	// implement. Answering "that protocol is invalid" still says Autodiscover
+	// lives at this domain, which invites clients to treat the account as
+	// Exchange and try to sync it over protocols that are not there. Not
+	// found is the accurate answer: no such service is hosted.
 	if !strings.EqualFold(protocol, "AutodiscoverV1") {
-		writeJSON(http.StatusBadRequest, map[string]string{
-			"ErrorCode":    "InvalidProtocol",
-			"ErrorMessage": fmt.Sprintf("The given protocol value '%s' is invalid. Supported values are 'AutodiscoverV1'.", protocol),
+		writeJSON(http.StatusNotFound, map[string]string{
+			"ErrorCode":    "ProtocolNotFound",
+			"ErrorMessage": fmt.Sprintf("The protocol '%s' is not hosted for this domain. This is an IMAP and SMTP server.", protocol),
 		})
 		return
 	}

@@ -191,29 +191,35 @@ func TestAutodiscoverJSONPointsAtV1(t *testing.T) {
 	}
 }
 
+// Exchange protocols must read as absent rather than merely unsupported:
+// answering "invalid protocol" still advertises Autodiscover, and clients
+// then treat the account as Exchange.
 func TestAutodiscoverJSONRejectsUnsupported(t *testing.T) {
 	cases := []struct {
 		name   string
 		target string
 		want   string
+		status int
 	}{
 		{
 			name:   "exchange protocol",
 			target: "/autodiscover/autodiscover.json?Email=contact@cloudlift.run&Protocol=ActiveSync",
-			want:   "InvalidProtocol",
+			want:   "ProtocolNotFound",
+			status: http.StatusNotFound,
 		},
 		{
 			name:   "no address",
 			target: "/autodiscover/autodiscover.json",
 			want:   "MandatoryParameterMissing",
+			status: http.StatusBadRequest,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := serve(t, testDiscovery().autodiscoverJSON, http.MethodGet, tc.target, "")
-			if recorder.Code != http.StatusBadRequest {
-				t.Fatalf("status = %d, want 400", recorder.Code)
+			if recorder.Code != tc.status {
+				t.Fatalf("status = %d, want %d", recorder.Code, tc.status)
 			}
 			var body map[string]string
 			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
