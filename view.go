@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,12 +137,16 @@ func (v *views) contactsAdd(w http.ResponseWriter, r *http.Request) {
 		LastName:  strings.TrimSpace(r.FormValue("last_name")),
 		Company:   strings.TrimSpace(r.FormValue("company")),
 		Title:     strings.TrimSpace(r.FormValue("title")),
-		Phone:     strings.TrimSpace(r.FormValue("phone")),
-		Email:     strings.ToLower(strings.TrimSpace(r.FormValue("email"))),
+	}
+	if email := strings.TrimSpace(r.FormValue("email")); email != "" {
+		ct.Emails = []VCardField{{Value: strings.ToLower(email), Type: []string{"INTERNET"}}}
+	}
+	if phone := strings.TrimSpace(r.FormValue("phone")); phone != "" {
+		ct.Phones = []VCardField{{Value: phone, Type: []string{"CELL", "VOICE"}}}
 	}
 
 	data := viewData{Error: ""}
-	if ct.Email == "" || !strings.Contains(ct.Email, "@") {
+	if len(ct.Emails) == 0 || !strings.Contains(ct.Emails[0].Value, "@") {
 		data.Error = "A valid email address is required."
 	} else if _, err := v.contacts.Put(r.Context(), user.ID, nil, ct); err != nil {
 		data.Error = "Could not save the contact."
@@ -150,6 +155,96 @@ func (v *views) contactsAdd(w http.ResponseWriter, r *http.Request) {
 	contacts, _ := v.contacts.List(r.Context(), user.ID)
 	data.Contacts = contacts
 	renderView(w, v.contactsT, "contacts-rows", data)
+}
+
+// contactsAddField appends an email or phone to an existing contact and
+// re-renders the rows fragment.
+func (v *views) contactsAddField(kind string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := userFromContext(r.Context())
+		id, err := parseUUIDPath(r)
+		if err != nil {
+			http.Error(w, "invalid contact id", http.StatusBadRequest)
+			return
+		}
+		if kind != "emails" && kind != "phones" {
+			http.Error(w, "unknown field kind", http.StatusBadRequest)
+			return
+		}
+		ct, err := v.contacts.Get(r.Context(), user.ID, id)
+		if err != nil {
+			http.Error(w, "contact not found", http.StatusNotFound)
+			return
+		}
+		field := "phone"
+		if kind == "emails" {
+			field = "email"
+		}
+		val := strings.TrimSpace(r.FormValue(field))
+		if val == "" {
+			http.Error(w, "a value is required", http.StatusBadRequest)
+			return
+		}
+		if kind == "emails" {
+			ct.Emails = append(ct.Emails, VCardField{Value: strings.ToLower(val), Type: []string{"INTERNET"}})
+		} else {
+			ct.Phones = append(ct.Phones, VCardField{Value: val, Type: []string{"CELL", "VOICE"}})
+		}
+		if _, err := v.contacts.Put(r.Context(), user.ID, &id, ct); err != nil {
+			http.Error(w, "could not update contact", http.StatusInternalServerError)
+			return
+		}
+		v.renderContactsRows(w, r, user)
+	}
+}
+
+// contactsRemoveField deletes the field at index from an existing contact.
+func (v *views) contactsRemoveField(kind string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := userFromContext(r.Context())
+		id, err := parseUUIDPath(r)
+		if err != nil {
+			http.Error(w, "invalid contact id", http.StatusBadRequest)
+			return
+		}
+		idx, err := strconv.Atoi(r.PathValue("index"))
+		if err != nil || idx < 0 {
+			http.Error(w, "invalid field index", http.StatusBadRequest)
+			return
+		}
+		ct, err := v.contacts.Get(r.Context(), user.ID, id)
+		if err != nil {
+			http.Error(w, "contact not found", http.StatusNotFound)
+			return
+		}
+		if kind == "emails" {
+			if idx >= len(ct.Emails) {
+				http.Error(w, "invalid field index", http.StatusBadRequest)
+				return
+			}
+			ct.Emails = append(ct.Emails[:idx], ct.Emails[idx+1:]...)
+		} else {
+			if idx >= len(ct.Phones) {
+				http.Error(w, "invalid field index", http.StatusBadRequest)
+				return
+			}
+			ct.Phones = append(ct.Phones[:idx], ct.Phones[idx+1:]...)
+		}
+		if _, err := v.contacts.Put(r.Context(), user.ID, &id, ct); err != nil {
+			http.Error(w, "could not update contact", http.StatusInternalServerError)
+			return
+		}
+		v.renderContactsRows(w, r, user)
+	}
+}
+
+func (v *views) renderContactsRows(w http.ResponseWriter, r *http.Request, user *User) {
+	contacts, err := v.contacts.List(r.Context(), user.ID)
+	if err != nil {
+		http.Error(w, "could not load contacts", http.StatusInternalServerError)
+		return
+	}
+	renderView(w, v.contactsT, "contacts-rows", viewData{Contacts: contacts})
 }
 
 func (v *views) contactsDelete(w http.ResponseWriter, r *http.Request) {

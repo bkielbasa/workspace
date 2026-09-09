@@ -210,6 +210,10 @@ func main() {
 	mux.HandleFunc("GET /contacts/rows", auth.requireAuth(view.contactsRows))
 	mux.HandleFunc("POST /contacts/rows", auth.requireAuth(auth.requireCSRF(view.contactsAdd)))
 	mux.HandleFunc("DELETE /contacts/{id}", auth.requireAuth(auth.requireCSRF(view.contactsDelete)))
+	mux.HandleFunc("POST /contacts/{id}/emails", auth.requireAuth(auth.requireCSRF(view.contactsAddField("emails"))))
+	mux.HandleFunc("POST /contacts/{id}/phones", auth.requireAuth(auth.requireCSRF(view.contactsAddField("phones"))))
+	mux.HandleFunc("DELETE /contacts/{id}/emails/{index}", auth.requireAuth(auth.requireCSRF(view.contactsRemoveField("emails"))))
+	mux.HandleFunc("DELETE /contacts/{id}/phones/{index}", auth.requireAuth(auth.requireCSRF(view.contactsRemoveField("phones"))))
 
 	mux.HandleFunc("GET /calendars", auth.page(view.calendarsPage))
 	mux.HandleFunc("GET /calendars/rows", auth.requireAuth(view.calendarsRows))

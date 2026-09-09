@@ -178,3 +178,29 @@ data:
     DROP INDEX IF EXISTS idx_contacts_user_email;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_user_email
     ON contacts (user_id, email) WHERE email <> '';
+
+  015_contacts_multi_value.up.sql: |
+    -- A contact can hold several emails and phones (vCard TEL/EMAIL list).
+    -- Each entry is {"value": "...", "type": ["HOME","INTERNET",...]} and keeps
+    -- the original vCard header for faithful re-serialisation.
+    ALTER TABLE contacts
+        ADD COLUMN IF NOT EXISTS emails JSONB NOT NULL DEFAULT '[]',
+        ADD COLUMN IF NOT EXISTS phones JSONB NOT NULL DEFAULT '[]';
+
+    UPDATE contacts SET
+        emails = CASE
+            WHEN email <> '' THEN jsonb_build_array(
+                jsonb_build_object('value', email, 'type', jsonb_build_array('INTERNET'))
+            )
+            ELSE '[]'::jsonb
+        END
+    WHERE emails = '[]'::jsonb AND email <> '';
+
+    UPDATE contacts SET
+        phones = CASE
+            WHEN phone IS NOT NULL AND phone <> '' THEN jsonb_build_array(
+                jsonb_build_object('value', phone, 'type', jsonb_build_array('CELL', 'VOICE'))
+            )
+            ELSE '[]'::jsonb
+        END
+    WHERE phones = '[]'::jsonb AND phone IS NOT NULL AND phone <> '';

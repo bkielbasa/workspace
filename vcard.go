@@ -5,14 +5,28 @@ import (
 	"unicode/utf8"
 )
 
-// vcard.go is a small vCard 3.0 (RFC 2426) reader/writer. It keeps the full
-// raw card on the Contact so fields we do not model (address, note, bday,
-// nicknames, categories, ...) survive a round-trip through CardDAV. When the
-// card is rebuilt for a web edit, every line except the regenerated base
-// fields is carried over untouched.
+// vcard.go is a small vCard 3.0 (RFC 2426) reader/writer. A contact carries
+// several emails, phones, etc. (vCard TEL/EMAIL/ADR are lists). The full raw
+// card is kept on the Contact so fields we do not model survive a round-trip
+// through CardDAV; when the card is rebuilt for a web edit, every line except
+// the regenerated fields is carried over untouched.
+
+// VCardField is one entry of a repeating vCard property (EMAIL, TEL, ...).
+// Type holds the TYPE= parameter values (HOME, WORK, CELL, INTERNET, ...) and
+// Header keeps the original property line (group + params) so re-serialising
+// stays faithful even for unknown parameters.
+type VCardField struct {
+	Type   []string `json:"type,omitempty"`
+	Value  string   `json:"value"`
+	Header string   `json:"header,omitempty"`
+}
+
+// TypeLabel is used by page templates, e.g. "WORK/CELL".
+func (f VCardField) TypeLabel() string { return strings.Join(f.Type, "/") }
 
 // displayName derives a formatted name for a Contact, preferring structured
-// name parts over the stored FN and falling back to company, then email.
+// name parts over the stored FN and falling back to company, then the first
+// email.
 func (c Contact) displayName() string {
 	first := strings.TrimSpace(c.FirstName)
 	last := strings.TrimSpace(c.LastName)
@@ -24,6 +38,9 @@ func (c Contact) displayName() string {
 	}
 	if name := strings.TrimSpace(c.Name); name != "" {
 		return name
+	}
+	if len(c.Emails) > 0 {
+		return c.Emails[0].Value
 	}
 	return c.Email
 }
@@ -129,12 +146,12 @@ func foldVCardLine(s string) string {
 }
 
 // parseVCardFields reads the structured fields we model out of a vCard and
-// keeps the raw card in VCard so nothing is lost.
+// keeps the raw card in VCard so nothing is lost. Repeating properties (EMAIL,
+// TEL) are collected in order, with their TYPE parameters preserved.
 func parseVCardFields(v string) Contact {
 	var ct Contact
 	ct.VCard = strings.TrimSpace(v)
 
-	var telCell, telFirst string
 	for _, line := range unfoldVCard(v) {
 		hdr, val := splitVCardLine(line)
 		name := hdr
@@ -143,9 +160,7 @@ func parseVCardFields(v string) Contact {
 		}
 		switch strings.ToUpper(name) {
 		case "EMAIL":
-			if ct.Email == "" {
-				ct.Email = strings.TrimSpace(unescapeVCardValue(val))
-			}
+			ct.Emails = append(ct.Emails, vCardFieldFromLine(hdr, val))
 		case "FN":
 			ct.Name = strings.TrimSpace(unescapeVCardValue(val))
 		case "N":
@@ -163,18 +178,13 @@ func parseVCardFields(v string) Contact {
 		case "TITLE":
 			ct.Title = strings.TrimSpace(unescapeVCardValue(val))
 		case "TEL":
-			if val = strings.TrimSpace(unescapeVCardValue(val)); telCell == "" && strings.Contains(strings.ToUpper(hdr), "CELL") {
-				telCell = val
-			}
-			if telFirst == "" {
-				telFirst = val
-			}
+			ct.Phones = append(ct.Phones, vCardFieldFromLine(hdr, val))
 		}
 	}
-	if ct.Phone == "" {
-		if ct.Phone = telCell; ct.Phone == "" {
-			ct.Phone = telFirst
-		}
+	// The first email stays the contact's primary email (own column + identity
+	// de-duplication); it also feeds DisplayName when the card has no name.
+	if len(ct.Emails) > 0 {
+		ct.Email = ct.Emails[0].Value
 	}
 	if ct.Name == "" {
 		ct.Name = strings.TrimSpace(strings.Join([]string{ct.FirstName, ct.LastName}, " "))
@@ -183,6 +193,47 @@ func parseVCardFields(v string) Contact {
 		ct.Name = ct.Email
 	}
 	return ct
+}
+
+// vCardFieldFromLine builds a VCardField from a parsed property line even when
+// the value contains escaped separators.
+func vCardFieldFromLine(hdr, val string) VCardField {
+	f := VCardField{Header: hdr, Value: strings.TrimSpace(unescapeVCardValue(val))}
+	if i := strings.IndexByte(hdr, ';'); i >= 0 {
+		for _, param := range strings.Split(hdr[i+1:], ";") {
+			name, value, ok := strings.Cut(strings.TrimSpace(param), "=")
+			if !ok {
+				continue
+			}
+			if strings.EqualFold(name, "TYPE") {
+				for _, t := range strings.Split(value, ",") {
+					if t = strings.TrimSpace(t); t != "" {
+						f.Type = append(f.Type, strings.ToUpper(t))
+					}
+				}
+			}
+		}
+	}
+	return f
+}
+
+// fieldLine serialises one TEL/EMAIL field back to a vCard line, preferring the
+// original property header (params preserved) and defaulting sensibly for
+// fields created through the web UI.
+func fieldLine(kind string, f VCardField) string {
+	hdr := f.Header
+	if hdr == "" {
+		switch kind {
+		case "EMAIL":
+			hdr = "EMAIL;TYPE=INTERNET"
+		case "TEL":
+			hdr = "TEL;TYPE=CELL,VOICE"
+		}
+	}
+	if f.Value != "" {
+		return hdr + ":" + escapeVCardValue(f.Value)
+	}
+	return ""
 }
 
 // buildVCard serializes a Contact, preserving every non-base line from the
@@ -216,11 +267,15 @@ func buildVCard(ct Contact, prev string) string {
 	if ct.Title != "" {
 		lines = append(lines, "TITLE:"+escapeVCardValue(ct.Title))
 	}
-	if ct.Phone != "" {
-		lines = append(lines, "TEL;TYPE=CELL,VOICE:"+escapeVCardValue(ct.Phone))
+	for _, f := range ct.Phones {
+		if line := fieldLine("TEL", f); line != "" {
+			lines = append(lines, line)
+		}
 	}
-	if ct.Email != "" {
-		lines = append(lines, "EMAIL;TYPE=INTERNET:"+escapeVCardValue(ct.Email))
+	for _, f := range ct.Emails {
+		if line := fieldLine("EMAIL", f); line != "" {
+			lines = append(lines, line)
+		}
 	}
 	lines = append(lines, extras...)
 	lines = append(lines, "END:VCARD")

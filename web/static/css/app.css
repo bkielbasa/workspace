@@ -305,6 +305,55 @@ button {
   color: var(--muted);
 }
 
+.field-list {
+  list-style: none;
+  margin: 0 0 0.35rem;
+  padding: 0;
+}
+
+.field-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+}
+
+.field-list .tag {
+  margin-left: 0.25rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+}
+
+.field-form {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.field-form input {
+  min-width: 0;
+  flex: 1;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.icon-btn {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+}
+
+.icon-btn:hover {
+  color: #c0392b;
+}
+
 /* ---- Lists (calendar events) ------------------------------------------ */
 
 .list {

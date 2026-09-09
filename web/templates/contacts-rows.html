@@ -5,32 +5,84 @@
   <thead>
     <tr>
       <th>Name</th>
-      <th>Email</th>
+      <th>Emails</th>
+      <th>Phones</th>
       <th>Company</th>
-      <th>Phone</th>
       <th></th>
     </tr>
   </thead>
   <tbody>
     {{range .Contacts}}
+    {{with $c := .}}
     <tr>
       <td>
-        {{if .DisplayName}}{{.DisplayName}}{{else}}&mdash;{{end}}
-        {{if .Title}}<span class="cell-sub">{{.Title}}</span>{{end}}
+        {{if $c.DisplayName}}{{$c.DisplayName}}{{else}}&mdash;{{end}}
+        {{if $c.Title}}<span class="cell-sub">{{$c.Title}}</span>{{end}}
       </td>
-      <td>{{if .Email}}{{.Email}}{{else}}&mdash;{{end}}</td>
-      <td>{{if .Company}}{{.Company}}{{else}}&mdash;{{end}}</td>
-      <td>{{if .Phone}}{{.Phone}}{{else}}&mdash;{{end}}</td>
+      <td>
+        {{if $c.Emails}}
+        <ul class="field-list">
+          {{range $i, $e := $c.Emails}}
+          <li>
+            <span>{{$e.Value}}{{if $e.TypeLabel}} <small class="tag">{{$e.TypeLabel}}</small>{{end}}</span>
+            <button
+              type="button"
+              class="icon-btn"
+              aria-label="Remove email"
+              hx-delete="/contacts/{{$c.ID}}/emails/{{$i}}"
+              hx-target="#contacts-rows"
+              hx-swap="innerHTML">&times;</button>
+          </li>
+          {{end}}
+        </ul>
+        {{end}}
+        <form
+          class="field-form"
+          hx-post="/contacts/{{$c.ID}}/emails"
+          hx-target="#contacts-rows"
+          hx-swap="innerHTML">
+          <input type="email" name="email" placeholder="Add e-mail" autocomplete="off" maxlength="200">
+          <button type="submit" class="btn btn-ghost btn-sm">Add</button>
+        </form>
+      </td>
+      <td>
+        {{if $c.Phones}}
+        <ul class="field-list">
+          {{range $i, $p := $c.Phones}}
+          <li>
+            <span>{{$p.Value}}{{if $p.TypeLabel}} <small class="tag">{{$p.TypeLabel}}</small>{{end}}</span>
+            <button
+              type="button"
+              class="icon-btn"
+              aria-label="Remove phone"
+              hx-delete="/contacts/{{$c.ID}}/phones/{{$i}}"
+              hx-target="#contacts-rows"
+              hx-swap="innerHTML">&times;</button>
+          </li>
+          {{end}}
+        </ul>
+        {{end}}
+        <form
+          class="field-form"
+          hx-post="/contacts/{{$c.ID}}/phones"
+          hx-target="#contacts-rows"
+          hx-swap="innerHTML">
+          <input type="tel" name="phone" placeholder="Add phone" autocomplete="off" maxlength="50">
+          <button type="submit" class="btn btn-ghost btn-sm">Add</button>
+        </form>
+      </td>
+      <td>{{if $c.Company}}{{$c.Company}}{{else}}&mdash;{{end}}</td>
       <td>
         <button
           type="button"
           class="btn btn-danger btn-sm"
-          hx-delete="/contacts/{{.ID}}"
+          hx-delete="/contacts/{{$c.ID}}"
           hx-target="#contacts-rows"
           hx-swap="innerHTML"
-          hx-confirm="Remove {{.DisplayName}} from your contacts?">Remove</button>
+          hx-confirm="Remove {{$c.DisplayName}} from your contacts?">Remove</button>
       </td>
     </tr>
+    {{end}}
     {{end}}
   </tbody>
 </table>

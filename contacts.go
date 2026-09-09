@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -13,13 +14,14 @@ import (
 type Contact struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID
-	Email     string
+	Email     string // primary email (first in Emails)
 	Name      string
 	FirstName string
 	LastName  string
 	Company   string
 	Title     string
-	Phone     string
+	Emails    []VCardField
+	Phones    []VCardField
 	VCard     string
 	ETag      string
 	CreatedAt time.Time
@@ -29,7 +31,7 @@ type Contact struct {
 // DisplayName is used by page templates.
 func (c Contact) DisplayName() string { return c.displayName() }
 
-const contactColumns = `id, user_id, email, name, first_name, last_name, company, title, phone, vcard, etag, created_at, updated_at`
+const contactColumns = `id, user_id, email, name, first_name, last_name, company, title, emails, phones, vcard, etag, created_at, updated_at`
 
 type scanRow interface {
 	Scan(dest ...any) error
@@ -37,12 +39,34 @@ type scanRow interface {
 
 func scanContact(row scanRow) (Contact, error) {
 	var ct Contact
+	var emails, phones []byte
 	err := row.Scan(
 		&ct.ID, &ct.UserID, &ct.Email, &ct.Name,
-		&ct.FirstName, &ct.LastName, &ct.Company, &ct.Title, &ct.Phone,
-		&ct.VCard, &ct.ETag, &ct.CreatedAt, &ct.UpdatedAt,
+		&ct.FirstName, &ct.LastName, &ct.Company, &ct.Title,
+		&emails, &phones, &ct.VCard, &ct.ETag, &ct.CreatedAt, &ct.UpdatedAt,
 	)
-	return ct, err
+	if err != nil {
+		return ct, err
+	}
+	if len(emails) > 0 {
+		_ = json.Unmarshal(emails, &ct.Emails)
+	}
+	if len(phones) > 0 {
+		_ = json.Unmarshal(phones, &ct.Phones)
+	}
+	return ct, nil
+}
+
+func (ct *Contact) marshalLists() ([]byte, []byte, error) {
+	emails, err := json.Marshal(ct.Emails)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal emails: %w", err)
+	}
+	phones, err := json.Marshal(ct.Phones)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal phones: %w", err)
+	}
+	return emails, phones, nil
 }
 
 type Contacts struct {
@@ -91,10 +115,17 @@ func (c *Contacts) ByEmail(ctx context.Context, userID uuid.UUID, email string) 
 }
 
 // Put inserts or updates a contact. If id is nil the primary email picks the
-// row (one contact per email); otherwise the resource id does, which is how
-// CardDAV clients update a specific card. The card is rebuilt via buildVCard,
-// preserving any CardDAV fields the caller did not supply.
+// row (one contact per primary email); otherwise the resource id does, which is
+// how CardDAV clients update a specific card. The card is rebuilt via
+// buildVCard, preserving any CardDAV fields the caller did not supply.
 func (c *Contacts) Put(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct Contact) (*Contact, error) {
+	// The primary email is the first entry of Emails; it feeds the email column
+	// and the web de-duplication key.
+	if len(ct.Emails) > 0 {
+		ct.Email = ct.Emails[0].Value
+	}
+	ct.Email = strings.TrimSpace(ct.Email)
+
 	if strings.TrimSpace(ct.VCard) == "" {
 		var prev string
 		if id != nil && *id != uuid.Nil {
@@ -108,16 +139,20 @@ func (c *Contacts) Put(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct 
 		}
 		ct.VCard = buildVCard(ct, prev)
 	}
-	ct.Email = strings.TrimSpace(ct.Email)
 	ct.Name = ct.DisplayName()
+	ct.Email = strings.TrimSpace(ct.Email)
 	etag := uuid.New().String()
 
-	saved := &Contact{}
-	var err error
+	emailsJSON, phonesJSON, err := ct.marshalLists()
+	if err != nil {
+		return nil, err
+	}
+
+	var saved Contact
 	if id != nil && *id != uuid.Nil {
-		err = c.db.QueryRowContext(ctx, `
-            INSERT INTO contacts (id, user_id, email, name, first_name, last_name, company, title, phone, vcard, etag)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		row := c.db.QueryRowContext(ctx, `
+            INSERT INTO contacts (id, user_id, email, name, first_name, last_name, company, title, emails, phones, vcard, etag)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (id) DO UPDATE SET
                 email = EXCLUDED.email,
                 name = EXCLUDED.name,
@@ -125,21 +160,20 @@ func (c *Contacts) Put(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct 
                 last_name = EXCLUDED.last_name,
                 company = EXCLUDED.company,
                 title = EXCLUDED.title,
-                phone = EXCLUDED.phone,
+                emails = EXCLUDED.emails,
+                phones = EXCLUDED.phones,
                 vcard = EXCLUDED.vcard,
                 etag = EXCLUDED.etag,
                 updated_at = NOW()
             RETURNING `+contactColumns,
-			*id, userID, ct.Email, ct.Name, ct.FirstName, ct.LastName, ct.Company, ct.Title, ct.Phone, ct.VCard, etag,
-		).Scan(
-			&saved.ID, &saved.UserID, &saved.Email, &saved.Name,
-			&saved.FirstName, &saved.LastName, &saved.Company, &saved.Title, &saved.Phone,
-			&saved.VCard, &saved.ETag, &saved.CreatedAt, &saved.UpdatedAt,
+			*id, userID, ct.Email, ct.Name, ct.FirstName, ct.LastName, ct.Company, ct.Title,
+			emailsJSON, phonesJSON, ct.VCard, etag,
 		)
+		saved, err = scanContact(row)
 	} else {
-		err = c.db.QueryRowContext(ctx, `
-            INSERT INTO contacts (user_id, email, name, first_name, last_name, company, title, phone, vcard, etag)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		row := c.db.QueryRowContext(ctx, `
+            INSERT INTO contacts (user_id, email, name, first_name, last_name, company, title, emails, phones, vcard, etag)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (user_id, email) WHERE email <> ''
             DO UPDATE SET
                 name = EXCLUDED.name,
@@ -147,22 +181,18 @@ func (c *Contacts) Put(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct 
                 last_name = EXCLUDED.last_name,
                 company = EXCLUDED.company,
                 title = EXCLUDED.title,
-                phone = EXCLUDED.phone,
+                emails = EXCLUDED.emails,
+                phones = EXCLUDED.phones,
                 vcard = EXCLUDED.vcard,
                 etag = EXCLUDED.etag,
                 updated_at = NOW()
             RETURNING `+contactColumns,
-			userID, ct.Email, ct.Name, ct.FirstName, ct.LastName, ct.Company, ct.Title, ct.Phone, ct.VCard, etag,
-		).Scan(
-			&saved.ID, &saved.UserID, &saved.Email, &saved.Name,
-			&saved.FirstName, &saved.LastName, &saved.Company, &saved.Title, &saved.Phone,
-			&saved.VCard, &saved.ETag, &saved.CreatedAt, &saved.UpdatedAt,
+			userID, ct.Email, ct.Name, ct.FirstName, ct.LastName, ct.Company, ct.Title,
+			emailsJSON, phonesJSON, ct.VCard, etag,
 		)
+		saved, err = scanContact(row)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("put contact: %w", err)
-	}
-	return saved, nil
+	return &saved, nil
 }
 
 func (c *Contacts) Delete(ctx context.Context, userID uuid.UUID, email string) error {
