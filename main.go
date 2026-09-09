@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -56,6 +57,25 @@ func main() {
 		domains:   domains,
 	}
 
+	// Session store backs the web login flow. It is wired into the user store
+	// so credential changes and account disable can revoke active sessions.
+	sessions := &Sessions{db: db}
+	users.sessions = sessions
+	auth := NewAuth(sessions, users, cfg.cookieSecure)
+
+	// Periodically purge expired sessions so stale rows do not accumulate.
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if n, err := sessions.CleanupExpired(context.Background()); err != nil {
+				log.Printf("session cleanup: %v", err)
+			} else if n > 0 {
+				log.Printf("session cleanup: removed %d expired sessions", n)
+			}
+		}
+	}()
+
 	mail := &Mail{
 		db: db,
 	}
@@ -64,14 +84,12 @@ func main() {
 	RunSeed(context.Background(), users, mail, mailboxes)
 
 	contacts := &Contacts{db: db}
-	contactsHTTP := &ContactsHTTP{
-		contacts: contacts,
-		users:    users,
-	}
 
 	carddav := &CardDAV{contacts: contacts}
 	cal := &Calendar{db: db}
 	caldav := &CalDAV{cal: cal, users: users}
+
+	view := newViews(contacts, cal)
 
 	delivery := &Delivery{
 		users:     users,
@@ -175,33 +193,51 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// domains
-	mux.HandleFunc("POST /domains", domains.CreateHandler)
-	mux.HandleFunc("GET /domains", domains.ListHandler)
-	mux.HandleFunc("GET /domains/{id}", domains.GetHandler)
-	mux.HandleFunc("DELETE /domains/{id}", domains.DeleteHandler)
+	// ----- web session auth -----
+	// Public: sign-in page, create-session, and static assets.
+	mux.HandleFunc("GET /login", auth.LoginPageHandler(view))
+	mux.HandleFunc("POST /login", auth.LoginHandler)
+
+	mux.Handle("/static/", staticHandler())
+
+	// Authenticated: app, session revocation, and current-user.
+	mux.HandleFunc("GET /{$}", auth.page(view.homePage))
+	mux.HandleFunc("GET /me", auth.requireAuth(auth.MeHandler))
+	mux.HandleFunc("POST /logout", auth.requireAuth(auth.requireCSRF(auth.LogoutHandler)))
+
+	// Web pages (server-rendered, HTMX fragments)
+	mux.HandleFunc("GET /contacts", auth.page(view.contactsPage))
+	mux.HandleFunc("GET /contacts/rows", auth.requireAuth(view.contactsRows))
+	mux.HandleFunc("POST /contacts/rows", auth.requireAuth(auth.requireCSRF(view.contactsAdd)))
+	mux.HandleFunc("DELETE /contacts/{id}", auth.requireAuth(auth.requireCSRF(view.contactsDelete)))
+
+	mux.HandleFunc("GET /calendars", auth.page(view.calendarsPage))
+	mux.HandleFunc("GET /calendars/rows", auth.requireAuth(view.calendarsRows))
+	mux.HandleFunc("POST /calendars/rows", auth.requireAuth(auth.requireCSRF(view.calendarsAdd)))
+	mux.HandleFunc("DELETE /calendars/{id}", auth.requireAuth(auth.requireCSRF(view.calendarsDelete)))
+
+	// ----- domains (admin, session-only) -----
+	mux.HandleFunc("POST /domains", auth.requireAuth(auth.requireCSRF(domains.CreateHandler)))
+	mux.HandleFunc("GET /domains", auth.requireAuth(domains.ListHandler))
+	mux.HandleFunc("GET /domains/{id}", auth.requireAuth(domains.GetHandler))
+	mux.HandleFunc("DELETE /domains/{id}", auth.requireAuth(auth.requireCSRF(domains.DeleteHandler)))
 
 	// aliases (scoped under domains)
-	mux.HandleFunc("POST /domains/{domainID}/aliases", aliases.CreateHandler)
-	mux.HandleFunc("GET /domains/{domainID}/aliases", aliases.ListHandler)
-	mux.HandleFunc("DELETE /domains/{domainID}/aliases/{id}", aliases.DeleteHandler)
+	mux.HandleFunc("POST /domains/{domainID}/aliases", auth.requireAuth(auth.requireCSRF(aliases.CreateHandler)))
+	mux.HandleFunc("GET /domains/{domainID}/aliases", auth.requireAuth(aliases.ListHandler))
+	mux.HandleFunc("DELETE /domains/{domainID}/aliases/{id}", auth.requireAuth(auth.requireCSRF(aliases.DeleteHandler)))
 
 	// users (scoped under domains for creation)
-	mux.HandleFunc("POST /domains/{domainID}/users", domains.CreateUserHandler(users))
-	mux.HandleFunc("GET /users", users.ListHandler)
-	mux.HandleFunc("GET /users/{id}", users.GetHandler)
-	mux.HandleFunc("PATCH /users/{id}", users.UpdateHandler)
-	mux.HandleFunc("DELETE /users/{id}", users.DeleteHandler)
-	mux.HandleFunc("POST /users/{id}/password", users.ChangePasswordHandler)
-
-	// contacts
-	mux.HandleFunc("GET /contacts", contactsHTTP.ListHandler)
-	mux.HandleFunc("POST /contacts", contactsHTTP.UpsertHandler)
-	mux.HandleFunc("DELETE /contacts", contactsHTTP.DeleteHandler)
+	mux.HandleFunc("POST /domains/{domainID}/users", auth.requireAuth(auth.requireCSRF(domains.CreateUserHandler(users))))
+	mux.HandleFunc("GET /users", auth.requireAuth(users.ListHandler))
+	mux.HandleFunc("GET /users/{id}", auth.requireAuth(users.GetHandler))
+	mux.HandleFunc("PATCH /users/{id}", auth.requireAuth(auth.requireCSRF(users.UpdateHandler)))
+	mux.HandleFunc("DELETE /users/{id}", auth.requireAuth(auth.requireCSRF(users.DeleteHandler)))
+	mux.HandleFunc("POST /users/{id}/password", auth.requireAuth(auth.requireCSRF(users.ChangePasswordHandler)))
 
 	// threads
 	threadsHTTP := &ThreadsHTTP{threads: &Threads{db: db}}
-	mux.HandleFunc("GET /threads", threadsHTTP.ListHandler)
+	mux.HandleFunc("GET /threads", auth.requireAuth(threadsHTTP.ListHandler))
 
 	// CardDAV (very minimal)
 	mux.Handle("/dav/", carddav)
@@ -212,11 +248,16 @@ func main() {
 		mux.ServeHTTP(w, r)
 	})
 
-	otelHandler := otelhttp.NewHandler(handler, "http")
+	otelHandler := otelhttp.NewHandler(securityHeaders(handler), "http")
 
 	server := &http.Server{
-		Addr:    cfg.httpAddr,
-		Handler: otelHandler,
+		Addr:              cfg.httpAddr,
+		Handler:           otelHandler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	log.Printf("http server listening on %s", cfg.httpAddr)

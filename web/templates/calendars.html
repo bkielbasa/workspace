@@ -1,0 +1,34 @@
+{{define "content"}}<section class="section">
+  <div class="card">
+    <div class="card-head">
+      <h1 class="page-title">Calendars</h1>
+      <p class="page-subtitle">Your upcoming events</p>
+    </div>
+    <div class="card-body">
+      <form
+        class="form-row"
+        hx-post="/calendars/rows"
+        hx-target="#calendars-rows"
+        hx-swap="innerHTML"
+        hx-disabled-elt="button[type=submit]">
+        <label for="title">Title
+          <input id="title" name="title" type="text" required autocomplete="off" maxlength="200">
+        </label>
+        <label for="starts_at">Starts
+          <input id="starts_at" name="starts_at" type="datetime-local" required>
+        </label>
+        <label for="ends_at">Ends
+          <input id="ends_at" name="ends_at" type="datetime-local" required>
+        </label>
+        <button type="submit" class="btn">Add event</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body list" id="calendars-rows">
+      {{template "calendars-rows" .}}
+    </div>
+  </div>
+</section>
+{{end}}

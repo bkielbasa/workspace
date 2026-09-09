@@ -1,0 +1,33 @@
+{{define "contacts-rows"}}{{if .Error}}
+<p class="error">{{.Error}}</p>
+{{end}}{{if .Contacts}}
+<table class="table">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Email</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Contacts}}
+    <tr>
+      <td>{{if .Name}}{{.Name}}{{else}}&mdash;{{end}}</td>
+      <td>{{.Email}}</td>
+      <td>
+        <button
+          type="button"
+          class="btn btn-danger btn-sm"
+          hx-delete="/contacts/{{.ID}}"
+          hx-target="#contacts-rows"
+          hx-swap="innerHTML"
+          hx-confirm="Remove {{.Email}} from your contacts?">Remove</button>
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="empty">No contacts yet &mdash; add your first one above.</p>
+{{end}}
+{{end}}

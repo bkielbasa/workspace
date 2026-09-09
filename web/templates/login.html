@@ -1,0 +1,45 @@
+{{define "login"}}<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign in &middot; Workspace</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+  </head>
+  <body>
+    <main class="auth">
+      <div class="card">
+        <h1>Workspace</h1>
+        <p class="subtitle">Sign in to your account</p>
+        <form id="login-form" class="login-form" autocomplete="on">
+          <label for="email">Email
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autocomplete="username"
+              autocapitalize="off"
+              spellcheck="false"
+              required
+              autofocus>
+          </label>
+
+          <label for="password">Password
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required>
+          </label>
+
+          <p class="error" id="error" hidden></p>
+
+          <button type="submit" id="submit">Sign in</button>
+        </form>
+      </div>
+    </main>
+    <script src="/static/js/login.js"></script>
+  </body>
+</html>
+{{end}}

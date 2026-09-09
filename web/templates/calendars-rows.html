@@ -1,0 +1,22 @@
+{{define "calendars-rows"}}{{if .Error}}
+<p class="error">{{.Error}}</p>
+{{end}}{{if .Events}}
+{{range .Events}}
+<div class="list-row">
+  <div class="meta">
+    <strong>{{.Title}}</strong>
+    <span class="muted">{{fmtDate .StartsAt}} &middot; {{fmtTime .StartsAt}} &ndash; {{fmtTime .EndsAt}}</span>
+  </div>
+  <button
+    type="button"
+    class="btn btn-danger btn-sm"
+    hx-delete="/calendars/{{.ID}}"
+    hx-target="#calendars-rows"
+    hx-swap="innerHTML"
+    hx-confirm='Delete "{{.Title}}"'>Delete</button>
+</div>
+{{end}}
+{{else}}
+<p class="empty">No events yet &mdash; add your first one above.</p>
+{{end}}
+{{end}}

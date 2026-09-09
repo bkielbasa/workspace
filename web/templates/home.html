@@ -1,0 +1,28 @@
+{{define "content"}}<div class="card">
+  <div class="card-head">
+    <h1>Hello{{if .User.DisplayName}}, {{.User.DisplayName}}{{end}}</h1>
+    <p class="subtitle">Your workspace</p>
+  </div>
+  <div class="card-body">
+    <dl class="profile">
+      <div>
+        <dt>Email</dt>
+        <dd>{{.User.Email}}</dd>
+      </div>
+      <div>
+        <dt>Name</dt>
+        <dd>{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}&mdash;{{end}}</dd>
+      </div>
+      <div>
+        <dt>Member since</dt>
+        <dd>{{fmtDate .User.CreatedAt}}</dd>
+      </div>
+    </dl>
+
+    <div class="form-row">
+      <a class="btn" href="/contacts">Manage contacts</a>
+      <a class="btn btn-ghost" href="/calendars">View calendars</a>
+    </div>
+  </div>
+</div>
+{{end}}

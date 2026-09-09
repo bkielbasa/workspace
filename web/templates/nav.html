@@ -1,0 +1,15 @@
+{{define "nav"}}<nav class="nav">
+  <a class="nav-brand" href="/">Workspace</a>
+  <div class="nav-links">
+    <a href="/" {{if eq .Section "home"}}aria-current="page"{{end}}>Home</a>
+    <a href="/contacts" {{if eq .Section "contacts"}}aria-current="page"{{end}}>Contacts</a>
+    <a href="/calendars" {{if eq .Section "calendars"}}aria-current="page"{{end}}>Calendars</a>
+  </div>
+  <div class="nav-user">
+    {{if .User}}<span>{{.User.Email}}</span>{{end}}
+    <form class="inline-form" hx-post="/logout" hx-swap="none">
+      <button type="submit" class="btn btn-ghost btn-sm">Sign out</button>
+    </form>
+  </div>
+</nav>
+{{end}}

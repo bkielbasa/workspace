@@ -1,0 +1,17 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}} &middot; Workspace</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+  </head>
+  <body hx-headers='{"X-CSRF-Token": "{{.CSRFToken}}"}'>
+    {{template "nav" .}}
+    <main class="content">
+      {{template "content" .}}
+    </main>
+    <script src="/static/js/htmx.min.js"></script>
+  </body>
+</html>
+{{end}}

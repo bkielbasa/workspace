@@ -1,0 +1,31 @@
+{{define "content"}}<section class="section">
+  <div class="card">
+    <div class="card-head">
+      <h1 class="page-title">Contacts</h1>
+      <p class="page-subtitle">People you mail the most</p>
+    </div>
+    <div class="card-body">
+      <form
+        class="form-row"
+        hx-post="/contacts/rows"
+        hx-target="#contacts-rows"
+        hx-swap="innerHTML"
+        hx-disabled-elt="button[type=submit]">
+        <label for="name">Name
+          <input id="name" name="name" type="text" autocomplete="off" maxlength="200">
+        </label>
+        <label for="email">Email
+          <input id="email" name="email" type="email" required autocomplete="off" maxlength="200">
+        </label>
+        <button type="submit" class="btn">Add contact</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" id="contacts-rows">
+      {{template "contacts-rows" .}}
+    </div>
+  </div>
+</section>
+{{end}}
