@@ -148,7 +148,7 @@ func (v *views) contactsAdd(w http.ResponseWriter, r *http.Request) {
 	data := viewData{Error: ""}
 	if len(ct.Emails) == 0 || !strings.Contains(ct.Emails[0].Value, "@") {
 		data.Error = "A valid email address is required."
-	} else if _, err := v.contacts.Put(r.Context(), user.ID, nil, ct, false); err != nil {
+	} else if _, err := v.contacts.PutContact(r.Context(), user.ID, nil, ct); err != nil {
 		data.Error = "Could not save the contact."
 	}
 
@@ -190,7 +190,7 @@ func (v *views) contactsAddField(kind string) http.HandlerFunc {
 		} else {
 			ct.Phones = append(ct.Phones, VCardField{Value: val, Type: []string{"CELL", "VOICE"}})
 		}
-		if _, err := v.contacts.Put(r.Context(), user.ID, &id, ct, false); err != nil {
+		if _, err := v.contacts.PutContact(r.Context(), user.ID, &id, ct); err != nil {
 			http.Error(w, "could not update contact", http.StatusInternalServerError)
 			return
 		}
@@ -230,7 +230,7 @@ func (v *views) contactsRemoveField(kind string) http.HandlerFunc {
 			}
 			ct.Phones = append(ct.Phones[:idx], ct.Phones[idx+1:]...)
 		}
-		if _, err := v.contacts.Put(r.Context(), user.ID, &id, ct, false); err != nil {
+		if _, err := v.contacts.PutContact(r.Context(), user.ID, &id, ct); err != nil {
 			http.Error(w, "could not update contact", http.StatusInternalServerError)
 			return
 		}

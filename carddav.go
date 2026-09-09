@@ -201,8 +201,8 @@ func (c *CardDAV) handlePut(w http.ResponseWriter, r *http.Request, uid uuid.UUI
 		id = &parsed
 	}
 
-	// CardDAV card is authoritative: keep the raw body verbatim.
-	saved, err := c.contacts.Put(r.Context(), uid, id, ct, true)
+	// The client's card is authoritative: store it verbatim.
+	saved, err := c.contacts.PutCard(r.Context(), uid, id, ct)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

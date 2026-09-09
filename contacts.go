@@ -117,32 +117,46 @@ func (c *Contacts) ByEmail(ctx context.Context, userID uuid.UUID, email string) 
 // Put inserts or updates a contact. If id is nil the primary email picks the
 // row (one contact per primary email); otherwise the resource id does, which is
 // how CardDAV clients update a specific card.
-//
-// keepVCard marks the incoming VCard as authoritative (CardDAV PUT): it is
-// stored verbatim so nothing the client sent is lost. Otherwise (web edits) the
-// card is rebuilt from the contact fields, preserving every line CardDAV sent
+// PutContact inserts or updates a contact from its structured fields (web UI).
+// The card is rebuilt from those fields, preserving every line CardDAV sent
 // that the model does not regenerate (ADR, NOTE, BDAY, ...).
-func (c *Contacts) Put(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct Contact, keepVCard bool) (*Contact, error) {
-	// The primary email is the first entry of Emails; it feeds the email column
-	// and the web de-duplication key.
+func (c *Contacts) PutContact(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct Contact) (*Contact, error) {
+	resolvePrimaryEmail(&ct)
+
+	var prev string
+	if id != nil && *id != uuid.Nil {
+		if old, err := c.Get(ctx, userID, *id); err == nil {
+			prev = old.VCard
+		}
+	} else if ct.Email != "" {
+		if old, err := c.ByEmail(ctx, userID, ct.Email); err == nil && old.ID != uuid.Nil {
+			prev = old.VCard
+		}
+	}
+	ct.VCard = buildVCard(ct, prev)
+	return c.persist(ctx, userID, id, ct)
+}
+
+// PutCard stores an incoming vCard (CardDAV PUT) verbatim; the client is the
+// authority on the card contents, so raw fields are never dropped.
+func (c *Contacts) PutCard(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct Contact) (*Contact, error) {
+	resolvePrimaryEmail(&ct)
+	if strings.TrimSpace(ct.VCard) == "" {
+		ct.VCard = buildVCard(ct, "")
+	}
+	return c.persist(ctx, userID, id, ct)
+}
+
+func resolvePrimaryEmail(ct *Contact) {
 	if len(ct.Emails) > 0 {
 		ct.Email = ct.Emails[0].Value
 	}
 	ct.Email = strings.TrimSpace(ct.Email)
+}
 
-	if !keepVCard || strings.TrimSpace(ct.VCard) == "" {
-		var prev string
-		if id != nil && *id != uuid.Nil {
-			if old, err := c.Get(ctx, userID, *id); err == nil {
-				prev = old.VCard
-			}
-		} else if ct.Email != "" {
-			if old, err := c.ByEmail(ctx, userID, ct.Email); err == nil && old.ID != uuid.Nil {
-				prev = old.VCard
-			}
-		}
-		ct.VCard = buildVCard(ct, prev)
-	}
+// persist writes a contact row, replacing on the primary email when no id is
+// given (one contact per primary email) or on the resource id otherwise.
+func (c *Contacts) persist(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct Contact) (*Contact, error) {
 	ct.Name = ct.DisplayName()
 	ct.Email = strings.TrimSpace(ct.Email)
 	etag := uuid.New().String()
