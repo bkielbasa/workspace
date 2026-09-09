@@ -27,7 +27,7 @@ dkim:
 ingress:
   enabled: true
   className: nginx
-  host: mail.cloudlift.pl
+  host: mail.cloudlift.run
   # Additional hosts needed only for the client-discovery endpoints
   # (Outlook autodiscover, Mozilla/Apple autoconfig). CNAME these
   # subdomains to the main host in the public zone.
