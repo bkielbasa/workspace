@@ -19,6 +19,18 @@ func (c *CardDAV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
         http.Redirect(w, r, "/dav/", http.StatusMovedPermanently)
         return
     }
+    // Clients confirm a collection speaks CardDAV by reading the DAV header
+    // from an OPTIONS response before they will use the account; without it
+    // they conclude this is not a CardDAV server and validation fails. It is
+    // answered before authentication because it discloses only which
+    // protocols are implemented.
+    if r.Method == "OPTIONS" {
+        w.Header().Set("DAV", "1, 2, 3, addressbook")
+        w.Header().Set("Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, REPORT")
+        w.WriteHeader(http.StatusOK)
+        return
+    }
+
     user, pass, ok := r.BasicAuth()
     if !ok {
         w.Header().Set("WWW-Authenticate", "Basic realm=carddav")

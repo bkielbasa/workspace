@@ -82,3 +82,37 @@ func TestCardDAVRequiresAuthentication(t *testing.T) {
 		t.Error("no authentication challenge")
 	}
 }
+
+// A client decides whether a collection is usable by reading the DAV header
+// from an OPTIONS response. Answering 405 tells it this is not a CardDAV
+// server, and iOS rejects the account with a validation error.
+func TestCardDAVAnnouncesItselfOnOptions(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest("OPTIONS", "/dav/"+uuid.New().String()+"/", nil)
+
+	(&CardDAV{}).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	if dav := recorder.Header().Get("DAV"); !strings.Contains(dav, "addressbook") {
+		t.Errorf("DAV header = %q, want it to advertise addressbook", dav)
+	}
+	if allow := recorder.Header().Get("Allow"); !strings.Contains(allow, "PROPFIND") {
+		t.Errorf("Allow header = %q, want it to list PROPFIND", allow)
+	}
+}
+
+func TestCalDAVAnnouncesItselfOnOptions(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest("OPTIONS", "/cal/"+uuid.New().String()+"/", nil)
+
+	(&CalDAV{}).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	if dav := recorder.Header().Get("DAV"); !strings.Contains(dav, "calendar-access") {
+		t.Errorf("DAV header = %q, want it to advertise calendar-access", dav)
+	}
+}

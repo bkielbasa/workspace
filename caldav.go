@@ -20,6 +20,15 @@ func (c *CalDAV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
         http.Redirect(w, r, "/cal/", http.StatusMovedPermanently)
         return
     }
+    // See the CardDAV handler: clients read the DAV header from an OPTIONS
+    // response to decide whether the collection is usable at all.
+    if r.Method == "OPTIONS" {
+        w.Header().Set("DAV", "1, 2, 3, calendar-access")
+        w.Header().Set("Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, REPORT")
+        w.WriteHeader(http.StatusOK)
+        return
+    }
+
     user, pass, ok := r.BasicAuth()
     if !ok {
         w.Header().Set("WWW-Authenticate", "Basic realm=caldav")
