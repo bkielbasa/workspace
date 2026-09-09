@@ -8,7 +8,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	neturl "net/url"
 	"strings"
+	"time"
 )
 
 // discovery serves the client auto-configuration protocols. Mail clients pick
@@ -257,9 +259,16 @@ func (d *discovery) autodiscoverJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The address has to be carried into the URL. Clients fetch exactly what
+	// is returned here, with a GET and no body, so an address left out of the
+	// query string is lost and the v1 document comes back without a login
+	// name for the client to use.
+	url := "https://" + autodiscoverHost(d.mailHost, address) +
+		"/autodiscover/autodiscover.xml?Email=" + neturl.QueryEscape(address)
+
 	writeJSON(http.StatusOK, map[string]string{
 		"Protocol": "AutodiscoverV1",
-		"Url":      "https://" + autodiscoverHost(d.mailHost, address) + "/autodiscover/autodiscover.xml",
+		"Url":      url,
 	})
 }
 
@@ -297,11 +306,40 @@ type autodiscoverProtocol struct {
 	AuthRequired   string   `xml:"AuthRequired"`
 }
 
+// autodiscoverError is the POX error document. Autodiscover reports failures
+// in the body of a 200 response rather than with an HTTP status.
+type autodiscoverError struct {
+	XMLName  xml.Name `xml:"http://schemas.microsoft.com/exchange/2010/autodiscover Autodiscover"`
+	Response struct {
+		Error struct {
+			Time      string `xml:"Time,attr"`
+			ErrorCode int    `xml:"ErrorCode"`
+			Message   string `xml:"Message"`
+		} `xml:"Error"`
+	} `xml:"Response"`
+}
+
 func (d *discovery) autodiscoverXML(w http.ResponseWriter, r *http.Request) {
-	// The login name is the full address. It is omitted when the client did
-	// not say which mailbox it is configuring, rather than sent as a
-	// malformed value the client would try to log in with.
 	login := requestedAddress(r)
+
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+
+	// Without an address there is no login name to hand back, and a settings
+	// document missing one leaves the client unable to finish configuring the
+	// account. Reporting the request as invalid makes it ask rather than
+	// accept a configuration it cannot use.
+	if login == "" {
+		var failure autodiscoverError
+		failure.Response.Error.Time = time.Now().Format("15:04:05.0000000")
+		failure.Response.Error.ErrorCode = 600
+		failure.Response.Error.Message = "Invalid Request"
+
+		w.Write([]byte(xml.Header))
+		if err := xml.NewEncoder(w).Encode(failure); err != nil {
+			logWithTrace(r.Context(), slog.LevelError, "discovery: encoding autodiscover error failed", "error", err)
+		}
+		return
+	}
 
 	var response autodiscoverResponse
 	response.Response.XMLNS = "http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a"
@@ -332,7 +370,6 @@ func (d *discovery) autodiscoverXML(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.Write([]byte(xml.Header))
 	if err := xml.NewEncoder(w).Encode(response); err != nil {
 		logWithTrace(r.Context(), slog.LevelError, "discovery: encoding autodiscover failed", "error", err)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	neturl "net/url"
 	"strings"
 	"testing"
 )
@@ -111,12 +112,48 @@ func TestAutoconfigServerSettings(t *testing.T) {
 	}
 }
 
-// A LoginName the client cannot use is worse than none: Outlook would attempt
-// to sign in with it.
-func TestAutodiscoverOmitsUnknownLoginName(t *testing.T) {
+// Without an address there is no login name, and a settings document missing
+// one leaves the client unable to finish: Outlook stops there rather than
+// falling back to asking.
+func TestAutodiscoverReportsErrorWithoutAddress(t *testing.T) {
 	recorder := serve(t, testDiscovery().autodiscoverXML, http.MethodGet, "/autodiscover/autodiscover.xml", "")
-	if body := recorder.Body.String(); strings.Contains(body, "LoginName") {
+
+	body := recorder.Body.String()
+	if strings.Contains(body, "LoginName") {
 		t.Errorf("LoginName present without a known address:\n%s", body)
+	}
+	if !strings.Contains(body, "<ErrorCode>600</ErrorCode>") {
+		t.Errorf("want an autodiscover error document, got:\n%s", body)
+	}
+	if strings.Contains(body, "<Protocol>") {
+		t.Error("returned settings the client cannot use")
+	}
+}
+
+// Clients fetch the URL from the v2 response verbatim, with a GET and no
+// body. If the address is not in that URL it is lost, and the v1 document
+// comes back with no login name.
+func TestAutodiscoverJSONCarriesAddressIntoURL(t *testing.T) {
+	recorder := serve(t, testDiscovery().autodiscoverJSON, http.MethodGet,
+		"/autodiscover/autodiscover.json/v1.0/contact@cloudlift.run?Protocol=AutodiscoverV1", "")
+
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not JSON: %v", err)
+	}
+
+	parsed, err := neturl.Parse(body["Url"])
+	if err != nil {
+		t.Fatalf("Url is not a URL: %v", err)
+	}
+	if got := parsed.Query().Get("Email"); got != "contact@cloudlift.run" {
+		t.Fatalf("Url carries Email=%q, want contact@cloudlift.run (Url=%s)", got, body["Url"])
+	}
+
+	// Following that URL must yield a document with the login name in it.
+	followed := serve(t, testDiscovery().autodiscoverXML, http.MethodGet, parsed.RequestURI(), "")
+	if count := strings.Count(followed.Body.String(), "<LoginName>contact@cloudlift.run</LoginName>"); count != 2 {
+		t.Errorf("following the URL gave %d login names, want 2:\n%s", count, followed.Body.String())
 	}
 }
 
@@ -149,7 +186,7 @@ func TestAutodiscoverJSONPointsAtV1(t *testing.T) {
 	if body["Protocol"] != "AutodiscoverV1" {
 		t.Errorf("Protocol = %q", body["Protocol"])
 	}
-	if want := "https://autodiscover.cloudlift.run/autodiscover/autodiscover.xml"; body["Url"] != want {
+	if want := "https://autodiscover.cloudlift.run/autodiscover/autodiscover.xml?Email=contact%40cloudlift.run"; body["Url"] != want {
 		t.Errorf("Url = %q, want %q", body["Url"], want)
 	}
 }
