@@ -28,8 +28,11 @@ spec:
             Discovery paths served on the autodiscover/autoconfig hosts.
             Thunderbird requests /mail/config-v1.1.xml on the autoconfig host,
             which is not under /.well-known/, so it needs its own rule.
+            /apple/ serves the configuration profile: on the LAN the mail host
+            resolves to the mail LoadBalancer, which has no HTTPS port, so the
+            profile has to be reachable on the discovery hosts too.
           */}}
-          {{- range (list "/autodiscover/" "/.well-known/" "/mail/config-v1.1.xml") }}
+          {{- range (list "/autodiscover/" "/.well-known/" "/mail/config-v1.1.xml" "/apple/") }}
           - path: {{ . }}
             pathType: Prefix
             backend:

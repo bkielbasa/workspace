@@ -56,6 +56,11 @@ func (d *discovery) register(mux *http.ServeMux) {
 
 	// Autodiscover v1 (POX XML).
 	mux.HandleFunc("/autodiscover/autodiscover.xml", d.autodiscoverXML)
+
+	// Apple configuration profile. Apple devices look for no configuration
+	// document of their own, so this is fetched by the user rather than
+	// discovered by the client.
+	mux.HandleFunc("/apple/mail.mobileconfig", d.appleProfile)
 }
 
 // requestedAddress returns the address the client is asking about. Thunderbird
