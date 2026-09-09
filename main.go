@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"database/sql"
+	"encoding/hex"
 	"log"
 	"net/http"
 	"os"
@@ -11,6 +13,17 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
+
+// listToken derives a collection tag from member ETags so clients that cache
+// getctag/sync-token re-sync exactly when the collection changes.
+func listToken(etags []string) string {
+	h := sha256.New()
+	for _, e := range etags {
+		h.Write([]byte(e))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:20]
+}
 
 func main() {
 	cfg := loadConfig()

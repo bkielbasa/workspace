@@ -1,15 +1,15 @@
 package main
 
 import (
-    "context"
-    "database/sql"
-    "errors"
-    "fmt"
-    "strings"
-    "time"
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
 
-    "github.com/google/uuid"
-    "golang.org/x/crypto/bcrypt"
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var (
@@ -32,6 +32,7 @@ type Users struct {
 	db        *sql.DB
 	mailboxes *Mailboxes
 	domains   *Domains
+	sessions  *Sessions
 }
 
 func (u *Users) Create(ctx context.Context, email, password, displayName string) (*User, error) {
@@ -52,11 +53,11 @@ func (u *Users) Create(ctx context.Context, email, password, displayName string)
 		}
 	}
 
-    passwordHashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-    if err != nil {
-        return nil, fmt.Errorf("hash password: %w", err)
-    }
-    passwordHash := string(passwordHashBytes)
+	passwordHashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash password: %w", err)
+	}
+	passwordHash := string(passwordHashBytes)
 
 	tx, err := u.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -284,6 +285,14 @@ func (u *Users) Update(ctx context.Context, id uuid.UUID, displayName string, en
 		return ErrUserNotFound
 	}
 
+	// Disabling an account must immediately invalidate every active session so
+	// a disabled user cannot keep using an issued token.
+	if !enabled && u.sessions != nil {
+		if err := u.sessions.DeleteAllForUser(ctx, id); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -313,27 +322,27 @@ func (u *Users) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (u *Users) Authenticate(ctx context.Context, email, password string) (*User, error) {
-    user, err := u.GetByEmail(ctx, email)
-    if err != nil {
-        return nil, err
-    }
+	user, err := u.GetByEmail(ctx, email)
+	if err != nil {
+		return nil, err
+	}
 
-    if !user.Enabled {
-        return nil, errors.New("user disabled")
-    }
+	if !user.Enabled {
+		return nil, errors.New("user disabled")
+	}
 
-    // support both argon2id (set via ChangePassword) and bcrypt (set via Create)
-    if strings.HasPrefix(user.PasswordHash, "$argon2id$") {
-        if !CheckPassword(user.PasswordHash, password) {
-            return nil, errors.New("invalid password")
-        }
-    } else {
-        if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-            return nil, errors.New("invalid password")
-        }
-    }
+	// support both argon2id (set via ChangePassword) and bcrypt (set via Create)
+	if strings.HasPrefix(user.PasswordHash, "$argon2id$") {
+		if !CheckPassword(user.PasswordHash, password) {
+			return nil, errors.New("invalid password")
+		}
+	} else {
+		if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+			return nil, errors.New("invalid password")
+		}
+	}
 
-    return user, nil
+	return user, nil
 }
 
 func (u *Users) ChangePassword(ctx context.Context, id uuid.UUID, password string) error {
@@ -365,6 +374,14 @@ func (u *Users) ChangePassword(ctx context.Context, id uuid.UUID, password strin
 
 	if rows == 0 {
 		return ErrUserNotFound
+	}
+
+	// Revoke every session for the user: changing the password must invalidate
+	// existing tokens so a stolen session cannot survive the credential change.
+	if u.sessions != nil {
+		if err := u.sessions.DeleteAllForUser(ctx, id); err != nil {
+			return err
+		}
 	}
 
 	return nil

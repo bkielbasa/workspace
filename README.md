@@ -49,6 +49,23 @@ The server will:
 
 Base address: `http://localhost:<httpAddr>`
 
+#### Web login (sessions)
+
+The server serves a sign-in page and issues cookie-based sessions. This is the
+intended way to access the HTTP API from a browser.
+
+- `GET /login` – sign-in page
+- `POST /login` – authenticate (`{email, password}`), sets a session + CSRF cookie
+- `GET /me` – current signed-in user (requires session)
+- `POST /logout` – revoke the session (requires session + CSRF)
+- `GET /` – authenticated landing page
+
+Sessions are kept in the `sessions` table: tokens are stored as SHA-256 hashes,
+expire after 24h, are periodically purged, and are revoked when a password
+changes or an account is disabled. All admin/mutation endpoints are gated
+behind `requireAuth`; mutating endpoints also require a CSRF token
+(`X-CSRF-Token` header matching the `csrf` cookie).
+
 User endpoints:
 - `POST /users` – create user
 - `GET /users` – list users
@@ -75,6 +92,9 @@ Environment variables:
 
 - `TLS_CERT_FILE` – path to TLS certificate
 - `TLS_KEY_FILE` – path to TLS key
+- `COOKIE_SECURE` – force the `Secure` attribute on session/CSRF cookies
+  (`true`/`false`). Cookies are always marked Secure over TLS; set to `true` if
+  the API is served behind a TLS-terminating reverse proxy.
 
 If not provided, TLS servers (SMTPS/IMAPS) are disabled.
 

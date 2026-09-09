@@ -3,6 +3,9 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestParseVCardMultiValues(t *testing.T) {
@@ -141,6 +144,74 @@ func TestBuildVCardEscapes(t *testing.T) {
 	rt := parseVCardFields(card)
 	if rt.LastName != "Deal;er" || rt.FirstName != "Co,ma" || rt.Company != "ACME, Inc." {
 		t.Errorf("escape round trip failed: %+v", rt)
+	}
+}
+
+func TestBuildVCardWebContactHasUID(t *testing.T) {
+	id := uuid.MustParse("33333333-3333-4333-8333-333333333333")
+	ct := Contact{
+		ID:        id,
+		FirstName: "Ada",
+		LastName:  "Lovelace",
+		Emails:    []VCardField{{Value: "ada@example.com", Type: []string{"INTERNET"}}},
+	}
+	card := buildVCard(ct, "")
+	if !strings.Contains(card, "UID:33333333-3333-4333-8333-333333333333") {
+		t.Fatalf("web-created card missing generated UID:\n%s", card)
+	}
+	if n := strings.Count(card, "UID:"); n != 1 {
+		t.Errorf("expected exactly one UID, got %d:\n%s", n, card)
+	}
+	if parsed := parseVCardFields(card); parsed.UID != id.String() {
+		t.Errorf("round trip UID = %q, want %q", parsed.UID, id)
+	}
+}
+
+func TestBuildVCardKeepsClientUID(t *testing.T) {
+	original := "BEGIN:VCARD\nVERSION:3.0\nUID:client-uid-123\nFN:Alice Doe\nEMAIL;TYPE=INTERNET:alice@example.com\nEND:VCARD\n"
+	ct := parseVCardFields(original)
+	ct.Emails = append(ct.Emails, VCardField{Value: "work@example.com", Type: []string{"WORK"}, Header: "EMAIL;TYPE=WORK"})
+
+	rebuilt := buildVCard(ct, ct.VCard)
+	if !strings.Contains(rebuilt, "UID:client-uid-123") {
+		t.Fatalf("client UID lost after edit:\n%s", rebuilt)
+	}
+	if strings.Count(rebuilt, "UID:") != 1 {
+		t.Errorf("duplicate UID after edit:\n%s", rebuilt)
+	}
+}
+
+func TestBuildVCardUIDFallbackToPreviousCard(t *testing.T) {
+	// A web edit fetches the contact from the DB (no UID field populated) but
+	// the stored card holds the UID; it must survive the rebuild.
+	prev := "BEGIN:VCARD\nVERSION:3.0\nUID:kept-uid\nFN:Old Name\nNOTE:keep me\nEND:VCARD\n"
+	ct := Contact{
+		ID:    uuid.MustParse("44444444-4444-4444-8444-444444444444"),
+		Email: "x@example.com",
+	}
+	rebuilt := buildVCard(ct, prev)
+	if !strings.Contains(rebuilt, "UID:kept-uid") {
+		t.Fatalf("previous UID lost:\n%s", rebuilt)
+	}
+	if strings.Count(rebuilt, "UID:") != 1 {
+		t.Errorf("duplicate UID:\n%s", rebuilt)
+	}
+}
+
+func TestICSEventHasUIDAndEnvelope(t *testing.T) {
+	id := uuid.MustParse("55555555-5555-4555-8555-555555555555")
+	e := Event{ID: id, Title: "Sync; testing", UpdatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+	ics := icsEvent(e)
+	for _, want := range []string{
+		"BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:", "BEGIN:VEVENT",
+		"UID:55555555-5555-4555-8555-555555555555",
+		"DTSTAMP:20260102T030405Z",
+		"SUMMARY:Sync\\; testing",
+		"END:VEVENT", "END:VCALENDAR",
+	} {
+		if !strings.Contains(ics, want) {
+			t.Errorf("missing %q in:\n%s", want, ics)
+		}
 	}
 }
 

@@ -1,0 +1,50 @@
+{{template "header" .}}
+
+<div class="page-header">
+    <h1>Opening Database</h1>
+</div>
+
+{{if .Stats}}
+<div class="card">
+    <h2>Your Opening Statistics</h2>
+    <table class="games-table">
+        <thead>
+            <tr>
+                <th>ECO</th>
+                <th>Opening Name</th>
+                <th>Games</th>
+                <th>Score %</th>
+                <th>Avg Book Moves</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Stats}}
+            <tr>
+                <td>{{.ECO}}</td>
+                <td>{{.Name}}</td>
+                <td>{{.Games}}</td>
+                <td>{{printf "%.1f" .ScorePct}}%</td>
+                <td>{{printf "%.1f" .AvgBookMoves}}</td>
+                <td>
+                    {{if ge .ScorePct 60.0}}
+                    <span class="tag tag-excellent">Strong</span>
+                    {{else if ge .ScorePct 40.0}}
+                    <span class="tag tag-good">Average</span>
+                    {{else}}
+                    <span class="tag tag-blunder">Needs Work</span>
+                    {{end}}
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+
+<div class="card">
+    <h2>Opening Recommendations</h2>
+    <div class="feedback-content">{{.Recommendations | md}}</div>
+</div>
+
+{{template "footer" .}}

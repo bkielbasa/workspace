@@ -54,7 +54,7 @@ func (u *Users) CreateHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(
 		w,
 		http.StatusCreated,
-		user,
+		toUserResponse(user),
 	)
 }
 
@@ -68,7 +68,7 @@ func (u *Users) ListHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(
 		w,
 		http.StatusOK,
-		users,
+		listUserResponses(users),
 	)
 }
 
@@ -93,7 +93,7 @@ func (u *Users) GetHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(
 		w,
 		http.StatusOK,
-		user,
+		toUserResponse(user),
 	)
 }
 
@@ -181,6 +181,14 @@ func (u *Users) ChangePasswordHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func listUserResponses(users []User) []userResponse {
+	res := make([]userResponse, 0, len(users))
+	for i := range users {
+		res = append(res, toUserResponse(&users[i]))
+	}
+	return res
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

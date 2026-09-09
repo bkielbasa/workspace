@@ -133,6 +133,6 @@ func (d *Domains) CreateUserHandler(users *Users) http.HandlerFunc {
 			return
 		}
 
-		writeJSON(w, http.StatusCreated, user)
+		writeJSON(w, http.StatusCreated, toUserResponse(user))
 	}
 }

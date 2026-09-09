@@ -20,6 +20,7 @@ type Contact struct {
 	LastName  string
 	Company   string
 	Title     string
+	UID       string // vCard UID; regenerated from ID when a card has none
 	Emails    []VCardField
 	Phones    []VCardField
 	VCard     string

@@ -1,0 +1,252 @@
+{{template "header" .}}
+
+{{$s := .Stats}}
+{{$snapshots := .Snapshots}}
+
+{{if $s.AnalyzedCount}}
+<div class="page-header">
+	<h1>Dashboard</h1>
+</div>
+
+<div class="stat-grid">
+	<div class="stat-card">
+		<div class="stat-num">{{$s.AnalyzedCount}}</div>
+		<div class="stat-lbl">Games Analyzed</div>
+	</div>
+	<div class="stat-card">
+		<div class="stat-num">{{printf "%.0f" $s.AvgAccuracy}}<span class="stat-unit">%</span></div>
+		<div class="stat-lbl">Avg Accuracy</div>
+	</div>
+	<div class="stat-card">
+		<div class="stat-num">{{$s.Wins}}<span class="stat-unit">/{{$s.Losses}}/{{$s.Draws}}</span></div>
+		<div class="stat-lbl">W / L / D</div>
+	</div>
+	<div class="stat-card">
+		<div class="stat-num">{{$s.TotalMoves}}</div>
+		<div class="stat-lbl">Total Moves</div>
+	</div>
+</div>
+
+<div class="dash-grid">
+	<div class="dash-section">
+		<h2>Accuracy</h2>
+		<div class="acc-row">
+			<span class="acc-lbl">White</span>
+			<div class="acc-bar-bg"><div class="acc-bar" style="width:{{printf "%.0f" $s.AvgAccuracyWhite}}%"></div></div>
+			<span class="acc-val">{{printf "%.1f" $s.AvgAccuracyWhite}}%</span>
+		</div>
+		<div class="acc-row">
+			<span class="acc-lbl">Black</span>
+			<div class="acc-bar-bg"><div class="acc-bar black" style="width:{{printf "%.0f" $s.AvgAccuracyBlack}}%"></div></div>
+			<span class="acc-val">{{printf "%.1f" $s.AvgAccuracyBlack}}%</span>
+		</div>
+		<div class="acc-row">
+			<span class="acc-lbl">Overall</span>
+			<div class="acc-bar-bg"><div class="acc-bar overall" style="width:{{printf "%.0f" $s.AvgAccuracy}}%"></div></div>
+			<span class="acc-val">{{printf "%.1f" $s.AvgAccuracy}}%</span>
+		</div>
+
+		{{if $s.RecentAccuracy}}
+		<h3 style="margin-top:1.25rem;font-size:0.85rem;color:#666;">Last {{len $s.RecentAccuracy}} Games</h3>
+		<div class="mini-chart">
+			{{range $i, $acc := $s.RecentAccuracy}}
+			<div class="bar-col">
+				<div class="bar" style="height:{{printf "%.0f" $acc}}px" title="Game {{add $i 1}}: {{printf "%.1f" $acc}}%"></div>
+			</div>
+			{{end}}
+		</div>
+		{{end}}
+	</div>
+
+	<div class="dash-section">
+		<h2>Errors</h2>
+		<div class="err-summary">
+			<div class="err-row">
+				<span class="err-dot blunder"></span>
+				<span class="err-lbl">Blunders</span>
+				<span class="err-val bad">{{$s.TotalBlunders}}</span>
+				<span class="err-rate">({{printf "%.1f" $s.AvgBlundersPer}}/game)</span>
+			</div>
+			<div class="err-row">
+				<span class="err-dot mistake"></span>
+				<span class="err-lbl">Mistakes</span>
+				<span class="err-val warn">{{$s.TotalMistakes}}</span>
+				<span class="err-rate">({{printf "%.1f" $s.AvgMistakesPer}}/game)</span>
+			</div>
+			<div class="err-row">
+				<span class="err-dot inaccuracy"></span>
+				<span class="err-lbl">Inaccuracies</span>
+				<span class="err-val ok">{{$s.TotalInaccuracies}}</span>
+				<span class="err-rate">({{printf "%.1f" $s.AvgInaccuraciesPer}}/game)</span>
+			</div>
+			<div class="err-total">
+				<strong>{{$s.TotalErrors}}</strong> total errors across <strong>{{$s.TotalMoves}}</strong> moves
+			</div>
+			<div class="err-total">
+				Error rate: <strong>{{printf "%.1f" $s.ErrorRate}}%</strong> of moves
+			</div>
+		</div>
+
+		{{if $s.RecentErrors}}
+		<h3 style="margin-top:1.25rem;font-size:0.85rem;color:#666;">Error Trend</h3>
+		<div class="mini-chart err-chart">
+			{{range $i, $e := $s.RecentErrors}}
+			<div class="bar-col">
+				<div class="bar err" style="height:{{if gt $e 60}}60{{else}}{{$e}}{{end}}px" title="Game {{add $i 1}}: {{$e}} errors"></div>
+			</div>
+			{{end}}
+		</div>
+		{{end}}
+	</div>
+
+	<div class="dash-section">
+		<h2>Games</h2>
+		<div class="result-ring">
+			{{if gt $s.Wins 0}}<div class="result-seg win-pct" style="width:{{printf "%.0f" (div (mul $s.Wins 100) (add $s.Wins $s.Losses $s.Draws))}}%">W</div>{{end}}
+			{{if gt $s.Draws 0}}<div class="result-seg draw-pct" style="width:{{printf "%.0f" (div (mul $s.Draws 100) (add $s.Wins $s.Losses $s.Draws))}}%">D</div>{{end}}
+			{{if gt $s.Losses 0}}<div class="result-seg loss-pct" style="width:{{printf "%.0f" (div (mul $s.Losses 100) (add $s.Wins $s.Losses $s.Draws))}}%">L</div>{{end}}
+		</div>
+		<div class="stat-row">
+			<span>Win Rate</span>
+			<strong>{{printf "%.0f" $s.WinRate}}%</strong>
+		</div>
+		<div class="stat-row">
+			<span>Avg Game Length</span>
+			<strong>{{printf "%.0f" $s.AvgMovesPerGame}} moves</strong>
+		</div>
+		<div class="stat-row">
+			<span>Avg Book Moves</span>
+			<strong>{{printf "%.1f" $s.AvgBookMoves}} /game</strong>
+		</div>
+		<div class="stat-row">
+			<span>Avg Errors/Game</span>
+			<strong>{{printf "%.1f" $s.AvgErrorsPer}}</strong>
+		</div>
+		{{if $s.BestAccuracyID}}
+		<div class="stat-row">
+			<span>Best Game</span>
+			<strong><a href="/games/{{$s.BestAccuracyID}}">{{printf "%.0f" $s.BestAccuracy}}%</a></strong>
+		</div>
+		{{end}}
+		{{if $s.WorstAccuracyID}}
+		<div class="stat-row">
+			<span>Worst Game</span>
+			<strong><a href="/games/{{$s.WorstAccuracyID}}">{{printf "%.0f" $s.WorstAccuracy}}%</a></strong>
+		</div>
+		{{end}}
+	</div>
+</div>
+
+{{if $s.TimeClassStats}}
+<div class="dash-section full">
+	<h2>Time Controls</h2>
+	<table class="data-table">
+		<thead>
+			<tr>
+				<th>Time Control</th>
+				<th>Games</th>
+				<th>Wins</th>
+				<th>Losses</th>
+				<th>Draws</th>
+				<th>Win Rate</th>
+			</tr>
+		</thead>
+		<tbody>
+			{{range $s.TimeClassStats}}
+			<tr>
+				<td>{{.TimeClass}}</td>
+				<td>{{.Games}}</td>
+				<td>{{.Wins}}</td>
+				<td>{{.Losses}}</td>
+				<td>{{.Draws}}</td>
+				<td>{{printf "%.0f" .WinRate}}%</td>
+			</tr>
+			{{end}}
+		</tbody>
+	</table>
+</div>
+{{end}}
+
+{{if $snapshots}}
+<div class="dash-section full">
+	<h2>Progress Over Time</h2>
+	<div style="display:flex;gap:1rem;flex-wrap:wrap;">
+		<div style="flex:1;min-width:250px;">
+			<h3 style="font-size:0.8rem;color:#888;margin-bottom:0.5rem;">Accuracy Trend</h3>
+			<div class="trend-chart">
+				{{$maxSnap := len $snapshots}}{{$step := div (mul 100 8) $maxSnap}}{{if lt $step 8}}{{$step = 8}}{{end}}
+				{{range $i, $snap := $snapshots}}
+				<div class="trend-col" style="width:{{$step}}px" title="{{$snap.TakenAt.Format "Jan 2"}}: {{printf "%.1f" $snap.AvgAccuracy}}%">
+					<div class="trend-bar" style="height:{{printf "%.0f" $snap.AvgAccuracy}}px;background:#2563eb;"></div>
+				</div>
+				{{end}}
+			</div>
+		</div>
+		<div style="flex:1;min-width:250px;">
+			<h3 style="font-size:0.8rem;color:#888;margin-bottom:0.5rem;">Errors per Game</h3>
+			<div class="trend-chart">
+				{{range $i, $snap := $snapshots}}
+				<div class="trend-col" style="width:{{$step}}px" title="{{$snap.TakenAt.Format "Jan 2"}}: {{printf "%.1f" $snap.AvgErrorsPer}} errors">
+					<div class="trend-bar" style="height:{{printf "%.0f" (mulf $snap.AvgErrorsPer 8)}}px;background:#dc2626;"></div>
+				</div>
+				{{end}}
+			</div>
+		</div>
+	</div>
+	<div style="margin-top:1rem;font-size:0.8rem;color:#888;">
+		Last snapshot: {{(index $snapshots 0).TakenAt.Format "Jan 2, 2006 15:04"}}
+	</div>
+</div>
+{{end}}
+
+{{if $s.OpeningStats}}
+<div class="dash-section full">
+	<h2>Opening Performance</h2>
+	<table class="data-table">
+		<thead>
+			<tr>
+				<th>Opening</th>
+				<th>ECO</th>
+				<th>Games</th>
+				<th>Wins</th>
+				<th>Losses</th>
+				<th>Draws</th>
+				<th>Score %</th>
+				<th>Avg Book</th>
+			</tr>
+		</thead>
+		<tbody>
+			{{range $s.OpeningStats}}
+			<tr>
+				<td>{{.Name}}</td>
+				<td class="mono">{{.ECO}}</td>
+				<td>{{.Games}}</td>
+				<td>{{.Wins}}</td>
+				<td>{{.Losses}}</td>
+				<td>{{.Draws}}</td>
+				<td>{{printf "%.0f" .ScorePct}}%</td>
+				<td>{{printf "%.1f" .AvgBookMoves}}</td>
+			</tr>
+			{{end}}
+		</tbody>
+	</table>
+</div>
+{{end}}
+
+<div class="dash-section full">
+	<h2>Coach Analysis</h2>
+	<div class="feedback-content">{{.AnalysisText | md}}</div>
+</div>
+
+{{else}}
+<div class="page-header">
+	<h1>Dashboard</h1>
+</div>
+<div class="empty-card">
+	<h2>No Games Analyzed Yet</h2>
+	<p>Import games from Chess.com and analyze them to see your performance dashboard.</p>
+	<a href="/games" class="btn btn-primary">Import Games</a>
+</div>
+{{end}}
+
+{{template "footer" .}}

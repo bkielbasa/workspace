@@ -1,0 +1,227 @@
+{{template "header" .}}
+
+<div class="page-header">
+	<h1>{{.Game.White}} vs {{.Game.Black}}</h1>
+	<div class="header-actions">
+		<form method="POST" action="/games/{{.Game.ID}}/delete-analysis" style="display:inline" onsubmit="return confirm('Delete analysis for this game?')">
+			<button type="submit" class="btn btn-danger btn-small">Delete Analysis</button>
+		</form>
+		<form method="POST" action="/games/{{.Game.ID}}/analyze" style="display:inline">
+			<button type="submit" class="btn btn-primary btn-small">{{if .Analysis}}Re-analyze{{else}}Analyze{{end}}</button>
+		</form>
+		{{if .Analysis}}
+		<form method="POST" action="/games/{{.Game.ID}}/coach" style="display:inline" onsubmit="this.querySelector('button').disabled = true; this.querySelector('button').textContent = 'Regenerating…';">
+			<button type="submit" class="btn btn-small">Regenerate Coach Notes</button>
+		</form>
+		<a href="/games/{{.Game.ID}}/practice" class="btn btn-small">Practice Blunders</a>
+		{{end}}
+		<a href="/games" class="btn btn-small">← Back</a>
+	</div>
+</div>
+
+<div class="card" style="margin-bottom:1rem;">
+	<strong>Result:</strong> {{.Game.Result}} |
+	<strong>Date:</strong> {{.Game.PlayedAt.Format "2006-01-02"}} |
+	<strong>Opening:</strong> {{if .Game.OpeningName}}{{.Game.OpeningName}}{{else}}-{{end}} |
+	<strong>Time Class:</strong> {{.Game.TimeClass}}
+</div>
+
+{{if .Analysis}}
+<div class="board-section">
+	<div class="game-layout">
+		<div class="board-col">
+			<div class="board-row-flex">
+				<div class="eval-bar-wrap">
+					<div class="eval-bar">
+						<div class="eval-bar-fill" id="eval-bar-fill"></div>
+					</div>
+					<div class="eval-bar-label" id="eval-bar-label">0.00</div>
+				</div>
+				<div class="board-main">
+					<div class="board-wrapper" data-game-id="24">
+						<div id="board"></div>
+					</div>
+					<div class="board-nav">
+						<button type="button" class="btn btn-small nav-btn" onclick="navStart()" title="Start">⏮</button>
+						<button type="button" class="btn btn-small nav-btn" onclick="navPrev()" title="Previous">◀</button>
+						<span class="nav-position" id="nav-position">–</span>
+						<button type="button" class="btn btn-small nav-btn" onclick="navNext()" title="Next">▶</button>
+						<button type="button" class="btn btn-small nav-btn" onclick="navEnd()" title="End">⏭</button>
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="sidebar-col">
+			<div id="board-sidebar">
+				<span id="fen-output" data-fen="{{.BoardFEN}}" data-eval="{{printf "%.2f" .BoardEval}}"></span>
+				<div class="board-info-card">
+					<div class="board-info">
+						<span class="move-label">
+							<span class="move-icon">♞</span>
+							Move {{.BoardMove}} ({{if eq .BoardSide "white"}}W{{else}}B{{end}}): <strong>{{.BoardSAN}}</strong>
+						</span>
+						{{if .BoardClass}}
+						<span class="tag tag-{{.BoardClass}}">
+							{{if eq .BoardClass "blunder"}}⚠{{else if eq .BoardClass "mistake"}}✘{{else if eq .BoardClass "inaccuracy"}}⚠{{else if eq .BoardClass "good"}}✔{{else}}★{{end}}
+							{{.BoardClass | title}}
+						</span>
+						{{end}}
+					</div>
+					{{if .BookMoves}}
+					<div class="book-moves">
+						<div class="book-moves-header">📖 Book Moves</div>
+						<div class="book-moves-list">
+							{{range .BookMoves}}
+							<div class="book-move-item">
+								<div class="book-move-top">
+									<span class="book-move-san">{{.SAN}}</span>
+									<span class="book-move-games">{{.Total}} games</span>
+								</div>
+								<div class="book-move-bar">
+									<div class="book-bar-white" style="width:{{printf "%.0f" .WhitePct}}%"></div>
+									<div class="book-bar-draw" style="width:{{printf "%.0f" .DrawPct}}%"></div>
+								</div>
+								<div class="book-move-pcts">
+									<span class="pct-white">{{printf "%.0f" .WhitePct}}%</span>
+									<span class="pct-draw">{{printf "%.0f" .DrawPct}}%</span>
+									<span class="pct-black">{{printf "%.0f" .BlackPct}}%</span>
+								</div>
+							</div>
+							{{end}}
+						</div>
+					</div>
+					{{end}}
+				</div>
+			</div>
+			<div class="moves-scroll" id="moves-list">
+				{{range $i, $m := .Moves}}
+					{{if eq .Side "white"}}<span class="move-num">{{.MoveNumber}}.</span>{{end}}
+					<span class="move-cell move-row move-{{.Classification}}{{if .IsBook}} move-book{{end}}" data-idx="{{$i}}" hx-get="/games/{{$.Game.ID}}/board/{{.ID}}" hx-target="#board-sidebar" hx-trigger="click" hx-swap="innerHTML">{{if .IsBook}}<span class="book-mark">📖</span>{{end}}{{.SAN}}</span>
+				{{end}}
+			</div>
+		</div>
+	</div>
+</div>
+<div class="dash-grid">
+	<div class="dash-section">
+		<h2>Accuracy</h2>
+		<div class="acc-row">
+			<span class="acc-lbl">White</span>
+			<div class="acc-bar-bg"><div class="acc-bar" style="width:{{printf "%.0f" .Analysis.AccuracyWhite}}%"></div></div>
+			<span class="acc-val">{{printf "%.1f" .Analysis.AccuracyWhite}}%</span>
+		</div>
+		<div class="acc-row">
+			<span class="acc-lbl">Black</span>
+			<div class="acc-bar-bg"><div class="acc-bar black" style="width:{{printf "%.0f" .Analysis.AccuracyBlack}}%"></div></div>
+			<span class="acc-val">{{printf "%.1f" .Analysis.AccuracyBlack}}%</span>
+		</div>
+	</div>
+	<div class="dash-section">
+		<h2>Errors</h2>
+		<div class="err-row"><span class="err-dot blunder"></span><span class="err-lbl">Blunders</span><span class="err-val bad">{{.Analysis.Blunders}}</span></div>
+		<div class="err-row"><span class="err-dot mistake"></span><span class="err-lbl">Mistakes</span><span class="err-val warn">{{.Analysis.Mistakes}}</span></div>
+		<div class="err-row"><span class="err-dot inaccuracy"></span><span class="err-lbl">Inaccuracies</span><span class="err-val ok">{{.Analysis.Inaccuracies}}</span></div>
+		<div class="err-row"><span class="err-dot" style="background:#059669"></span><span class="err-lbl">Good</span><span class="err-val ok">{{.Analysis.GoodMoves}}</span></div>
+		<div class="err-row"><span class="err-dot" style="background:#047857"></span><span class="err-lbl">Excellent</span><span class="err-val ok">{{.Analysis.ExcellentMoves}}</span></div>
+	</div>
+	<div class="dash-section">
+		<h2>Overview</h2>
+		<div class="stat-row"><span>Total Moves</span><strong>{{.Analysis.TotalMoves}}</strong></div>
+		<div class="stat-row"><span>White Accuracy</span><strong>{{printf "%.1f" .Analysis.AccuracyWhite}}%</strong></div>
+		<div class="stat-row"><span>Black Accuracy</span><strong>{{printf "%.1f" .Analysis.AccuracyBlack}}%</strong></div>
+		<div class="stat-row"><span>White Book Moves</span><strong>{{.Analysis.BookMovesWhite}}</strong></div>
+		<div class="stat-row"><span>Black Book Moves</span><strong>{{.Analysis.BookMovesBlack}}</strong></div>
+	</div>
+</div>
+
+{{if .GameStat}}
+<div class="card" style="margin-top:1rem;">
+	<h2>Student Game Stats</h2>
+	<div class="stats-grid">
+		<div class="stat-box">
+			<div class="stat-value">{{printf "%.1f" .GameStat.Accuracy}}%</div>
+			<div class="stat-label">Student Accuracy</div>
+		</div>
+		<div class="stat-box">
+			<div class="stat-value">{{pl .GameStat.AvgCPL}} PL</div>
+			<div class="stat-label">Avg pawn loss</div>
+		</div>
+		<div class="stat-box">
+			<div class="stat-value">{{pl .GameStat.OpeningCPL}} / {{pl .GameStat.MiddlegameCPL}} / {{pl .GameStat.EndgameCPL}}</div>
+			<div class="stat-label">PL by phase (open/mid/end)</div>
+		</div>
+		<div class="stat-box">
+			<div class="stat-value">{{.GameStat.MissedTactics}}</div>
+			<div class="stat-label">Missed tactics</div>
+		</div>
+		<div class="stat-box">
+			<div class="stat-value">{{printf "%.2f" .GameStat.EvalPeak}} / {{printf "%.2f" .GameStat.EvalValley}}</div>
+			<div class="stat-label">Eval peak / valley</div>
+		</div>
+		{{if .GameStat.ThrowWin}}<div class="stat-box"><div class="stat-value warn">Yes</div><div class="stat-label">Threw away a win</div></div>{{end}}
+		{{if .GameStat.Recovered}}<div class="stat-box"><div class="stat-value ok">Yes</div><div class="stat-label">Recovered from losing</div></div>{{end}}
+	</div>
+	<div class="stats-actions">
+		<a href="/games/{{.Game.ID}}/practice" class="btn btn-primary btn-small">Practice this game's errors →</a>
+		<a href="/practice?mode=daily" class="btn btn-small">Open Daily Review →</a>
+		{{if gt .GameStat.MissedTactics 0}}<a href="/practice?mode=theme" class="btn btn-small">Drill tactic themes →</a>{{end}}
+	</div>
+</div>
+{{end}}
+
+{{if .CostlyMoves}}
+<div class="card" style="margin-top:1rem;">
+	<h2>Costliest Student Moves</h2>
+	<p class="card-hint">Click a move to jump the board to that position.</p>
+	<table class="games-table">
+		<thead>
+			<tr>
+				<th>Move</th>
+				<th>Phase</th>
+				<th>PL</th>
+				<th>Classification</th>
+			</tr>
+		</thead>
+		<tbody>
+			{{range .CostlyMoves}}
+			{{if .AnalysisID}}
+			<tr class="costly-row" hx-get="/games/{{$.Game.ID}}/board/{{.AnalysisID}}" hx-target="#board-sidebar" hx-trigger="click" hx-swap="innerHTML">
+			{{else}}
+			<tr>
+			{{end}}
+				<td>{{.MoveNumber}}. {{.SAN}}</td>
+				<td>{{title .Phase}}</td>
+				<td>{{pl .CPL}}</td>
+				<td><span class="tag tag-{{.Classification}}">{{.Classification}}</span></td>
+			</tr>
+			{{end}}
+		</tbody>
+	</table>
+</div>
+{{end}}
+
+{{if .Analysis.Feedback}}
+<div class="dash-section full">
+	<h2>Coach Feedback</h2>
+	<div class="feedback-content">{{.Analysis.Feedback | md}}</div>
+</div>
+{{end}}
+
+{{if .Analysis.CoachFeedback}}
+<div class="dash-section full">
+	<h2>Coach Notes</h2>
+	<div class="feedback-content coach">{{.Analysis.CoachFeedback | md}}</div>
+</div>
+{{end}}
+
+{{else}}
+<div class="empty-card">
+	<h2>Not Analyzed</h2>
+	<p>This game hasn't been analyzed yet. Click the button to start analysis.</p>
+	<form method="POST" action="/games/{{.Game.ID}}/analyze">
+		<button type="submit" class="btn btn-primary">Analyze Now</button>
+	</form>
+</div>
+{{end}}
+
+{{template "footer" .}}

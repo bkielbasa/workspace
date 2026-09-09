@@ -66,6 +66,13 @@ func (c *CardDAV) handleList(w http.ResponseWriter, r *http.Request, uid uuid.UU
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.WriteHeader(207)
 
+	// Collection listing needs the store; a nil store (unit tests) is only used
+	// through the root/principal paths above.
+	var list []Contact
+	if c.contacts != nil {
+		list, _ = c.contacts.List(r.Context(), uid)
+	}
+
 	if r.URL.Path == "/dav/" || r.URL.Path == "/dav" {
 		fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
 <d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
@@ -121,8 +128,13 @@ func (c *CardDAV) handleList(w http.ResponseWriter, r *http.Request, uid uuid.UU
 	}
 
 	if strings.HasSuffix(r.URL.Path, "/contacts/") {
+		etags := make([]string, 0, len(list))
+		for _, ct := range list {
+			etags = append(etags, ct.ETag)
+		}
+		token := listToken(etags)
 		fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
-<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav" xmlns:cs="http://calendarserver.org/ns/">
   <d:response>
     <d:href>/dav/%s/contacts/</d:href>
     <d:propstat>
@@ -132,16 +144,16 @@ func (c *CardDAV) handleList(w http.ResponseWriter, r *http.Request, uid uuid.UU
           <card:addressbook/>
         </d:resourcetype>
         <d:displayname>Contacts</d:displayname>
-        <d:sync-token>token-%s</d:sync-token>
+        <cs:getctag>%s</cs:getctag>
+        <d:sync-token>%s</d:sync-token>
       </d:prop>
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
-  </d:response>`, uid, uid)
+  </d:response>`, uid, token, token)
 
 		// Depth: 1 asks for the members of the collection as well, which is
 		// how a client discovers the cards it needs to fetch.
 		if r.Header.Get("Depth") == "1" {
-			list, _ := c.contacts.List(r.Context(), uid)
 			for _, ct := range list {
 				fmt.Fprintf(w, `
   <d:response>
@@ -162,8 +174,6 @@ func (c *CardDAV) handleList(w http.ResponseWriter, r *http.Request, uid uuid.UU
 </d:multistatus>`)
 		return
 	}
-
-	list, _ := c.contacts.List(r.Context(), uid)
 
 	fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?>
 <d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">`)
