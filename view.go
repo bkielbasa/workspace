@@ -131,13 +131,19 @@ func (v *views) contactsRows(w http.ResponseWriter, r *http.Request) {
 
 func (v *views) contactsAdd(w http.ResponseWriter, r *http.Request) {
 	user := userFromContext(r.Context())
-	name := strings.TrimSpace(r.FormValue("name"))
-	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
+	ct := Contact{
+		FirstName: strings.TrimSpace(r.FormValue("first_name")),
+		LastName:  strings.TrimSpace(r.FormValue("last_name")),
+		Company:   strings.TrimSpace(r.FormValue("company")),
+		Title:     strings.TrimSpace(r.FormValue("title")),
+		Phone:     strings.TrimSpace(r.FormValue("phone")),
+		Email:     strings.ToLower(strings.TrimSpace(r.FormValue("email"))),
+	}
 
 	data := viewData{Error: ""}
-	if email == "" || !strings.Contains(email, "@") {
+	if ct.Email == "" || !strings.Contains(ct.Email, "@") {
 		data.Error = "A valid email address is required."
-	} else if _, err := v.contacts.Upsert(r.Context(), user.ID, email, name); err != nil {
+	} else if _, err := v.contacts.Put(r.Context(), user.ID, nil, ct); err != nil {
 		data.Error = "Could not save the contact."
 	}
 

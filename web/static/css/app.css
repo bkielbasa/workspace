@@ -194,6 +194,22 @@ select:focus-visible {
   flex: 1 1 9rem;
 }
 
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+}
+
+.form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.form-grid .btn {
+  align-self: end;
+}
+
 .inline-form {
   display: inline;
   margin: 0;
@@ -279,6 +295,14 @@ button {
 .table td:last-child,
 .table th:last-child {
   text-align: right;
+}
+
+.cell-sub {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted);
 }
 
 /* ---- Lists (calendar events) ------------------------------------------ */

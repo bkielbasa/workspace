@@ -6,14 +6,21 @@
     <tr>
       <th>Name</th>
       <th>Email</th>
+      <th>Company</th>
+      <th>Phone</th>
       <th></th>
     </tr>
   </thead>
   <tbody>
     {{range .Contacts}}
     <tr>
-      <td>{{if .Name}}{{.Name}}{{else}}&mdash;{{end}}</td>
-      <td>{{.Email}}</td>
+      <td>
+        {{if .DisplayName}}{{.DisplayName}}{{else}}&mdash;{{end}}
+        {{if .Title}}<span class="cell-sub">{{.Title}}</span>{{end}}
+      </td>
+      <td>{{if .Email}}{{.Email}}{{else}}&mdash;{{end}}</td>
+      <td>{{if .Company}}{{.Company}}{{else}}&mdash;{{end}}</td>
+      <td>{{if .Phone}}{{.Phone}}{{else}}&mdash;{{end}}</td>
       <td>
         <button
           type="button"
@@ -21,7 +28,7 @@
           hx-delete="/contacts/{{.ID}}"
           hx-target="#contacts-rows"
           hx-swap="innerHTML"
-          hx-confirm="Remove {{.Email}} from your contacts?">Remove</button>
+          hx-confirm="Remove {{.DisplayName}} from your contacts?">Remove</button>
       </td>
     </tr>
     {{end}}

@@ -6,13 +6,25 @@
     </div>
     <div class="card-body">
       <form
-        class="form-row"
+        class="form-grid"
         hx-post="/contacts/rows"
         hx-target="#contacts-rows"
         hx-swap="innerHTML"
         hx-disabled-elt="button[type=submit]">
-        <label for="name">Name
-          <input id="name" name="name" type="text" autocomplete="off" maxlength="200">
+        <label for="first_name">First name
+          <input id="first_name" name="first_name" type="text" autocomplete="given-name" maxlength="100">
+        </label>
+        <label for="last_name">Last name
+          <input id="last_name" name="last_name" type="text" autocomplete="family-name" maxlength="100">
+        </label>
+        <label for="company">Company
+          <input id="company" name="company" type="text" autocomplete="organization" maxlength="200">
+        </label>
+        <label for="title">Job title
+          <input id="title" name="title" type="text" autocomplete="organization-title" maxlength="200">
+        </label>
+        <label for="phone">Phone
+          <input id="phone" name="phone" type="tel" autocomplete="tel" maxlength="50">
         </label>
         <label for="email">Email
           <input id="email" name="email" type="email" required autocomplete="off" maxlength="200">
