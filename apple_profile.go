@@ -41,6 +41,8 @@ func (d *discovery) appleProfile(w http.ResponseWriter, r *http.Request) {
 
 	profileUUID := uuid.NewSHA1(appleProfileNamespace, []byte(address))
 	accountUUID := uuid.NewSHA1(appleProfileNamespace, []byte("account:"+address))
+	cardDAVUUID := uuid.NewSHA1(appleProfileNamespace, []byte("carddav:"+address))
+	calDAVUUID := uuid.NewSHA1(appleProfileNamespace, []byte("caldav:"+address))
 
 	profile := applePlist{}
 	profile.dict(func(p *applePlist) {
@@ -73,6 +75,39 @@ func (d *discovery) appleProfile(w http.ResponseWriter, r *http.Request) {
 				// ask for it twice.
 				p.rawEntry("OutgoingPasswordSameAsIncomingPassword", "<true/>")
 			})
+
+			// Mail alone gives the device Mail and Notes. Contacts and
+			// Calendar are separate account types and need their own
+			// payloads, pointing at the CardDAV and CalDAV collections.
+			p.dict(func(p *applePlist) {
+				p.stringEntry("PayloadType", "com.apple.carddav.account")
+				p.rawEntry("PayloadVersion", "<integer>1</integer>")
+				p.stringEntry("PayloadIdentifier", "run.cloudlift.workspace.carddav."+address)
+				p.stringEntry("PayloadUUID", cardDAVUUID.String())
+				p.stringEntry("PayloadDisplayName", "Contacts for "+address)
+
+				p.stringEntry("CardDAVAccountDescription", address+" contacts")
+				p.stringEntry("CardDAVHostName", d.davHost)
+				p.rawEntry("CardDAVPort", fmt.Sprintf("<integer>%d</integer>", httpsPort))
+				p.rawEntry("CardDAVUseSSL", "<true/>")
+				p.stringEntry("CardDAVUsername", address)
+				p.stringEntry("CardDAVPrincipalURL", "/dav/")
+			})
+
+			p.dict(func(p *applePlist) {
+				p.stringEntry("PayloadType", "com.apple.caldav.account")
+				p.rawEntry("PayloadVersion", "<integer>1</integer>")
+				p.stringEntry("PayloadIdentifier", "run.cloudlift.workspace.caldav."+address)
+				p.stringEntry("PayloadUUID", calDAVUUID.String())
+				p.stringEntry("PayloadDisplayName", "Calendar for "+address)
+
+				p.stringEntry("CalDAVAccountDescription", address+" calendar")
+				p.stringEntry("CalDAVHostName", d.davHost)
+				p.rawEntry("CalDAVPort", fmt.Sprintf("<integer>%d</integer>", httpsPort))
+				p.rawEntry("CalDAVUseSSL", "<true/>")
+				p.stringEntry("CalDAVUsername", address)
+				p.stringEntry("CalDAVPrincipalURL", "/cal/")
+			})
 		})
 
 		p.stringEntry("PayloadType", "Configuration")
@@ -80,7 +115,7 @@ func (d *discovery) appleProfile(w http.ResponseWriter, r *http.Request) {
 		p.stringEntry("PayloadIdentifier", "run.cloudlift.workspace."+address)
 		p.stringEntry("PayloadUUID", profileUUID.String())
 		p.stringEntry("PayloadDisplayName", domain+" mail")
-		p.stringEntry("PayloadDescription", "Configures "+address+" for Mail.")
+		p.stringEntry("PayloadDescription", "Configures "+address+" for Mail, Contacts and Calendar.")
 		p.stringEntry("PayloadOrganization", domain)
 		p.rawEntry("PayloadRemovalDisallowed", "<false/>")
 	})

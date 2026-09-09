@@ -32,7 +32,7 @@ spec:
             resolves to the mail LoadBalancer, which has no HTTPS port, so the
             profile has to be reachable on the discovery hosts too.
           */}}
-          {{- range (list "/autodiscover/" "/.well-known/" "/mail/config-v1.1.xml" "/apple/") }}
+          {{- range (list "/autodiscover/" "/.well-known/" "/mail/config-v1.1.xml" "/apple/" "/dav/" "/cal/") }}
           - path: {{ . }}
             pathType: Prefix
             backend:

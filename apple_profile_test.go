@@ -100,3 +100,48 @@ func TestAppleProfileRequiresAddress(t *testing.T) {
 		}
 	}
 }
+
+// Mail alone leaves the device with only Mail and Notes; Contacts and
+// Calendar are separate account types and need their own payloads.
+func TestAppleProfileIncludesContactsAndCalendar(t *testing.T) {
+	d := testDiscovery()
+	d.davHost = "dav.cloudlift.run"
+
+	recorder := serve(t, d.appleProfile, http.MethodGet,
+		"/apple/mail.mobileconfig?email=contact@cloudlift.run", "")
+	body := recorder.Body.String()
+
+	for _, want := range []string{
+		"<string>com.apple.mail.managed</string>",
+		"<string>com.apple.carddav.account</string>",
+		"<string>com.apple.caldav.account</string>",
+		"<key>CardDAVPrincipalURL</key>\n\t\t\t<string>/dav/</string>",
+		"<key>CalDAVPrincipalURL</key>\n\t\t\t<string>/cal/</string>",
+		"<key>CardDAVUseSSL</key>\n\t\t\t<true/>",
+		"<key>CalDAVUseSSL</key>\n\t\t\t<true/>",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
+
+// The DAV collections are reached over HTTPS, which the mail host does not
+// serve on the local network, so they must not be advertised on it.
+func TestAppleProfileUsesDavHostForCollections(t *testing.T) {
+	d := testDiscovery()
+	d.davHost = "dav.cloudlift.run"
+
+	body := serve(t, d.appleProfile, http.MethodGet,
+		"/apple/mail.mobileconfig?email=contact@cloudlift.run", "").Body.String()
+
+	for _, want := range []string{
+		"<key>CardDAVHostName</key>\n\t\t\t<string>dav.cloudlift.run</string>",
+		"<key>CalDAVHostName</key>\n\t\t\t<string>dav.cloudlift.run</string>",
+		"<key>IncomingMailServerHostName</key>\n\t\t\t<string>mail.cloudlift.run</string>",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}

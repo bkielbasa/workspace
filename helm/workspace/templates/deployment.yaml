@@ -73,6 +73,10 @@ spec:
             - name: MAIL_HOST
               value: {{ . | quote }}
             {{- end }}
+            {{- with (.Values.davHost | default .Values.mailHost) }}
+            - name: DAV_HOST
+              value: {{ . | quote }}
+            {{- end }}
           volumeMounts:
             - name: migrations
               mountPath: /migrations

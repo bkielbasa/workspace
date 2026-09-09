@@ -162,7 +162,13 @@ func main() {
 	})
 
 	// Mail client auto-configuration (Autodiscover + Mozilla autoconfig).
-	(&discovery{mailHost: mailHostname, domains: domains}).register(mux)
+	// CardDAV and CalDAV are reached over HTTPS, which the mail host does not
+	// serve on the local network; DAV_HOST names the host that does.
+	davHost := cfg.davHost
+	if davHost == "" {
+		davHost = mailHostname
+	}
+	(&discovery{mailHost: mailHostname, davHost: davHost, domains: domains}).register(mux)
 
 	// domains
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

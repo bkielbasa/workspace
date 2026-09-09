@@ -28,6 +28,10 @@ import (
 type discovery struct {
 	// mailHost is the host clients connect to for IMAP and submission.
 	mailHost string
+	// davHost serves the CardDAV and CalDAV collections over HTTPS. It is
+	// not the mail host: on the local network that name resolves to the mail
+	// load balancer, which publishes no HTTPS port.
+	davHost string
 	// domains lists the mail domains this server is authoritative for; the
 	// Mozilla document has to name them, since a client rejects a
 	// configuration that does not cover the address it asked about.
@@ -41,6 +45,7 @@ const (
 	imapTLSPort        = 993
 	submissionTLSPort  = 465
 	submissionSTARTTLS = 587
+	httpsPort          = 443
 )
 
 func (d *discovery) register(mux *http.ServeMux) {

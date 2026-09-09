@@ -32,11 +32,6 @@ func (c *CardDAV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-    if len(parts) < 2 {
-        http.Error(w, "bad path", 400)
-        return
-    }
     userID := u.ID
 
     switch r.Method {
@@ -85,6 +80,34 @@ func (c *CardDAV) handleList(w http.ResponseWriter, r *http.Request, uid uuid.UU
         return
     }
 
+    // The principal. Clients read the root, then the principal it names, and
+    // only then the address book, so this step cannot be skipped.
+    if segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/"); len(segments) == 2 {
+        fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+  <d:response>
+    <d:href>/dav/%s/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:current-user-principal>
+          <d:href>/dav/%s/</d:href>
+        </d:current-user-principal>
+        <card:addressbook-home-set>
+          <d:href>/dav/%s/contacts/</d:href>
+        </card:addressbook-home-set>
+        <d:resourcetype>
+          <d:collection/>
+          <d:principal/>
+        </d:resourcetype>
+        <d:displayname>Contacts principal</d:displayname>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`, uid, uid, uid)
+        return
+    }
+
     if strings.HasSuffix(r.URL.Path, "/contacts/") {
         fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
 <d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
@@ -101,21 +124,53 @@ func (c *CardDAV) handleList(w http.ResponseWriter, r *http.Request, uid uuid.UU
       </d:prop>
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
-  </d:response>
-</d:multistatus>`, uid, uid)
+  </d:response>`, uid, uid)
+
+        // Depth: 1 asks for the members of the collection as well, which is
+        // how a client discovers the cards it needs to fetch.
+        if r.Header.Get("Depth") == "1" {
+            list, _ := c.contacts.List(r.Context(), uid)
+            for _, ct := range list {
+                fmt.Fprintf(w, `
+  <d:response>
+    <d:href>/dav/%s/contacts/%s.vcf</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>%s</d:getetag>
+        <d:getcontenttype>text/vcard; charset=utf-8</d:getcontenttype>
+        <d:resourcetype/>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`, uid, ct.ID, ct.ETag)
+            }
+        }
+
+        fmt.Fprint(w, `
+</d:multistatus>`)
         return
     }
 
     list, _ := c.contacts.List(r.Context(), uid)
 
-    fmt.Fprintln(w, "<multistatus>")
+    fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">`)
     for _, ct := range list {
-        fmt.Fprintf(w, "<response><href>/dav/%s/contacts/%s.vcf</href>", uid, ct.ID)
-        fmt.Fprintf(w, "<propstat><prop>")
-        fmt.Fprintf(w, "<getetag>%s</getetag>", ct.ETag)
-        fmt.Fprintf(w, "</prop></propstat></response>")
+        fmt.Fprintf(w, `
+  <d:response>
+    <d:href>/dav/%s/contacts/%s.vcf</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>%s</d:getetag>
+        <d:getcontenttype>text/vcard; charset=utf-8</d:getcontenttype>
+        <d:resourcetype/>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`, uid, ct.ID, ct.ETag)
     }
-    fmt.Fprintln(w, "</multistatus>")
+    fmt.Fprint(w, `
+</d:multistatus>`)
 }
 
 func (c *CardDAV) handleReport(w http.ResponseWriter, r *http.Request, uid uuid.UUID) {

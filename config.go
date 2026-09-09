@@ -6,6 +6,7 @@ type config struct {
 	httpAddr    string
 	databaseURL string
 	mailHost    string
+	davHost     string
 }
 
 // mailHostname is the canonical hostname announced in SMTP banners and EHLO
@@ -20,6 +21,7 @@ func loadConfig() config {
 		httpAddr:    getEnv("HTTP_ADDR", ":8080"),
 		databaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/workspace?sslmode=disable"),
 		mailHost:    getEnv("MAIL_HOST", ""),
+		davHost:     getEnv("DAV_HOST", ""),
 	}
 
 	if cfg.mailHost != "" {

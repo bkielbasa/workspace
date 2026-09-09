@@ -77,6 +77,33 @@ func (c *CalDAV) list(w http.ResponseWriter, r *http.Request, uid uuid.UUID) {
         return
     }
 
+    // The principal, which clients read before they can find the calendar.
+    if segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/"); len(segments) == 2 {
+        fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/cal/%s/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:current-user-principal>
+          <d:href>/cal/%s/</d:href>
+        </d:current-user-principal>
+        <cal:calendar-home-set>
+          <d:href>/cal/%s/default/</d:href>
+        </cal:calendar-home-set>
+        <d:resourcetype>
+          <d:collection/>
+          <d:principal/>
+        </d:resourcetype>
+        <d:displayname>Calendar principal</d:displayname>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`, uid, uid, uid)
+        return
+    }
+
     if strings.HasSuffix(r.URL.Path, "/default/") {
         fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
 <d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
@@ -88,24 +115,59 @@ func (c *CalDAV) list(w http.ResponseWriter, r *http.Request, uid uuid.UUID) {
           <d:collection/>
           <cal:calendar/>
         </d:resourcetype>
+        <cal:supported-calendar-component-set>
+          <cal:comp name="VEVENT"/>
+        </cal:supported-calendar-component-set>
         <d:displayname>Default Calendar</d:displayname>
         <d:sync-token>token-%s</d:sync-token>
       </d:prop>
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
-  </d:response>
-</d:multistatus>`, uid, uid)
+  </d:response>`, uid, uid)
+
+        if r.Header.Get("Depth") == "1" {
+            events, _ := c.cal.List(r.Context(), uid)
+            for _, e := range events {
+                fmt.Fprintf(w, `
+  <d:response>
+    <d:href>/cal/%s/default/%s.ics</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>%s</d:getetag>
+        <d:getcontenttype>text/calendar; charset=utf-8</d:getcontenttype>
+        <d:resourcetype/>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`, uid, e.ID, e.ETag)
+            }
+        }
+
+        fmt.Fprint(w, `
+</d:multistatus>`)
         return
     }
 
     events, _ := c.cal.List(r.Context(), uid)
 
-    fmt.Fprintln(w, "<multistatus>")
+    fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">`)
     for _, e := range events {
-        fmt.Fprintf(w, "<response><href>/cal/%s/%s.ics</href>", uid.String(), e.ID)
-        fmt.Fprintf(w, "<propstat><prop><getetag>%s</getetag></prop></propstat></response>", e.ETag)
+        fmt.Fprintf(w, `
+  <d:response>
+    <d:href>/cal/%s/default/%s.ics</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>%s</d:getetag>
+        <d:getcontenttype>text/calendar; charset=utf-8</d:getcontenttype>
+        <d:resourcetype/>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`, uid, e.ID, e.ETag)
     }
-    fmt.Fprintln(w, "</multistatus>")
+    fmt.Fprint(w, `
+</d:multistatus>`)
 }
 
 func (c *CalDAV) put(w http.ResponseWriter, r *http.Request, uid uuid.UUID) {
