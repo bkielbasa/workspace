@@ -28,6 +28,8 @@ ingress:
   enabled: true
   className: nginx
   host: mail.cloudlift.run
+  # Additional hosts that serve the full app (root path), e.g. the apex domain.
+  appHosts: []
   # Additional hosts needed only for the client-discovery endpoints
   # (Outlook autodiscover, Mozilla/Apple autoconfig). CNAME these
   # subdomains to the main host in the public zone.
