@@ -116,9 +116,13 @@ func (c *Contacts) ByEmail(ctx context.Context, userID uuid.UUID, email string) 
 
 // Put inserts or updates a contact. If id is nil the primary email picks the
 // row (one contact per primary email); otherwise the resource id does, which is
-// how CardDAV clients update a specific card. The card is rebuilt via
-// buildVCard, preserving any CardDAV fields the caller did not supply.
-func (c *Contacts) Put(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct Contact) (*Contact, error) {
+// how CardDAV clients update a specific card.
+//
+// keepVCard marks the incoming VCard as authoritative (CardDAV PUT): it is
+// stored verbatim so nothing the client sent is lost. Otherwise (web edits) the
+// card is rebuilt from the contact fields, preserving every line CardDAV sent
+// that the model does not regenerate (ADR, NOTE, BDAY, ...).
+func (c *Contacts) Put(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct Contact, keepVCard bool) (*Contact, error) {
 	// The primary email is the first entry of Emails; it feeds the email column
 	// and the web de-duplication key.
 	if len(ct.Emails) > 0 {
@@ -126,7 +130,7 @@ func (c *Contacts) Put(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct 
 	}
 	ct.Email = strings.TrimSpace(ct.Email)
 
-	if strings.TrimSpace(ct.VCard) == "" {
+	if !keepVCard || strings.TrimSpace(ct.VCard) == "" {
 		var prev string
 		if id != nil && *id != uuid.Nil {
 			if old, err := c.Get(ctx, userID, *id); err == nil {

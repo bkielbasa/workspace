@@ -1,19 +1,19 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --bg: #f4f5f7;
-  --surface: #ffffff;
-  --surface-2: #f9fafb;
-  --border: #e2e4e8;
-  --border-strong: #d1d5db;
-  --text: #111827;
-  --text-muted: #6b7280;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --danger: #b91c1c;
-  --danger-surface: #fef2f2;
-  --danger-border: #fecaca;
-  --shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  --bg: #280905;
+  --surface: #740a03;
+  --surface-2: rgba(230, 80, 27, 0.1);
+  --border: rgba(230, 80, 27, 0.28);
+  --border-strong: rgba(195, 17, 12, 0.65);
+  --text: #f6e7dd;
+  --text-muted: rgba(246, 231, 221, 0.62);
+  --accent: #e6501b;
+  --accent-hover: #c3110c;
+  --danger: #c3110c;
+  --danger-surface: rgba(195, 17, 12, 0.14);
+  --danger-border: rgba(195, 17, 12, 0.5);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   --radius: 10px;
 }
 
@@ -68,9 +68,13 @@ body {
 }
 
 .nav-links a[aria-current="page"] {
-  color: var(--accent);
-  background: rgba(37, 99, 235, 0.08);
+  color: var(--text);
+  background: var(--accent);
   font-weight: 600;
+}
+
+.nav-links a[aria-current="page"]:hover {
+  background: var(--accent-hover);
 }
 
 .nav-user {
@@ -351,7 +355,7 @@ button {
 }
 
 .icon-btn:hover {
-  color: #c0392b;
+  color: var(--danger);
 }
 
 /* ---- Lists (calendar events) ------------------------------------------ */
@@ -464,36 +468,6 @@ button {
   margin: 0;
   word-break: break-all;
   text-align: right;
-}
-
-/* ---- Dark mode -------------------------------------------------------- */
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111827;
-    --surface: #1f2937;
-    --surface-2: #263342;
-    --border: #374151;
-    --border-strong: #4b5563;
-    --text: #f9fafb;
-    --text-muted: #9ca3af;
-  }
-
-  input,
-  select {
-    background: #111827;
-    color: #f9fafb;
-  }
-
-  .nav {
-    background: #1f2937;
-  }
-
-  .error {
-    color: #fca5a5;
-    background: #450a0a;
-    border-color: #7f1d1d;
-  }
 }
 
 @media (max-width: 40rem) {
