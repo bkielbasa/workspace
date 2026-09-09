@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -114,5 +115,55 @@ func TestCalDAVAnnouncesItselfOnOptions(t *testing.T) {
 	}
 	if dav := recorder.Header().Get("DAV"); !strings.Contains(dav, "calendar-access") {
 		t.Errorf("DAV header = %q, want it to advertise calendar-access", dav)
+	}
+}
+
+// A client PUTs an event under a resource name of its choosing (often not a
+// UUID, e.g. iOS uses the event UID). The name must survive so the client can
+// GET the event back at the same href.
+func TestEventResourceFromPath(t *testing.T) {
+	cases := map[string]string{
+		"/cal/u/default/IOS-ABC-123.ics":                          "IOS-ABC-123",
+		"/cal/u/default/946205ab-60bf-4cc0-8edf-762dc1ce6da2.ics": "946205ab-60bf-4cc0-8edf-762dc1ce6da2",
+		"/cal/u/default/no-extension":                             "no-extension",
+	}
+	for path, want := range cases {
+		if got := eventResourceFromPath(path); got != want {
+			t.Errorf("eventResourceFromPath(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
+// iOS sends CRLF line endings, folded lines and timezone-qualified times. The
+// naive prefix parser dropped all of these; the parser must recover the
+// summary, UID and start/end without erroring.
+func TestParseICSHandlesRealWorldEvent(t *testing.T) {
+	raw := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\n" +
+		"UID:IOS-TEST-1234-ABCD\r\n" +
+		"DTSTART;TZID=Europe/Warsaw:20260301T100000\r\n" +
+		"DTEND;TZID=Europe/Warsaw:20260301T110000\r\n" +
+		"SUMMARY:Dentist\\, morning\r\n" +
+		"END:VEVENT\r\nEND:VCALENDAR\r\n"
+
+	title, start, end, uid := parseICS(raw)
+	if title != "Dentist, morning" {
+		t.Errorf("title = %q, want %q", title, "Dentist, morning")
+	}
+	if uid != "IOS-TEST-1234-ABCD" {
+		t.Errorf("uid = %q", uid)
+	}
+	if start.IsZero() || end.IsZero() {
+		t.Errorf("expected non-zero times, got start=%v end=%v", start, end)
+	}
+	if !start.Equal(time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)) {
+		t.Errorf("start = %v", start)
+	}
+}
+
+func TestParseICSAllDayDate(t *testing.T) {
+	raw := "BEGIN:VEVENT\nUID:x\nDTSTART;VALUE=DATE:20260301\nSUMMARY:Holiday\nEND:VEVENT\n"
+	_, start, _, _ := parseICS(raw)
+	if !start.Equal(time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("all-day start = %v", start)
 	}
 }
