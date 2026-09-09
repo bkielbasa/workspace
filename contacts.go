@@ -134,6 +134,14 @@ func (c *Contacts) PutContact(ctx context.Context, userID uuid.UUID, id *uuid.UU
 			prev = old.VCard
 		}
 	}
+	// A new contact has no row id yet (the database assigns it), so give the
+	// card a stable UID here; clients ignore cards without one. An existing
+	// card's UID is reused via uidFor below.
+	if strings.TrimSpace(ct.UID) == "" {
+		if ct.UID = uidFor(ct, prev); ct.UID == "" {
+			ct.UID = uuid.NewString()
+		}
+	}
 	ct.VCard = buildVCard(ct, prev)
 	return c.persist(ctx, userID, id, ct)
 }
