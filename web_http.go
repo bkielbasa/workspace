@@ -38,7 +38,7 @@ func csrfTokenFromRequest(r *http.Request) string {
 }
 
 func staticHandler() http.Handler {
-	sub, err := fs.Sub(webFS, "web")
+	sub, err := fs.Sub(webFS, "web/static")
 	if err != nil {
 		panic(err)
 	}
