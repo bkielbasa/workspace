@@ -55,6 +55,17 @@ func (s *SMTPServer) ListenAndServe() error {
 	}
 }
 
+// commandVerb returns the upper-cased verb of an SMTP command line, or an
+// empty string when the client sent nothing but whitespace. Clients do send
+// bare line endings, and strings.Fields yields no fields for them.
+func commandVerb(line string) string {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.ToUpper(fields[0])
+}
+
 // readAuthCredentials runs the RFC 4954 AUTH exchange for the PLAIN and LOGIN
 // mechanisms and returns the credentials the client supplied.
 //
@@ -185,7 +196,7 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 
 		// Log the command verb only; AUTH lines and message data carry
 		// credentials and message content.
-		if verb := strings.ToUpper(strings.Fields(line + " ")[0]); verb != "" {
+		if verb := commandVerb(line); verb != "" {
 			logWithTrace(ctx, slog.LevelInfo, "smtp cmd",
 				"verb", verb,
 				"remote", conn.RemoteAddr().String(),

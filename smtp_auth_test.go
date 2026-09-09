@@ -3,8 +3,10 @@ package main
 import (
 	"bufio"
 	"encoding/base64"
+	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 // exchange runs readAuthCredentials against a scripted client and reports the
@@ -141,4 +143,55 @@ func TestAuthRejectsBadInput(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCommandVerb(t *testing.T) {
+	cases := map[string]string{
+		"EHLO client.test":  "EHLO",
+		"quit":              "QUIT",
+		"  MAIL FROM:<a@b>": "MAIL",
+		"":                  "",
+		"   ":               "",
+		"\r\n":              "",
+	}
+	for line, want := range cases {
+		if got := commandVerb(line); got != want {
+			t.Errorf("commandVerb(%q) = %q, want %q", line, got, want)
+		}
+	}
+}
+
+// A blank line must not take the server down. strings.Fields returns no
+// fields for one, and indexing that empty slice panicked the connection
+// goroutine, which takes the whole process with it: any client on the open
+// SMTP port could stop the mail server by sending a bare line ending.
+func TestBlankLineDoesNotCrashConnection(t *testing.T) {
+	server := &SMTPServer{}
+	client, serverSide := net.Pipe()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		server.handleConn(serverSide)
+	}()
+
+	go func() {
+		buffer := make([]byte, 4096)
+		for {
+			if _, err := client.Read(buffer); err != nil {
+				return
+			}
+		}
+	}()
+
+	if _, err := client.Write([]byte("\r\n\r\nQUIT\r\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("connection handler did not finish")
+	}
+	client.Close()
 }
