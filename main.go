@@ -90,15 +90,15 @@ func main() {
 	}
 
 	// Each server logs its own listening address once the socket is bound.
-	go mustListen(smtp.NewServer(":2526", mailHostname, delivery, users, mailboxes, messages, tlsCfg))
-	go mustListen(smtp.NewServer(":2588", mailHostname, delivery, users, mailboxes, messages, tlsCfg))
+	go mustListen(smtp.NewServer(":2525", mailHostname, delivery, users, mailboxes, messages, tlsCfg))
+	go mustListen(smtp.NewServer(":2587", mailHostname, delivery, users, mailboxes, messages, tlsCfg))
 	if tlsCfg != nil {
-		go mustListen(smtp.NewTLSServer(":2466", mailHostname, delivery, users, mailboxes, messages, tlsCfg))
+		go mustListen(smtp.NewTLSServer(":2465", mailHostname, delivery, users, mailboxes, messages, tlsCfg))
 	}
 
-	go mustListen(imap.NewServer(":1144", users, messages, mailboxes))
+	go mustListen(imap.NewServer(":1143", users, messages, mailboxes))
 	if tlsCfg != nil {
-		go mustListen(imap.NewTLSServer(":1994", users, messages, mailboxes, tlsCfg))
+		go mustListen(imap.NewTLSServer(":1993", users, messages, mailboxes, tlsCfg))
 	}
 
 	webUI, err := web.New(webFS, contactSvc, calendarSvc, mailSvc, sessions, users, cfg.cookieSecure)
