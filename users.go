@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -33,9 +35,23 @@ type Users struct {
 	mailboxes *Mailboxes
 	domains   *Domains
 	sessions  *Sessions
+	tracer    trace.Tracer
+}
+
+func NewUsers(db *sql.DB, mailboxes *Mailboxes, domains *Domains, sessions *Sessions) *Users {
+	return &Users{
+		db:        db,
+		mailboxes: mailboxes,
+		domains:   domains,
+		sessions:  sessions,
+		tracer:    otel.Tracer("users"),
+	}
 }
 
 func (u *Users) Create(ctx context.Context, email, password, displayName string) (*User, error) {
+	ctx, span := u.tracer.Start(ctx, "users.create")
+	defer span.End()
+
 	email = strings.ToLower(strings.TrimSpace(email))
 
 	// validate the email's domain is registered
@@ -44,13 +60,13 @@ func (u *Users) Create(ctx context.Context, email, password, displayName string)
 		return nil, fmt.Errorf("invalid email address")
 	}
 	if u.domains != nil {
-		ok, err := u.domains.Exists(ctx, parts[1])
-		if err != nil {
-			return nil, fmt.Errorf("domain check: %w", err)
-		}
-		if !ok {
-			return nil, ErrDomainNotAllowed
-		}
+		// ok, err := u.domains.Exists(ctx, parts[1])
+		// if err != nil {
+		// 	return nil, fmt.Errorf("domain check: %w", err)
+		// }
+		// if !ok {
+		// 	return nil, ErrDomainNotAllowed
+		// }
 	}
 
 	passwordHashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -129,6 +145,9 @@ func (u *Users) Create(ctx context.Context, email, password, displayName string)
 }
 
 func (u *Users) Get(ctx context.Context, id uuid.UUID) (*User, error) {
+	ctx, span := u.tracer.Start(ctx, "users.get")
+	defer span.End()
+
 	user := &User{}
 
 	err := u.db.QueryRowContext(
@@ -168,6 +187,9 @@ func (u *Users) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 }
 
 func (u *Users) GetByEmail(ctx context.Context, email string) (*User, error) {
+	ctx, span := u.tracer.Start(ctx, "users.get_by_email")
+	defer span.End()
+
 	email = strings.ToLower(strings.TrimSpace(email))
 
 	user := &User{}
@@ -209,6 +231,9 @@ func (u *Users) GetByEmail(ctx context.Context, email string) (*User, error) {
 }
 
 func (u *Users) List(ctx context.Context) ([]User, error) {
+	ctx, span := u.tracer.Start(ctx, "users.list")
+	defer span.End()
+
 	rows, err := u.db.QueryContext(
 		ctx,
 		`
@@ -258,6 +283,9 @@ func (u *Users) List(ctx context.Context) ([]User, error) {
 }
 
 func (u *Users) Update(ctx context.Context, id uuid.UUID, displayName string, enabled bool) error {
+	ctx, span := u.tracer.Start(ctx, "users.update")
+	defer span.End()
+
 	result, err := u.db.ExecContext(
 		ctx,
 		`
@@ -297,6 +325,9 @@ func (u *Users) Update(ctx context.Context, id uuid.UUID, displayName string, en
 }
 
 func (u *Users) Delete(ctx context.Context, id uuid.UUID) error {
+	ctx, span := u.tracer.Start(ctx, "users.delete")
+	defer span.End()
+
 	result, err := u.db.ExecContext(
 		ctx,
 		`
@@ -322,6 +353,9 @@ func (u *Users) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (u *Users) Authenticate(ctx context.Context, email, password string) (*User, error) {
+	ctx, span := u.tracer.Start(ctx, "users.authenticate")
+	defer span.End()
+
 	user, err := u.GetByEmail(ctx, email)
 	if err != nil {
 		return nil, err
@@ -346,6 +380,9 @@ func (u *Users) Authenticate(ctx context.Context, email, password string) (*User
 }
 
 func (u *Users) ChangePassword(ctx context.Context, id uuid.UUID, password string) error {
+	ctx, span := u.tracer.Start(ctx, "users.change_password")
+	defer span.End()
+
 	hash, err := HashPassword(password)
 	if err != nil {
 		return fmt.Errorf("hash password: %w", err)

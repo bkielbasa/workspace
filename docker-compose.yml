@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16
+    image: postgres:18.4
     restart: unless-stopped
     environment:
       POSTGRES_USER: app
@@ -8,8 +8,8 @@ services:
       POSTGRES_DB: app
     ports:
       - "5432:5432"
-    volumes:
-      - db_data:/var/lib/postgresql/data
+    # volumes:
+    #   - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app"]
       interval: 5s
@@ -62,12 +62,13 @@ services:
     volumes:
       - ${PWD}/migrations:/migrations
     entrypoint: ["/usr/bin/migrate"]
-    command: [
-      "-source=file:///migrations",
-      "-database=postgres://app:app@db:5432/app?sslmode=disable",
-      "-verbose",
-      "up"
-    ]
+    command:
+      [
+        "-source=file:///migrations",
+        "-database=postgres://app:app@db:5432/app?sslmode=disable",
+        "-verbose",
+        "up",
+      ]
 
 volumes:
-  db_data:
+  postgres_data:

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -24,10 +26,18 @@ type Domain struct {
 }
 
 type Domains struct {
-	db *sql.DB
+	db     *sql.DB
+	tracer trace.Tracer
+}
+
+func NewDomains(db *sql.DB) *Domains {
+	return &Domains{db: db, tracer: otel.Tracer("domains")}
 }
 
 func (d *Domains) Create(ctx context.Context, name string) (*Domain, error) {
+	ctx, span := d.tracer.Start(ctx, "domains.create")
+	defer span.End()
+
 	name = strings.ToLower(strings.TrimSpace(name))
 
 	var existing uuid.UUID
@@ -54,6 +64,9 @@ func (d *Domains) Create(ctx context.Context, name string) (*Domain, error) {
 }
 
 func (d *Domains) Get(ctx context.Context, id uuid.UUID) (*Domain, error) {
+	ctx, span := d.tracer.Start(ctx, "domains.get")
+	defer span.End()
+
 	domain := &Domain{}
 	err := d.db.QueryRowContext(
 		ctx,
@@ -72,6 +85,9 @@ func (d *Domains) Get(ctx context.Context, id uuid.UUID) (*Domain, error) {
 }
 
 func (d *Domains) GetByName(ctx context.Context, name string) (*Domain, error) {
+	ctx, span := d.tracer.Start(ctx, "domains.get_by_name")
+	defer span.End()
+
 	name = strings.ToLower(strings.TrimSpace(name))
 
 	domain := &Domain{}
@@ -92,6 +108,9 @@ func (d *Domains) GetByName(ctx context.Context, name string) (*Domain, error) {
 }
 
 func (d *Domains) List(ctx context.Context) ([]Domain, error) {
+	ctx, span := d.tracer.Start(ctx, "domains.list")
+	defer span.End()
+
 	rows, err := d.db.QueryContext(
 		ctx,
 		`SELECT id, name, created_at, updated_at FROM domains ORDER BY name`,
@@ -118,6 +137,9 @@ func (d *Domains) List(ctx context.Context) ([]Domain, error) {
 }
 
 func (d *Domains) Delete(ctx context.Context, id uuid.UUID) error {
+	ctx, span := d.tracer.Start(ctx, "domains.delete")
+	defer span.End()
+
 	result, err := d.db.ExecContext(ctx, `DELETE FROM domains WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete domain: %w", err)
@@ -137,6 +159,9 @@ func (d *Domains) Delete(ctx context.Context, id uuid.UUID) error {
 
 // Exists returns true if the given domain name is registered.
 func (d *Domains) Exists(ctx context.Context, name string) (bool, error) {
+	ctx, span := d.tracer.Start(ctx, "domains.exists")
+	defer span.End()
+
 	name = strings.ToLower(strings.TrimSpace(name))
 
 	var id uuid.UUID

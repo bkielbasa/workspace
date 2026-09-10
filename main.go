@@ -53,27 +53,18 @@ func main() {
 	}
 	defer db.Close()
 
-	mailboxes := &Mailboxes{
-		db: db,
-	}
+	mailboxes := NewMailboxes(db)
 
-	domains := &Domains{db: db}
+	domains := NewDomains(db)
 
-	aliases := &Aliases{
-		db:      db,
-		domains: domains,
-	}
-
-	users := &Users{
-		db:        db,
-		mailboxes: mailboxes,
-		domains:   domains,
-	}
+	aliases := NewAliases(db, domains)
 
 	// Session store backs the web login flow. It is wired into the user store
 	// so credential changes and account disable can revoke active sessions.
-	sessions := &Sessions{db: db}
-	users.sessions = sessions
+	sessions := NewSessions(db)
+
+	users := NewUsers(db, mailboxes, domains, sessions)
+
 	auth := NewAuth(sessions, users, cfg.cookieSecure)
 
 	// Periodically purge expired sessions so stale rows do not accumulate.
@@ -89,29 +80,23 @@ func main() {
 		}
 	}()
 
-	mail := &Mail{
-		db: db,
-	}
+	mail := NewMail(db)
 
 	log.Printf("seeding data...")
 	RunSeed(context.Background(), users, mail, mailboxes)
 
-	contacts := &Contacts{db: db}
+	contacts := NewContacts(db)
 
-	carddav := &CardDAV{contacts: contacts}
-	cal := &Calendar{db: db}
+	carddav := &CardDAV{contacts: contacts, users: users}
+	cal := NewCalendar(db)
 	caldav := &CalDAV{cal: cal, users: users}
 
 	view := newViews(contacts, cal)
 
-	delivery := &Delivery{
-		users:     users,
-		mailboxes: mailboxes,
-		mail:      mail,
-		outbox:    &Outbox{db: db},
-		threads:   &Threads{db: db},
-		aliases:   aliases,
-	}
+	outbox := NewOutbox(db)
+	threads := NewThreads(db)
+
+	delivery := NewDelivery(users, mailboxes, mail, outbox, threads, aliases)
 
 	certFile := getEnv("TLS_CERT_FILE", "")
 	keyFile := getEnv("TLS_KEY_FILE", "")
@@ -127,8 +112,8 @@ func main() {
 		log.Printf("TLS disabled (no cert/key provided)")
 	}
 
-	log.Printf("starting SMTP on :2525")
-	smtp := NewSMTPServer(":2525", delivery, users, tlsCfg)
+	log.Printf("starting SMTP on :2526")
+	smtp := NewSMTPServer(":2526", delivery, users, tlsCfg)
 	go func() {
 		if err := smtp.ListenAndServe(); err != nil {
 			log.Fatal(err)
@@ -138,8 +123,8 @@ func main() {
 	// Submission port. Mail clients default to 587 with STARTTLS when they are
 	// configured by hand, so this listener is what most setup wizards probe;
 	// 465 alone is not enough.
-	log.Printf("starting SMTP submission on :2587")
-	submission := NewSMTPServer(":2587", delivery, users, tlsCfg)
+	log.Printf("starting SMTP submission on :2588")
+	submission := NewSMTPServer(":2588", delivery, users, tlsCfg)
 	go func() {
 		if err := submission.ListenAndServe(); err != nil {
 			log.Fatal(err)
@@ -147,8 +132,8 @@ func main() {
 	}()
 
 	if tlsCfg != nil {
-		log.Printf("starting SMTPS on :2465")
-		smtps := NewSMTPTLSServer(":2465", delivery, users, tlsCfg)
+		log.Printf("starting SMTPS on :2466")
+		smtps := NewSMTPTLSServer(":2466", delivery, users, tlsCfg)
 		go func() {
 			if err := smtps.ListenAndServe(); err != nil {
 				log.Fatal(err)
@@ -156,16 +141,12 @@ func main() {
 		}()
 	}
 
-	worker := &Worker{
-		outbox:   delivery.outbox,
-		delivery: delivery,
-		dkim:     initDKIM(),
-	}
-	log.Printf("starting worker...")
-	worker.Start()
+	// worker := NewWorker(outbox, delivery, initDKIM())
+	// log.Printf("starting worker...")
+	// worker.Start()
 
-	log.Printf("starting IMAP on :1143")
-	imap := NewIMAPServer(":1143", users, mail, mailboxes)
+	log.Printf("starting IMAP on :1144")
+	imap := NewIMAPServer(":1144", users, mail, mailboxes)
 	go func() {
 		if err := imap.ListenAndServe(); err != nil {
 			log.Fatal(err)
@@ -173,8 +154,8 @@ func main() {
 	}()
 
 	if tlsCfg != nil {
-		log.Printf("starting IMAPS on :1993")
-		imaps := NewIMAPTLSServer(":1993", users, mail, mailboxes, tlsCfg)
+		log.Printf("starting IMAPS on :1994")
+		imaps := NewIMAPTLSServer(":1994", users, mail, mailboxes, tlsCfg)
 		go func() {
 			if err := imaps.ListenAndServe(); err != nil {
 				log.Fatal(err)
@@ -253,7 +234,7 @@ func main() {
 	mux.HandleFunc("POST /users/{id}/password", auth.requireAuth(auth.requireCSRF(users.ChangePasswordHandler)))
 
 	// threads
-	threadsHTTP := &ThreadsHTTP{threads: &Threads{db: db}}
+	threadsHTTP := &ThreadsHTTP{threads: threads}
 	mux.HandleFunc("GET /threads", auth.requireAuth(threadsHTTP.ListHandler))
 
 	// CardDAV (very minimal)

@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
-    "strings"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var defaultMailboxes = []string{
@@ -31,10 +33,18 @@ type Mailbox struct {
 }
 
 type Mailboxes struct {
-	db *sql.DB
+	db     *sql.DB
+	tracer trace.Tracer
+}
+
+func NewMailboxes(db *sql.DB) *Mailboxes {
+	return &Mailboxes{db: db, tracer: otel.Tracer("mailboxes")}
 }
 
 func (m *Mailboxes) CreateDefault(ctx context.Context, userID uuid.UUID) error {
+	ctx, span := m.tracer.Start(ctx, "mailboxes.create_default")
+	defer span.End()
+
 	tx, err := m.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
@@ -53,6 +63,9 @@ func (m *Mailboxes) CreateDefault(ctx context.Context, userID uuid.UUID) error {
 }
 
 func (m *Mailboxes) CreateDefaultTx(ctx context.Context, tx *sql.Tx, userID uuid.UUID) error {
+	ctx, span := m.tracer.Start(ctx, "mailboxes.create_default_tx")
+	defer span.End()
+
 	for _, name := range defaultMailboxes {
 		_, err := tx.ExecContext(
 			ctx,
@@ -75,6 +88,9 @@ func (m *Mailboxes) CreateDefaultTx(ctx context.Context, tx *sql.Tx, userID uuid
 }
 
 func (m *Mailboxes) List(ctx context.Context, userID uuid.UUID) ([]Mailbox, error) {
+	ctx, span := m.tracer.Start(ctx, "mailboxes.list")
+	defer span.End()
+
 	rows, err := m.db.QueryContext(
 		ctx,
 		`
@@ -122,6 +138,9 @@ func (m *Mailboxes) List(ctx context.Context, userID uuid.UUID) ([]Mailbox, erro
 }
 
 func (m *Mailboxes) GetByName(ctx context.Context, userID uuid.UUID, name string) (*Mailbox, error) {
+	ctx, span := m.tracer.Start(ctx, "mailboxes.get_by_name")
+	defer span.End()
+
 	mailbox := &Mailbox{}
 
 	err := m.db.QueryRowContext(
@@ -159,45 +178,51 @@ func (m *Mailboxes) GetByName(ctx context.Context, userID uuid.UUID, name string
 }
 
 func (m *Mailboxes) Create(ctx context.Context, userID uuid.UUID, name string) (*Mailbox, error) {
-    mb := &Mailbox{}
-    err := m.db.QueryRowContext(
-        ctx,
-        `
+	ctx, span := m.tracer.Start(ctx, "mailboxes.create")
+	defer span.End()
+
+	mb := &Mailbox{}
+	err := m.db.QueryRowContext(
+		ctx,
+		`
         INSERT INTO mailboxes (user_id, name)
         VALUES ($1, $2)
         RETURNING id, user_id, name, uid_validity, created_at
         `,
-        userID,
-        name,
-    ).Scan(
-        &mb.ID,
-        &mb.UserID,
-        &mb.Name,
-        &mb.UIDValidity,
-        &mb.CreatedAt,
-    )
-    if err != nil {
-        return nil, fmt.Errorf("create mailbox: %w", err)
-    }
-    return mb, nil
+		userID,
+		name,
+	).Scan(
+		&mb.ID,
+		&mb.UserID,
+		&mb.Name,
+		&mb.UIDValidity,
+		&mb.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create mailbox: %w", err)
+	}
+	return mb, nil
 }
 
 func (m *Mailboxes) EnsureDefaults(ctx context.Context, userID uuid.UUID) error {
-    existing, err := m.List(ctx, userID)
-    if err != nil {
-        return err
-    }
-    have := make(map[string]struct{}, len(existing))
-    for _, mb := range existing {
-        have[strings.ToLower(mb.Name)] = struct{}{}
-    }
-    for _, name := range defaultMailboxes {
-        if _, ok := have[strings.ToLower(name)]; ok {
-            continue
-        }
-        if _, err := m.Create(ctx, userID, name); err != nil {
-            return err
-        }
-    }
-    return nil
+	ctx, span := m.tracer.Start(ctx, "mailboxes.ensure_defaults")
+	defer span.End()
+
+	existing, err := m.List(ctx, userID)
+	if err != nil {
+		return err
+	}
+	have := make(map[string]struct{}, len(existing))
+	for _, mb := range existing {
+		have[strings.ToLower(mb.Name)] = struct{}{}
+	}
+	for _, name := range defaultMailboxes {
+		if _, ok := have[strings.ToLower(name)]; ok {
+			continue
+		}
+		if _, err := m.Create(ctx, userID, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }

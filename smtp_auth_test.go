@@ -166,7 +166,7 @@ func TestCommandVerb(t *testing.T) {
 // goroutine, which takes the whole process with it: any client on the open
 // SMTP port could stop the mail server by sending a bare line ending.
 func TestBlankLineDoesNotCrashConnection(t *testing.T) {
-	server := &SMTPServer{}
+	server := NewSMTPServer("", nil, nil, nil)
 	client, serverSide := net.Pipe()
 
 	done := make(chan struct{})

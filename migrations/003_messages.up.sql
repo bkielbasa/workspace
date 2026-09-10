@@ -3,6 +3,9 @@ CREATE TABLE messages (
 
     mailbox_id UUID NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
 
+    -- IMAP sequence number within the mailbox
+    uid BIGSERIAL,
+
     -- RFC 5322 Message-ID header
     message_id TEXT,
 
@@ -16,6 +19,7 @@ CREATE TABLE messages (
     -- Threading headers
     in_reply_to TEXT,
     references_header TEXT,
+    thread_id UUID,
 
     -- Message content
     raw_message TEXT NOT NULL,
@@ -53,3 +57,9 @@ ON messages(received_at DESC);
 
 CREATE INDEX messages_sender_idx
 ON messages(sender);
+
+CREATE INDEX idx_messages_mailbox_uid
+ON messages (mailbox_id, uid);
+
+CREATE INDEX idx_messages_thread
+ON messages(thread_id);

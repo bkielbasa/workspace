@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -28,9 +30,17 @@ type Alias struct {
 type Aliases struct {
 	db      *sql.DB
 	domains *Domains
+	tracer  trace.Tracer
+}
+
+func NewAliases(db *sql.DB, domains *Domains) *Aliases {
+	return &Aliases{db: db, domains: domains, tracer: otel.Tracer("aliases")}
 }
 
 func (a *Aliases) Create(ctx context.Context, domainID uuid.UUID, address, destination string) (*Alias, error) {
+	ctx, span := a.tracer.Start(ctx, "aliases.create")
+	defer span.End()
+
 	address = strings.ToLower(strings.TrimSpace(address))
 	destination = strings.ToLower(strings.TrimSpace(destination))
 
@@ -64,6 +74,9 @@ func (a *Aliases) Create(ctx context.Context, domainID uuid.UUID, address, desti
 }
 
 func (a *Aliases) Get(ctx context.Context, id uuid.UUID) (*Alias, error) {
+	ctx, span := a.tracer.Start(ctx, "aliases.get")
+	defer span.End()
+
 	alias := &Alias{}
 	err := a.db.QueryRowContext(
 		ctx,
@@ -83,6 +96,9 @@ func (a *Aliases) Get(ctx context.Context, id uuid.UUID) (*Alias, error) {
 }
 
 func (a *Aliases) ListByDomain(ctx context.Context, domainID uuid.UUID) ([]Alias, error) {
+	ctx, span := a.tracer.Start(ctx, "aliases.list_by_domain")
+	defer span.End()
+
 	rows, err := a.db.QueryContext(
 		ctx,
 		`SELECT id, domain_id, address, destination, created_at, updated_at
@@ -111,6 +127,9 @@ func (a *Aliases) ListByDomain(ctx context.Context, domainID uuid.UUID) ([]Alias
 }
 
 func (a *Aliases) Delete(ctx context.Context, id uuid.UUID) error {
+	ctx, span := a.tracer.Start(ctx, "aliases.delete")
+	defer span.End()
+
 	result, err := a.db.ExecContext(ctx, `DELETE FROM aliases WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete alias: %w", err)
@@ -130,6 +149,9 @@ func (a *Aliases) Delete(ctx context.Context, id uuid.UUID) error {
 
 // Resolve looks up an alias by its address and returns the destination email, or empty string if not found.
 func (a *Aliases) Resolve(ctx context.Context, address string) (string, error) {
+	ctx, span := a.tracer.Start(ctx, "aliases.resolve")
+	defer span.End()
+
 	address = strings.ToLower(strings.TrimSpace(address))
 
 	var destination string

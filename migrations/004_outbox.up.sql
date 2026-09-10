@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS outbox (
+CREATE TABLE outbox (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     recipient TEXT NOT NULL,
     data TEXT NOT NULL,
@@ -7,5 +7,5 @@ CREATE TABLE IF NOT EXISTS outbox (
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_outbox_next_attempt
+CREATE INDEX idx_outbox_next_attempt
 ON outbox (next_attempt_at);

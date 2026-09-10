@@ -22,7 +22,7 @@ var mailHostname = "mail.local"
 
 func loadConfig() config {
 	cfg := config{
-		httpAddr:     getEnv("HTTP_ADDR", ":8080"),
+		httpAddr:     getEnv("HTTP_ADDR", ":8088"),
 		databaseURL:  getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/workspace?sslmode=disable"),
 		mailHost:     getEnv("MAIL_HOST", ""),
 		davHost:      getEnv("DAV_HOST", ""),

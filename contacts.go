@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Contact struct {
@@ -71,10 +73,17 @@ func (ct *Contact) marshalLists() ([]byte, []byte, error) {
 }
 
 type Contacts struct {
-	db *sql.DB
+	db     *sql.DB
+	tracer trace.Tracer
+}
+
+func NewContacts(db *sql.DB) *Contacts {
+	return &Contacts{db: db, tracer: otel.Tracer("contacts")}
 }
 
 func (c *Contacts) List(ctx context.Context, userID uuid.UUID) ([]Contact, error) {
+	ctx, span := c.tracer.Start(ctx, "contacts.list")
+	defer span.End()
 	rows, err := c.db.QueryContext(ctx, `
         SELECT `+contactColumns+`
         FROM contacts
@@ -98,6 +107,8 @@ func (c *Contacts) List(ctx context.Context, userID uuid.UUID) ([]Contact, error
 }
 
 func (c *Contacts) Get(ctx context.Context, userID, contactID uuid.UUID) (Contact, error) {
+	ctx, span := c.tracer.Start(ctx, "contacts.get")
+	defer span.End()
 	row := c.db.QueryRowContext(ctx, `
         SELECT `+contactColumns+`
         FROM contacts
@@ -107,6 +118,8 @@ func (c *Contacts) Get(ctx context.Context, userID, contactID uuid.UUID) (Contac
 }
 
 func (c *Contacts) ByEmail(ctx context.Context, userID uuid.UUID, email string) (Contact, error) {
+	ctx, span := c.tracer.Start(ctx, "contacts.by_email")
+	defer span.End()
 	row := c.db.QueryRowContext(ctx, `
         SELECT `+contactColumns+`
         FROM contacts
@@ -122,6 +135,8 @@ func (c *Contacts) ByEmail(ctx context.Context, userID uuid.UUID, email string) 
 // The card is rebuilt from those fields, preserving every line CardDAV sent
 // that the model does not regenerate (ADR, NOTE, BDAY, ...).
 func (c *Contacts) PutContact(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct Contact) (*Contact, error) {
+	ctx, span := c.tracer.Start(ctx, "contacts.put")
+	defer span.End()
 	resolvePrimaryEmail(&ct)
 
 	var prev string
@@ -149,6 +164,8 @@ func (c *Contacts) PutContact(ctx context.Context, userID uuid.UUID, id *uuid.UU
 // PutCard stores an incoming vCard (CardDAV PUT) verbatim; the client is the
 // authority on the card contents, so raw fields are never dropped.
 func (c *Contacts) PutCard(ctx context.Context, userID uuid.UUID, id *uuid.UUID, ct Contact) (*Contact, error) {
+	ctx, span := c.tracer.Start(ctx, "contacts.put_card")
+	defer span.End()
 	resolvePrimaryEmail(&ct)
 	if strings.TrimSpace(ct.VCard) == "" {
 		ct.VCard = buildVCard(ct, "")
@@ -219,10 +236,15 @@ func (c *Contacts) persist(ctx context.Context, userID uuid.UUID, id *uuid.UUID,
 		)
 		saved, err = scanContact(row)
 	}
+	if err != nil {
+		return nil, err
+	}
 	return &saved, nil
 }
 
 func (c *Contacts) Delete(ctx context.Context, userID uuid.UUID, email string) error {
+	ctx, span := c.tracer.Start(ctx, "contacts.delete")
+	defer span.End()
 	_, err := c.db.ExecContext(ctx, `
         DELETE FROM contacts
         WHERE user_id = $1 AND email = $2
@@ -231,6 +253,8 @@ func (c *Contacts) Delete(ctx context.Context, userID uuid.UUID, email string) e
 }
 
 func (c *Contacts) DeleteByID(ctx context.Context, userID, contactID uuid.UUID) error {
+	ctx, span := c.tracer.Start(ctx, "contacts.delete_by_id")
+	defer span.End()
 	_, err := c.db.ExecContext(ctx, `
         DELETE FROM contacts
         WHERE id = $1 AND user_id = $2

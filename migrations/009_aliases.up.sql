@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS aliases (
+CREATE TABLE aliases (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     domain_id UUID NOT NULL REFERENCES domains (id) ON DELETE CASCADE,
     address TEXT NOT NULL,
@@ -7,5 +7,5 @@ CREATE TABLE IF NOT EXISTS aliases (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS aliases_address_idx ON aliases (address);
-CREATE INDEX IF NOT EXISTS aliases_domain_id_idx ON aliases (domain_id);
+CREATE UNIQUE INDEX aliases_address_idx ON aliases (address);
+CREATE INDEX aliases_domain_id_idx ON aliases (domain_id);

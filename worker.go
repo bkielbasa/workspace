@@ -8,12 +8,23 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Worker struct {
 	outbox   *Outbox
 	delivery *Delivery
 	dkim     *DKIM
+	tracer   trace.Tracer
+}
+
+func NewWorker(outbox *Outbox, delivery *Delivery, dkim *DKIM) *Worker {
+	return &Worker{
+		outbox:   outbox,
+		delivery: delivery,
+		dkim:     dkim,
+		tracer:   otel.Tracer("worker"),
+	}
 }
 
 func (w *Worker) Start() {
@@ -28,8 +39,7 @@ func (w *Worker) Start() {
 func (w *Worker) runOnce() {
 	ctx := context.Background()
 
-	tracer := otel.Tracer("worker")
-	ctx, span := tracer.Start(ctx, "worker.runOnce")
+	ctx, span := w.tracer.Start(ctx, "worker.runOnce")
 	defer span.End()
 
 	msgs, err := w.outbox.FetchBatch(ctx, 10)
@@ -39,7 +49,7 @@ func (w *Worker) runOnce() {
 	}
 
 	for _, m := range msgs {
-		_, msgSpan := tracer.Start(ctx, "worker.processMessage")
+		ctx, msgSpan := w.tracer.Start(ctx, "worker.processMessage")
 		raw := m.Data
 
 		if w.dkim != nil {
@@ -56,7 +66,6 @@ func (w *Worker) runOnce() {
 			RawMessage: raw,
 			Sender:     from,
 		})
-
 		if err != nil {
 			_ = w.outbox.MarkFailure(ctx, m.ID, m.Attempts)
 			msgSpan.RecordError(err)

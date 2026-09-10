@@ -12,6 +12,7 @@ import (
 
 type CardDAV struct {
 	contacts *Contacts
+	users    *Users
 }
 
 func (c *CardDAV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -268,6 +269,5 @@ func cardIDFromPath(path string) (uuid.UUID, error) {
 }
 
 func (c *CardDAV) contactsUser(ctx context.Context, email, password string) (*User, error) {
-	u := &Users{db: c.contacts.db}
-	return u.Authenticate(ctx, email, password)
+	return c.users.Authenticate(ctx, email, password)
 }

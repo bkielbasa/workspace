@@ -13,7 +13,7 @@ func TestIDLEDoneKeepsSessionOpen(t *testing.T) {
 	serverConn, clientConn := net.Pipe()
 	defer clientConn.Close()
 
-	go (&IMAPServer{}).handle(serverConn)
+	go NewIMAPServer("", nil, nil, nil).handle(serverConn)
 
 	reader := bufio.NewReader(clientConn)
 	readLine := func() string {

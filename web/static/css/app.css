@@ -1,19 +1,23 @@
 :root {
   color-scheme: dark;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --bg: #280905;
-  --surface: #740a03;
-  --surface-2: rgba(230, 80, 27, 0.1);
-  --border: rgba(230, 80, 27, 0.28);
-  --border-strong: rgba(195, 17, 12, 0.65);
-  --text: #f6e7dd;
-  --text-muted: rgba(246, 231, 221, 0.62);
-  --accent: #e6501b;
-  --accent-hover: #c3110c;
-  --danger: #c3110c;
-  --danger-surface: rgba(195, 17, 12, 0.14);
-  --danger-border: rgba(195, 17, 12, 0.5);
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  --bg: #0e1116;
+  --surface: #161a21;
+  --surface-2: #1d222b;
+  --field: #11151b;
+  --border: #262b35;
+  --border-strong: #353c49;
+  --text: #e7eaf0;
+  --text-muted: #98a1b2;
+  --accent: #3b6fe0;
+  --accent-hover: #2f5cc4;
+  --accent-text: #82a6ff;
+  --accent-soft: rgba(59, 111, 224, 0.16);
+  --danger: #f2696e;
+  --danger-hover: #d1454b;
+  --danger-surface: rgba(242, 105, 110, 0.12);
+  --danger-border: rgba(242, 105, 110, 0.38);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   --radius: 10px;
 }
 
@@ -68,13 +72,14 @@ body {
 }
 
 .nav-links a[aria-current="page"] {
-  color: var(--text);
-  background: var(--accent);
+  color: var(--accent-text);
+  background: var(--accent-soft);
   font-weight: 600;
 }
 
 .nav-links a[aria-current="page"]:hover {
-  background: var(--accent-hover);
+  color: var(--accent-text);
+  background: var(--accent-soft);
 }
 
 .nav-user {
@@ -170,9 +175,13 @@ select {
   padding: 0.6rem 0.75rem;
   font-size: 1rem;
   color: var(--text);
-  background: var(--surface);
+  background: var(--field);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
+}
+
+input::placeholder {
+  color: var(--text-muted);
 }
 
 input:focus-visible,
@@ -266,7 +275,7 @@ button {
 
 .btn-danger:hover {
   color: #fff;
-  background: var(--danger);
+  background: var(--danger-hover);
 }
 
 .btn-sm {
@@ -288,6 +297,10 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
+.table tbody tr:hover {
+  background: var(--surface-2);
+}
+
 .table th {
   color: var(--text-muted);
   font-size: 0.8rem;
@@ -306,7 +319,7 @@ button {
   margin-top: 0.15rem;
   font-size: 0.8rem;
   font-weight: 400;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .field-list {
@@ -325,7 +338,7 @@ button {
 
 .field-list .tag {
   margin-left: 0.25rem;
-  color: var(--muted);
+  color: var(--text-muted);
   text-transform: uppercase;
   font-size: 0.7rem;
 }
@@ -347,7 +360,7 @@ button {
 .icon-btn {
   border: 0;
   background: none;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 1.1rem;
   line-height: 1;
   cursor: pointer;

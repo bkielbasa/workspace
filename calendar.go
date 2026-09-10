@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Event struct {
@@ -34,7 +36,12 @@ func (e Event) Href() string {
 }
 
 type Calendar struct {
-	db *sql.DB
+	db     *sql.DB
+	tracer trace.Tracer
+}
+
+func NewCalendar(db *sql.DB) *Calendar {
+	return &Calendar{db: db, tracer: otel.Tracer("calendar")}
 }
 
 const eventColumns = `id, user_id, title, starts_at, ends_at, COALESCE(uid, ''), COALESCE(ics, ''), COALESCE(resource, id::text), etag, created_at, updated_at`
@@ -52,6 +59,9 @@ func scanEvent(row scanRow) (Event, error) {
 }
 
 func (c *Calendar) Delete(ctx context.Context, userID, eventID uuid.UUID) error {
+	ctx, span := c.tracer.Start(ctx, "calendar.delete")
+	defer span.End()
+
 	_, err := c.db.ExecContext(ctx, `
         DELETE FROM events
         WHERE id = $1 AND user_id = $2
@@ -61,6 +71,9 @@ func (c *Calendar) Delete(ctx context.Context, userID, eventID uuid.UUID) error 
 
 // DeleteByResource removes an event by the href name a CalDAV client used.
 func (c *Calendar) DeleteByResource(ctx context.Context, userID uuid.UUID, resource string) error {
+	ctx, span := c.tracer.Start(ctx, "calendar.delete_by_resource")
+	defer span.End()
+
 	_, err := c.db.ExecContext(ctx, `
         DELETE FROM events
         WHERE user_id = $1 AND resource = $2
@@ -70,6 +83,9 @@ func (c *Calendar) DeleteByResource(ctx context.Context, userID uuid.UUID, resou
 
 // GetByResource looks up an event by the href name a CalDAV client used.
 func (c *Calendar) GetByResource(ctx context.Context, userID uuid.UUID, resource string) (*Event, error) {
+	ctx, span := c.tracer.Start(ctx, "calendar.get_by_resource")
+	defer span.End()
+
 	row := c.db.QueryRowContext(ctx, `SELECT `+eventColumns+` FROM events WHERE user_id=$1 AND resource=$2`, userID, resource)
 	e, err := scanEvent(row)
 	if err != nil {
@@ -79,6 +95,9 @@ func (c *Calendar) GetByResource(ctx context.Context, userID uuid.UUID, resource
 }
 
 func (c *Calendar) List(ctx context.Context, userID uuid.UUID) ([]Event, error) {
+	ctx, span := c.tracer.Start(ctx, "calendar.list")
+	defer span.End()
+
 	rows, err := c.db.QueryContext(ctx, `
         SELECT `+eventColumns+`
         FROM events WHERE user_id=$1 ORDER BY starts_at NULLS LAST
@@ -103,12 +122,14 @@ func (c *Calendar) List(ctx context.Context, userID uuid.UUID) ([]Event, error) 
 // serialises one on the fly). The resource name equals the row id so the
 // CalDAV href is stable.
 func (c *Calendar) Upsert(ctx context.Context, userID uuid.UUID, title string, start, end time.Time) (*Event, error) {
+	ctx, span := c.tracer.Start(ctx, "calendar.upsert")
+	defer span.End()
 	id := uuid.New()
 	etag := uuid.New().String()
 	row := c.db.QueryRowContext(ctx, `
         INSERT INTO events (id, user_id, title, starts_at, ends_at, etag, resource)
-        VALUES ($1,$2,$3,$4,$5,$6,$1::text)
-        RETURNING `+eventColumns, id, userID, title, nullableTime(start), nullableTime(end), etag)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        RETURNING `+eventColumns, id, userID, title, nullableTime(start), nullableTime(end), etag, id.String())
 	e, err := scanEvent(row)
 	if err != nil {
 		return nil, fmt.Errorf("upsert event: %w", err)
@@ -120,6 +141,8 @@ func (c *Calendar) Upsert(ctx context.Context, userID uuid.UUID, title string, s
 // keeping the raw iCalendar body so the client can GET it back byte-for-byte at
 // the same href. start/end/title are best-effort, only for the web calendar.
 func (c *Calendar) PutICS(ctx context.Context, userID uuid.UUID, resource, ics, uidVal, title string, start, end time.Time) (*Event, error) {
+	ctx, span := c.tracer.Start(ctx, "calendar.put_ics")
+	defer span.End()
 	etag := uuid.New().String()
 	row := c.db.QueryRowContext(ctx, `
         INSERT INTO events (user_id, title, starts_at, ends_at, uid, ics, resource, etag)

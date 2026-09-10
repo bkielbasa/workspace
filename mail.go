@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 	"log/slog"
 )
 
@@ -50,10 +52,18 @@ type Message struct {
 }
 
 type Mail struct {
-	db *sql.DB
+	db     *sql.DB
+	tracer trace.Tracer
+}
+
+func NewMail(db *sql.DB) *Mail {
+	return &Mail{db: db, tracer: otel.Tracer("mail")}
 }
 
 func (m *Mail) Append(ctx context.Context, message *Message) error {
+	ctx, span := m.tracer.Start(ctx, "mail.append")
+	defer span.End()
+
 	err := m.db.QueryRowContext(
 		ctx,
 		`
@@ -142,6 +152,9 @@ func (m *Mail) Append(ctx context.Context, message *Message) error {
 }
 
 func (m *Mail) Get(ctx context.Context, id uuid.UUID) (*Message, error) {
+	ctx, span := m.tracer.Start(ctx, "mail.get")
+	defer span.End()
+
 	message := &Message{}
 	var recipientsRaw string
 
@@ -251,6 +264,9 @@ func parseRecipients(raw string) []string {
 }
 
 func (m *Mail) List(ctx context.Context, mailboxID uuid.UUID, limit, offset int) ([]Message, error) {
+	ctx, span := m.tracer.Start(ctx, "mail.list")
+	defer span.End()
+
 	logWithTrace(ctx, slog.LevelInfo, "mail.List called",
 		"mailbox_id", mailboxID.String(),
 		"limit", limit,
@@ -371,6 +387,9 @@ func (m *Mail) UpdateFlags(
 	deleted bool,
 	draft bool,
 ) error {
+	ctx, span := m.tracer.Start(ctx, "mail.update_flags")
+	defer span.End()
+
 	result, err := m.db.ExecContext(
 		ctx,
 		`
@@ -408,6 +427,9 @@ func (m *Mail) UpdateFlags(
 }
 
 func (m *Mail) Delete(ctx context.Context, id uuid.UUID) error {
+	ctx, span := m.tracer.Start(ctx, "mail.delete")
+	defer span.End()
+
 	result, err := m.db.ExecContext(
 		ctx,
 		`
@@ -433,6 +455,9 @@ func (m *Mail) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (m *Mail) Move(ctx context.Context, id, mailboxID uuid.UUID) error {
+	ctx, span := m.tracer.Start(ctx, "mail.move")
+	defer span.End()
+
 	result, err := m.db.ExecContext(ctx, `
 		UPDATE messages
 		SET mailbox_id = $2, updated_at = NOW()
@@ -452,6 +477,9 @@ func (m *Mail) Move(ctx context.Context, id, mailboxID uuid.UUID) error {
 }
 
 func (m *Mail) Copy(ctx context.Context, id, mailboxID uuid.UUID) (*Message, error) {
+	ctx, span := m.tracer.Start(ctx, "mail.copy")
+	defer span.End()
+
 	message, err := m.Get(ctx, id)
 	if err != nil {
 		return nil, err

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type SMTPServer struct {
@@ -22,14 +23,15 @@ type SMTPServer struct {
 	users     *Users
 	tlsConfig *tls.Config
 	wrapped   bool
+	tracer    trace.Tracer
 }
 
 func NewSMTPServer(addr string, d *Delivery, u *Users, tlsCfg *tls.Config) *SMTPServer {
-	return &SMTPServer{addr: addr, delivery: d, users: u, tlsConfig: tlsCfg}
+	return &SMTPServer{addr: addr, delivery: d, users: u, tlsConfig: tlsCfg, tracer: otel.Tracer("smtp")}
 }
 
 func NewSMTPTLSServer(addr string, d *Delivery, u *Users, tlsCfg *tls.Config) *SMTPServer {
-	return &SMTPServer{addr: addr, delivery: d, users: u, tlsConfig: tlsCfg, wrapped: true}
+	return &SMTPServer{addr: addr, delivery: d, users: u, tlsConfig: tlsCfg, wrapped: true, tracer: otel.Tracer("smtp")}
 }
 
 func (s *SMTPServer) ListenAndServe() error {
@@ -158,8 +160,7 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 	// basic timeouts
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Minute))
 
-	tracer := otel.Tracer("smtp")
-	ctx, span := tracer.Start(contextBackground(), "smtp.session")
+	ctx, span := s.tracer.Start(contextBackground(), "smtp.session")
 	defer span.End()
 
 	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
@@ -370,7 +371,7 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 			}
 
 			var err error
-			_, dataSpan := tracer.Start(ctx, "smtp.deliver")
+			ctx, dataSpan := s.tracer.Start(ctx, "smtp.deliver")
 			for _, rcpt := range to {
 				if e := s.delivery.Deliver(contextBackground(), rcpt, msg); e != nil {
 					err = e
@@ -405,6 +406,9 @@ func (s *SMTPServer) handleConn(conn net.Conn) {
 }
 
 func (s *SMTPServer) saveSent(ctx context.Context, user *User, submitted *Message) error {
+	ctx, span := s.tracer.Start(ctx, "smtp.save_sent")
+	defer span.End()
+
 	mailbox, err := s.delivery.mailboxes.GetByName(ctx, user.ID, "Sent")
 	if err != nil {
 		return fmt.Errorf("find Sent mailbox: %w", err)

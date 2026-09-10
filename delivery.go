@@ -10,6 +10,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Delivery struct {
@@ -19,12 +22,35 @@ type Delivery struct {
 	outbox    *Outbox
 	threads   *Threads
 	aliases   *Aliases
+	tracer    trace.Tracer
+}
+
+func NewDelivery(
+	users *Users,
+	mailboxes *Mailboxes,
+	mail *Mail,
+	outbox *Outbox,
+	threads *Threads,
+	aliases *Aliases,
+) *Delivery {
+	return &Delivery{
+		users:     users,
+		mailboxes: mailboxes,
+		mail:      mail,
+		outbox:    outbox,
+		threads:   threads,
+		aliases:   aliases,
+		tracer:    otel.Tracer("delivery"),
+	}
 }
 
 // IsLocal reports whether the recipient resolves to a local mailbox
 // (an existing user, possibly via an alias). Used to gate unauthenticated
 // inbound SMTP so the server never acts as an open relay.
 func (d *Delivery) IsLocal(ctx context.Context, recipient string) error {
+	ctx, span := d.tracer.Start(ctx, "delivery.is_local")
+	defer span.End()
+
 	recipient = strings.TrimSpace(recipient)
 	recipient = strings.Trim(recipient, "<>")
 
@@ -43,6 +69,9 @@ func (d *Delivery) Deliver(
 	recipient string,
 	message *Message,
 ) error {
+	ctx, span := d.tracer.Start(ctx, "delivery.deliver")
+	defer span.End()
+
 	// normalize recipient (handle <user@domain>, whitespace, etc.)
 	rawRecipient := recipient
 	recipient = strings.TrimSpace(recipient)

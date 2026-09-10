@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"log/slog"
 )
 
@@ -24,14 +25,15 @@ type IMAPServer struct {
 	mail      *Mail
 	mboxes    *Mailboxes
 	tlsConfig *tls.Config
+	tracer    trace.Tracer
 }
 
 func NewIMAPServer(addr string, u *Users, m *Mail, mb *Mailboxes) *IMAPServer {
-	return &IMAPServer{addr: addr, users: u, mail: m, mboxes: mb}
+	return &IMAPServer{addr: addr, users: u, mail: m, mboxes: mb, tracer: otel.Tracer("imap")}
 }
 
 func NewIMAPTLSServer(addr string, u *Users, m *Mail, mb *Mailboxes, tlsCfg *tls.Config) *IMAPServer {
-	return &IMAPServer{addr: addr, users: u, mail: m, mboxes: mb, tlsConfig: tlsCfg}
+	return &IMAPServer{addr: addr, users: u, mail: m, mboxes: mb, tlsConfig: tlsCfg, tracer: otel.Tracer("imap")}
 }
 
 func (s *IMAPServer) ListenAndServe() error {
@@ -142,8 +144,7 @@ func (s *IMAPServer) handle(conn net.Conn) {
 	var selectedMsgs []Message
 
 	// Proper OTEL context + session span
-	tracer := otel.Tracer("imap")
-	ctx, sessionSpan := tracer.Start(context.Background(), "imap.session")
+	ctx, sessionSpan := s.tracer.Start(context.Background(), "imap.session")
 	defer sessionSpan.End()
 
 	logWithTrace(ctx, slog.LevelInfo, "imap connection",
@@ -178,7 +179,7 @@ func (s *IMAPServer) handle(conn net.Conn) {
 		}
 
 		// Per-command span
-		_, cmdSpan := tracer.Start(ctx, "imap.command")
+		_, cmdSpan := s.tracer.Start(ctx, "imap.command")
 		cmdSpan.SetAttributes(
 			attribute.String("imap.command", cmd),
 			attribute.String("imap.raw", line),

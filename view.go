@@ -294,7 +294,7 @@ func (v *views) calendarsAdd(w http.ResponseWriter, r *http.Request) {
 		data.Error = "The event must end after it starts."
 	default:
 		if _, err := v.cal.Upsert(r.Context(), user.ID, title, start.UTC(), end.UTC()); err != nil {
-			data.Error = "Could not save the event."
+			data.Error = "Could not save the event: " + err.Error()
 		}
 	}
 

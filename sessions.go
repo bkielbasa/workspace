@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -28,13 +30,21 @@ type Session struct {
 }
 
 type Sessions struct {
-	db *sql.DB
+	db     *sql.DB
+	tracer trace.Tracer
+}
+
+func NewSessions(db *sql.DB) *Sessions {
+	return &Sessions{db: db, tracer: otel.Tracer("sessions")}
 }
 
 // Create issues a new session for the given user and returns the plaintext
 // token. Only the plaintext token is ever handed to the client; the database
 // stores a SHA-256 hash of it.
 func (s *Sessions) Create(ctx context.Context, userID uuid.UUID, ttl time.Duration) (*Session, error) {
+	ctx, span := s.tracer.Start(ctx, "sessions.create")
+	defer span.End()
+
 	if ttl <= 0 {
 		ttl = sessionDefaultTTL
 	}
@@ -70,6 +80,9 @@ func (s *Sessions) Create(ctx context.Context, userID uuid.UUID, ttl time.Durati
 }
 
 func (s *Sessions) GetByToken(ctx context.Context, token string) (*Session, error) {
+	ctx, span := s.tracer.Start(ctx, "sessions.get_by_token")
+	defer span.End()
+
 	hash := hashToken(token)
 
 	session := &Session{
@@ -111,6 +124,9 @@ func (s *Sessions) GetByToken(ctx context.Context, token string) (*Session, erro
 }
 
 func (s *Sessions) Delete(ctx context.Context, token string) error {
+	ctx, span := s.tracer.Start(ctx, "sessions.delete")
+	defer span.End()
+
 	hash := hashToken(token)
 
 	if _, err := s.db.ExecContext(
@@ -128,6 +144,9 @@ func (s *Sessions) Delete(ctx context.Context, token string) error {
 // to invalidate all sessions when a password is changed or an account is
 // disabled, so a stolen token cannot outlive the credential change.
 func (s *Sessions) DeleteAllForUser(ctx context.Context, userID uuid.UUID) error {
+	ctx, span := s.tracer.Start(ctx, "sessions.delete_all_for_user")
+	defer span.End()
+
 	if _, err := s.db.ExecContext(
 		ctx,
 		`DELETE FROM sessions WHERE user_id = $1`,
@@ -143,6 +162,9 @@ func (s *Sessions) DeleteAllForUser(ctx context.Context, userID uuid.UUID) error
 // called on an interval from a background goroutine so stale rows do not
 // accumulate in the table.
 func (s *Sessions) CleanupExpired(ctx context.Context) (int64, error) {
+	ctx, span := s.tracer.Start(ctx, "sessions.cleanup_expired")
+	defer span.End()
+
 	res, err := s.db.ExecContext(
 		ctx,
 		`DELETE FROM sessions WHERE expires_at <= NOW()`,
