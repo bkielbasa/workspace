@@ -51,30 +51,34 @@ func (r *calendarRepository) Put(ctx context.Context, event calendar.Event) (*ca
 	if event.ID != uuid.Nil {
 		row = r.db.QueryRowContext(ctx, `
 			INSERT INTO events (
-				id, user_id, title, starts_at, ends_at, uid, ics, resource, etag
+				id, user_id, title, location, description, starts_at, ends_at, uid, ics, resource, etag
 			)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 			ON CONFLICT (user_id, resource) DO UPDATE SET
-				title=EXCLUDED.title, starts_at=EXCLUDED.starts_at,
+				title=EXCLUDED.title, location=EXCLUDED.location,
+				description=EXCLUDED.description, starts_at=EXCLUDED.starts_at,
 				ends_at=EXCLUDED.ends_at, uid=EXCLUDED.uid,
 				ics=EXCLUDED.ics, etag=EXCLUDED.etag, updated_at=NOW()
 			RETURNING `+eventColumns,
-			event.ID, event.UserID, event.Title, nullableTime(event.StartsAt),
-			nullableTime(event.EndsAt), event.UID, event.ICS, event.Resource, event.ETag,
+			event.ID, event.UserID, event.Title, event.Location, event.Description,
+			nullableTime(event.StartsAt), nullableTime(event.EndsAt), event.UID,
+			event.ICS, event.Resource, event.ETag,
 		)
 	} else {
 		row = r.db.QueryRowContext(ctx, `
 			INSERT INTO events (
-				user_id, title, starts_at, ends_at, uid, ics, resource, etag
+				user_id, title, location, description, starts_at, ends_at, uid, ics, resource, etag
 			)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 			ON CONFLICT (user_id, resource) DO UPDATE SET
-				title=EXCLUDED.title, starts_at=EXCLUDED.starts_at,
+				title=EXCLUDED.title, location=EXCLUDED.location,
+				description=EXCLUDED.description, starts_at=EXCLUDED.starts_at,
 				ends_at=EXCLUDED.ends_at, uid=EXCLUDED.uid,
 				ics=EXCLUDED.ics, etag=EXCLUDED.etag, updated_at=NOW()
 			RETURNING `+eventColumns,
-			event.UserID, event.Title, nullableTime(event.StartsAt),
-			nullableTime(event.EndsAt), event.UID, event.ICS, event.Resource, event.ETag,
+			event.UserID, event.Title, event.Location, event.Description,
+			nullableTime(event.StartsAt), nullableTime(event.EndsAt), event.UID,
+			event.ICS, event.Resource, event.ETag,
 		)
 	}
 	saved, err := scanEvent(row)

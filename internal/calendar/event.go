@@ -12,17 +12,19 @@ var ErrInvalidEvent = errors.New("invalid event")
 
 // Event is a calendar event independent of any wire format.
 type Event struct {
-	ID        uuid.UUID
-	UserID    uuid.UUID
-	Title     string
-	StartsAt  time.Time
-	EndsAt    time.Time
-	UID       string
-	ICS       string
-	Resource  string
-	ETag      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID          uuid.UUID
+	UserID      uuid.UUID
+	Title       string
+	Location    string
+	Description string
+	StartsAt    time.Time
+	EndsAt      time.Time
+	UID         string
+	ICS         string
+	Resource    string
+	ETag        string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // Href is the CalDAV (or similar) resource name without extension.
@@ -33,44 +35,71 @@ func (e Event) Href() string {
 	return e.ID.String()
 }
 
+// Details are the structured fields a person fills in from the web UI.
+type Details struct {
+	Title       string
+	Location    string
+	Description string
+	StartsAt    time.Time
+	EndsAt      time.Time
+}
+
 // NewWebEvent builds an event created from structured fields (web UI).
-func NewWebEvent(userID uuid.UUID, title string, start, end time.Time) (Event, error) {
-	title = strings.TrimSpace(title)
+func NewWebEvent(userID uuid.UUID, details Details) (Event, error) {
+	details.Title = strings.TrimSpace(details.Title)
+	details.Location = strings.TrimSpace(details.Location)
+	details.Description = strings.TrimSpace(details.Description)
 	if userID == uuid.Nil {
 		return Event{}, ErrInvalidEvent
 	}
-	if title == "" {
+	if details.Title == "" {
 		return Event{}, ErrInvalidEvent
 	}
-	if !end.After(start) {
+	if !details.EndsAt.After(details.StartsAt) {
 		return Event{}, ErrInvalidEvent
 	}
 	id := uuid.New()
 	return Event{
-		ID:       id,
-		UserID:   userID,
-		Title:    title,
-		StartsAt: start,
-		EndsAt:   end,
-		Resource: id.String(),
-		ETag:     uuid.NewString(),
+		ID:          id,
+		UserID:      userID,
+		Title:       details.Title,
+		Location:    details.Location,
+		Description: details.Description,
+		StartsAt:    details.StartsAt,
+		EndsAt:      details.EndsAt,
+		Resource:    id.String(),
+		ETag:        uuid.NewString(),
 	}, nil
 }
 
+// Payload is what a format adapter extracted from a wire body.
+type Payload struct {
+	Resource    string
+	ICS         string
+	UID         string
+	Title       string
+	Location    string
+	Description string
+	StartsAt    time.Time
+	EndsAt      time.Time
+}
+
 // FromPayload builds an event from a format adapter (ICS, etc.).
-func FromPayload(userID uuid.UUID, resource, payload, uid, title string, start, end time.Time) (Event, error) {
-	resource = strings.TrimSpace(resource)
-	if userID == uuid.Nil || resource == "" {
+func FromPayload(userID uuid.UUID, payload Payload) (Event, error) {
+	payload.Resource = strings.TrimSpace(payload.Resource)
+	if userID == uuid.Nil || payload.Resource == "" {
 		return Event{}, ErrInvalidEvent
 	}
 	return Event{
-		UserID:   userID,
-		Title:    title,
-		StartsAt: start,
-		EndsAt:   end,
-		UID:      uid,
-		ICS:      payload,
-		Resource: resource,
-		ETag:     uuid.NewString(),
+		UserID:      userID,
+		Title:       strings.TrimSpace(payload.Title),
+		Location:    strings.TrimSpace(payload.Location),
+		Description: strings.TrimSpace(payload.Description),
+		StartsAt:    payload.StartsAt,
+		EndsAt:      payload.EndsAt,
+		UID:         payload.UID,
+		ICS:         payload.ICS,
+		Resource:    payload.Resource,
+		ETag:        uuid.NewString(),
 	}, nil
 }

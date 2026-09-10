@@ -241,19 +241,35 @@ func fieldFromLine(hdr, val string) contacts.Field {
 }
 
 func fieldLine(kind string, f contacts.Field) string {
-	hdr := f.Header
-	if hdr == "" {
-		switch kind {
-		case "EMAIL":
-			hdr = "EMAIL;TYPE=INTERNET"
-		case "TEL":
-			hdr = "TEL;TYPE=CELL,VOICE"
+	if strings.TrimSpace(f.Value) == "" {
+		return ""
+	}
+	types := make([]string, 0, len(f.Type)+1)
+	seen := make(map[string]bool)
+	add := func(t string) {
+		t = strings.ToUpper(strings.TrimSpace(t))
+		if t == "" || seen[t] {
+			return
 		}
+		seen[t] = true
+		types = append(types, t)
 	}
-	if f.Value != "" {
-		return hdr + ":" + escapeValue(f.Value)
+	if kind == "EMAIL" {
+		add("INTERNET")
 	}
-	return ""
+	for _, t := range f.Type {
+		if strings.EqualFold(t, "INTERNET") {
+			continue
+		}
+		add(t)
+	}
+	if kind == "TEL" && !seen["VOICE"] && !seen["CELL"] && !seen["FAX"] && !seen["PAGER"] && !seen["TEXT"] {
+		add("VOICE")
+	}
+	if len(types) == 0 {
+		return kind + ":" + escapeValue(f.Value)
+	}
+	return kind + ";TYPE=" + strings.Join(types, ",") + ":" + escapeValue(f.Value)
 }
 
 func uidFor(ct contacts.Contact, prev string) string {

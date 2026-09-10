@@ -36,14 +36,14 @@ func scanContact(row scanRow) (contacts.Contact, error) {
 	return contact, nil
 }
 
-const eventColumns = `id, user_id, title, starts_at, ends_at, COALESCE(uid, ''), COALESCE(ics, ''), COALESCE(resource, id::text), etag, created_at, updated_at`
+const eventColumns = `id, user_id, title, COALESCE(location, ''), COALESCE(description, ''), starts_at, ends_at, COALESCE(uid, ''), COALESCE(ics, ''), COALESCE(resource, id::text), etag, created_at, updated_at`
 
 func scanEvent(row scanRow) (calendar.Event, error) {
 	var event calendar.Event
 	var starts, ends sql.NullTime
 	err := row.Scan(
-		&event.ID, &event.UserID, &event.Title, &starts, &ends,
-		&event.UID, &event.ICS, &event.Resource, &event.ETag,
+		&event.ID, &event.UserID, &event.Title, &event.Location, &event.Description,
+		&starts, &ends, &event.UID, &event.ICS, &event.Resource, &event.ETag,
 		&event.CreatedAt, &event.UpdatedAt,
 	)
 	if err != nil {

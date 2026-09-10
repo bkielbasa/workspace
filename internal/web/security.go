@@ -24,7 +24,15 @@ type contextKey string
 const (
 	userContextKey    contextKey = "web-user"
 	sessionContextKey contextKey = "web-session"
+	nonceContextKey   contextKey = "web-style-nonce"
 )
+
+// styleNonce returns the per-request nonce that allows the page's generated
+// stylesheet under the CSP in SecurityHeaders.
+func styleNonce(ctx context.Context) string {
+	nonce, _ := ctx.Value(nonceContextKey).(string)
+	return nonce
+}
 
 // UserFromContext returns the user installed by RequireAuth.
 func UserFromContext(ctx context.Context) *identity.User {
@@ -38,8 +46,17 @@ func sessionTokenFromContext(ctx context.Context) string {
 }
 
 // SecurityHeaders applies the baseline browser security policy to each response.
+// Pages that need computed styles (the week grid) emit a <style> element
+// carrying the per-request nonce, so no inline style attributes are needed.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		styleSrc := "style-src 'self'"
+		nonce, err := newRandomToken()
+		if err == nil {
+			styleSrc += " 'nonce-" + nonce + "'"
+			r = r.WithContext(context.WithValue(r.Context(), nonceContextKey, nonce))
+		}
+
 		headers := w.Header()
 		headers.Set("X-Content-Type-Options", "nosniff")
 		headers.Set("X-Frame-Options", "DENY")
@@ -51,7 +68,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 				"form-action 'self'; "+
 				"frame-ancestors 'none'; "+
 				"object-src 'none'; "+
-				"style-src 'self'; "+
+				styleSrc+"; "+
 				"script-src 'self'; "+
 				"connect-src 'self'")
 		next.ServeHTTP(w, r)
@@ -117,12 +134,15 @@ func (s *Server) RequireCSRF(next http.HandlerFunc) http.HandlerFunc {
 			writeJSONError(w, http.StatusForbidden, "missing CSRF token")
 			return
 		}
-		header := r.Header.Get("X-CSRF-Token")
-		if header == "" {
+		token := r.Header.Get("X-CSRF-Token")
+		if token == "" {
+			token = r.FormValue("_csrf")
+		}
+		if token == "" {
 			writeJSONError(w, http.StatusForbidden, "missing CSRF token")
 			return
 		}
-		if subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(header)) != 1 {
+		if subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(token)) != 1 {
 			writeJSONError(w, http.StatusForbidden, "invalid CSRF token")
 			return
 		}

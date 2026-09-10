@@ -5,10 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{.Title}} &middot; Workspace</title>
     <link rel="stylesheet" href="/static/css/app.css">
+    {{if .PageCSS}}<style nonce="{{.StyleNonce}}">{{.PageCSS}}</style>{{end}}
   </head>
   <body hx-headers='{"X-CSRF-Token": "{{.CSRFToken}}"}'>
     {{template "nav" .}}
-    <main class="content">
+    <main class="content{{if .Wide}} content-wide{{end}}">
       {{template "content" .}}
     </main>
     <script src="/static/js/htmx.min.js"></script>

@@ -27,6 +27,7 @@ services:
         condition: service_started
     environment:
       DATABASE_URL: postgres://app:app@db:5432/app?sslmode=disable
+      OTEL_EXPORTER_OTLP_ENDPOINT: lgtm:4318
       TLS_CERT_FILE: /certs/cert.pem
       TLS_KEY_FILE: /certs/key.pem
     ports:
@@ -50,6 +51,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./promtail-config.yaml:/etc/promtail/config.yaml
+      # Logs from a locally run `go run .`, tee'd into ./logs by the developer.
+      - ./logs:/var/log/workspace:ro
     command: ["-config.file=/etc/promtail/config.yaml"]
     depends_on:
       - lgtm

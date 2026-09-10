@@ -19,6 +19,63 @@ type Field struct {
 
 func (f Field) TypeLabel() string { return strings.Join(f.Type, "/") }
 
+const (
+	KindHome   = "home"
+	KindWork   = "work"
+	KindSchool = "school"
+)
+
+// ParseKind maps a form value onto one of the three contact kinds.
+func ParseKind(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case KindWork:
+		return KindWork
+	case KindSchool:
+		return KindSchool
+	default:
+		return KindHome
+	}
+}
+
+// Kind is the user-facing purpose of this field: home, work, or school.
+func (f Field) Kind() string {
+	for _, t := range f.Type {
+		switch strings.ToUpper(strings.TrimSpace(t)) {
+		case "WORK":
+			return KindWork
+		case "SCHOOL", "X-SCHOOL":
+			return KindSchool
+		case "HOME":
+			return KindHome
+		}
+	}
+	return KindHome
+}
+
+// KindLabel is the sentence-case label shown in the UI.
+func (f Field) KindLabel() string {
+	switch f.Kind() {
+	case KindWork:
+		return "Work"
+	case KindSchool:
+		return "School"
+	default:
+		return "Personal"
+	}
+}
+
+// TypeForKind is the vCard TYPE token for a UI kind.
+func TypeForKind(kind string) string {
+	switch ParseKind(kind) {
+	case KindWork:
+		return "WORK"
+	case KindSchool:
+		return "SCHOOL"
+	default:
+		return "HOME"
+	}
+}
+
 // Contact is format-agnostic. VCard holds a round-trip payload when one exists.
 type Contact struct {
 	ID        uuid.UUID
@@ -52,6 +109,9 @@ func (c Contact) DisplayName() string {
 	}
 	if len(c.Emails) > 0 {
 		return c.Emails[0].Value
+	}
+	if len(c.Phones) > 0 {
+		return c.Phones[0].Value
 	}
 	return c.Email
 }

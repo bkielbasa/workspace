@@ -14,13 +14,17 @@ import (
 // yield a zero time. Parse only fails when FromPayload rejects the identity
 // (missing user or resource).
 func Parse(raw string, userID uuid.UUID, resource string) (calendar.Event, error) {
-	var title, uid string
+	var title, uid, location, description string
 	var start, end time.Time
 	for _, line := range unfold(raw) {
 		name, params, value := splitLine(line)
 		switch strings.ToUpper(name) {
 		case "SUMMARY":
 			title = unescapeText(value)
+		case "LOCATION":
+			location = unescapeText(value)
+		case "DESCRIPTION":
+			description = unescapeText(value)
 		case "UID":
 			uid = strings.TrimSpace(value)
 		case "DTSTART":
@@ -29,7 +33,16 @@ func Parse(raw string, userID uuid.UUID, resource string) (calendar.Event, error
 			end = parseTime(params, value)
 		}
 	}
-	return calendar.FromPayload(userID, resource, raw, uid, title, start, end)
+	return calendar.FromPayload(userID, calendar.Payload{
+		Resource:    resource,
+		ICS:         raw,
+		UID:         uid,
+		Title:       title,
+		Location:    location,
+		Description: description,
+		StartsAt:    start,
+		EndsAt:      end,
+	})
 }
 
 // Encode serializes an event as a full iCalendar object. Clients (iOS, DAVx5)
@@ -47,6 +60,12 @@ func Encode(e calendar.Event) string {
 	b.WriteString("DTSTART:" + e.StartsAt.UTC().Format("20060102T150405Z") + "\n")
 	b.WriteString("DTEND:" + e.EndsAt.UTC().Format("20060102T150405Z") + "\n")
 	b.WriteString("SUMMARY:" + escapeText(e.Title) + "\n")
+	if e.Location != "" {
+		b.WriteString("LOCATION:" + escapeText(e.Location) + "\n")
+	}
+	if e.Description != "" {
+		b.WriteString("DESCRIPTION:" + escapeText(e.Description) + "\n")
+	}
 	b.WriteString("END:VEVENT\n")
 	b.WriteString("END:VCALENDAR\n")
 	return b.String()

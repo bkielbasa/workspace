@@ -1,34 +1,106 @@
-{{define "content"}}<section class="section">
-  <div class="card">
-    <div class="card-head">
-      <h1 class="page-title">Calendars</h1>
-      <p class="page-subtitle">Your upcoming events</p>
+{{define "content"}}<section class="week-page">
+  <header class="week-toolbar">
+    <div class="week-heading">
+      <h1>Calendar</h1>
+      <p>{{.Week.Label}}</p>
     </div>
-    <div class="card-body">
-      <form
-        class="form-row"
-        hx-post="/calendars/rows"
-        hx-target="#calendars-rows"
-        hx-swap="innerHTML"
-        hx-disabled-elt="button[type=submit]">
-        <label for="title">Title
-          <input id="title" name="title" type="text" required autocomplete="off" maxlength="200">
-        </label>
-        <label for="starts_at">Starts
-          <input id="starts_at" name="starts_at" type="datetime-local" required>
-        </label>
-        <label for="ends_at">Ends
-          <input id="ends_at" name="ends_at" type="datetime-local" required>
-        </label>
-        <button type="submit" class="btn">Add event</button>
-      </form>
+    <div class="week-nav">
+      <a class="btn btn-ghost btn-square" href="/calendars?week={{.Week.PrevQuery}}" aria-label="Previous week">&larr;</a>
+      {{if not .Week.IsThisWeek}}<a class="btn btn-ghost" href="/calendars">Today</a>{{end}}
+      <a class="btn btn-ghost btn-square" href="/calendars?week={{.Week.NextQuery}}" aria-label="Next week">&rarr;</a>
+      <button type="button" class="btn" data-new-event
+        data-start="{{.Week.StartValue}}" data-end="{{.Week.EndValue}}">New event</button>
     </div>
-  </div>
+  </header>
 
-  <div class="card">
-    <div class="card-body list" id="calendars-rows">
-      {{template "calendars-rows" .}}
+  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+  <div class="week card">
+    <div class="week-head">
+      <div class="week-gutter" aria-hidden="true"></div>
+      {{range .Week.Days}}
+      <div class="week-day-label{{if .IsToday}} is-today{{end}}">
+        <span>{{.Name}}</span>
+        <strong>{{.Number}}</strong>
+      </div>
+      {{end}}
     </div>
+
+    <div class="week-allday">
+      <div class="week-gutter"><span>All day</span></div>
+      {{range .Week.Days}}
+      <div class="week-allday-col{{if .IsToday}} is-today{{end}}">
+        {{range .AllDay}}
+        <div class="week-chip" title="{{.Hint}}">
+          <span>{{.Title}}</span>
+          <button type="button" class="icon-btn" aria-label="Delete {{.Title}}"
+            hx-delete="/calendars/{{.ID}}?week={{$.Week.Query}}"
+            hx-confirm="Delete {{.Title}}?">&times;</button>
+        </div>
+        {{end}}
+      </div>
+      {{end}}
+    </div>
+
+    <div class="week-scroll">
+      <div class="week-grid" data-hour-start="{{.Week.HourStart}}" data-hour-height="{{.Week.HourHeight}}">
+        <div class="week-hours" aria-hidden="true">
+          {{range .Week.Hours}}<div class="week-hour">{{.}}</div>{{end}}
+        </div>
+        {{range .Week.Days}}
+        <div class="week-col{{if .IsToday}} is-today{{end}}" data-date="{{.Date}}">
+          {{if .HasNow}}<div class="week-now"></div>{{end}}
+          {{range .Events}}
+          <article class="week-event {{.Class}}" title="{{.Hint}}">
+            <strong>{{.Title}}</strong>
+            <span>{{.TimeLabel}}</span>
+            {{if .Location}}<span class="week-event-location">{{.Location}}</span>{{end}}
+            <button type="button" class="icon-btn" aria-label="Delete {{.Title}}"
+              hx-delete="/calendars/{{.ID}}?week={{$.Week.Query}}"
+              hx-confirm="Delete {{.Title}}?">&times;</button>
+          </article>
+          {{end}}
+        </div>
+        {{end}}
+      </div>
+    </div>
+    <p class="week-hint">Drag across a day to block out time, or click a slot for one hour.</p>
   </div>
 </section>
+
+<dialog class="modal" id="event-dialog"{{if .Week.FormOpen}} data-open{{end}}>
+  <form class="modal-form" method="post" action="/calendars">
+    <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+    <input type="hidden" name="week" value="{{.Week.Query}}">
+    <header class="modal-head">
+      <h2>New event</h2>
+      <button type="button" class="icon-btn" data-close-dialog aria-label="Close">&times;</button>
+    </header>
+    <div class="modal-body">
+      <label for="event-title">Title
+        <input id="event-title" name="title" type="text" required autocomplete="off" maxlength="200" placeholder="Meeting" value="{{.Week.FormTitle}}">
+      </label>
+      <p class="modal-when" data-when hidden></p>
+      <div class="modal-times">
+        <label for="event-start">Starts
+          <input id="event-start" name="starts_at" type="datetime-local" required value="{{.Week.StartValue}}">
+        </label>
+        <label for="event-end">Ends
+          <input id="event-end" name="ends_at" type="datetime-local" required value="{{.Week.EndValue}}">
+        </label>
+      </div>
+      <label for="event-location">Location
+        <input id="event-location" name="location" type="text" autocomplete="off" maxlength="200" placeholder="Office, video link, …" value="{{.Week.FormLocation}}">
+      </label>
+      <label for="event-description">Description
+        <textarea id="event-description" name="description" rows="3" maxlength="4000" placeholder="Agenda, notes, links…">{{.Week.FormDescription}}</textarea>
+      </label>
+    </div>
+    <footer class="modal-actions">
+      <button type="button" class="btn btn-ghost" data-close-dialog>Cancel</button>
+      <button type="submit" class="btn">Add event</button>
+    </footer>
+  </form>
+</dialog>
+<script src="/static/js/calendar.js"></script>
 {{end}}

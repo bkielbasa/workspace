@@ -1,43 +1,105 @@
-{{define "content"}}<section class="section">
-  <div class="card">
-    <div class="card-head">
-      <h1 class="page-title">Contacts</h1>
-      <p class="page-subtitle">People you mail the most</p>
-    </div>
-    <div class="card-body">
-      <form
-        class="form-grid"
-        hx-post="/contacts/rows"
-        hx-target="#contacts-rows"
-        hx-swap="innerHTML"
-        hx-disabled-elt="button[type=submit]">
-        <label for="first_name">First name
-          <input id="first_name" name="first_name" type="text" autocomplete="given-name" maxlength="100">
-        </label>
-        <label for="last_name">Last name
-          <input id="last_name" name="last_name" type="text" autocomplete="family-name" maxlength="100">
-        </label>
-        <label for="company">Company
-          <input id="company" name="company" type="text" autocomplete="organization" maxlength="200">
-        </label>
-        <label for="title">Job title
-          <input id="title" name="title" type="text" autocomplete="organization-title" maxlength="200">
-        </label>
-        <label for="phone">Phone
-          <input id="phone" name="phone" type="tel" autocomplete="tel" maxlength="50">
-        </label>
-        <label for="email">Email
-          <input id="email" name="email" type="email" required autocomplete="off" maxlength="200">
-        </label>
-        <button type="submit" class="btn">Add contact</button>
-      </form>
-    </div>
-  </div>
+{{define "content"}}<section class="contacts-page">
+  <aside class="contacts-sidebar card" aria-label="Contacts">
+    <header class="contacts-sidebar-head">
+      <div>
+        <h1 class="page-title">Contacts</h1>
+        <p class="contacts-count" data-contact-count>{{.MatchCount}} {{if eq .MatchCount 1}}person{{else}}people{{end}}</p>
+      </div>
+      <a class="btn btn-square" href="/contacts/new" aria-label="Add contact" title="Add contact">+</a>
+    </header>
 
-  <div class="card">
-    <div class="card-body" id="contacts-rows">
-      {{template "contacts-rows" .}}
+    {{if .Error}}<p class="error contacts-error">{{.Error}}</p>{{end}}
+
+    <nav class="contact-list" aria-label="Contact list">
+      {{range .Contacts}}
+      <a class="contact-list-item{{if $.Contact}}{{if eq .ID $.Contact.ID}} is-active{{end}}{{end}}" href="/contacts/{{.ID}}{{if $.Query}}?q={{urlquery $.Query}}{{end}}" data-contact-search="{{contactSearch .}}"{{if not (contactMatches . $.Query)}} hidden{{end}}>
+        <span class="contact-avatar contact-avatar-sm" aria-hidden="true">{{contactInitial .}}</span>
+        <span class="contact-list-copy">
+          <strong>{{.DisplayName}}</strong>
+          <span>{{if .Company}}{{.Company}}{{else if .Emails}}{{(index .Emails 0).Value}}{{else if .Phones}}{{(index .Phones 0).Value}}{{else}}No contact details{{end}}</span>
+        </span>
+      </a>
+      {{else}}
+      <div class="contact-list-empty">
+        {{if .Query}}
+        <strong>No matches</strong>
+        <span>Try another name, email, or phone.</span>
+        {{else}}
+        <strong>No contacts yet</strong>
+        <span>Add someone to get started.</span>
+        {{end}}
+      </div>
+      {{end}}
+      {{if .Contacts}}<div class="contact-list-empty" data-no-search-results{{if or (not .Query) (ne .MatchCount 0)}} hidden{{end}}>
+        <strong>No matches</strong>
+        <span>Try another name, email, or phone.</span>
+      </div>{{end}}
+    </nav>
+
+    <form class="contact-search" action="/contacts" method="get" role="search" data-contact-search-form>
+      <label class="sr-only" for="contact-search">Search contacts</label>
+      <span class="search-icon" aria-hidden="true">⌕</span>
+      <input id="contact-search" name="q" type="search" value="{{.Query}}" placeholder="Search contacts" autocomplete="off">
+      {{if .Query}}<a href="/contacts" class="search-clear" aria-label="Clear search">&times;</a>{{end}}
+    </form>
+  </aside>
+
+  <article class="contact-detail card">
+    {{with .Contact}}
+    <header class="contact-detail-head">
+      <a class="contact-mobile-back" href="/contacts{{if $.Query}}?q={{urlquery $.Query}}{{end}}" aria-label="Back to contact list">&larr;</a>
+      <span class="contact-avatar" aria-hidden="true">{{contactInitial .}}</span>
+      <div class="contact-heading">
+        <h2>{{.DisplayName}}</h2>
+        {{if or .Title .Company}}
+        <p>{{if .Title}}{{.Title}}{{end}}{{if and .Title .Company}} at {{end}}{{if .Company}}{{.Company}}{{end}}</p>
+        {{end}}
+      </div>
+      <a class="btn btn-ghost" href="/contacts/{{.ID}}/edit">Edit contact</a>
+    </header>
+
+    <div class="contact-detail-body">
+      {{if .Emails}}
+      <section class="contact-field-group">
+        <h3>Email</h3>
+        <div class="contact-values">
+          {{range .Emails}}
+          <a href="mailto:{{.Value}}"><span>{{.Value}}</span><small>{{.KindLabel}}</small></a>
+          {{end}}
+        </div>
+      </section>
+      {{end}}
+
+      {{if .Phones}}
+      <section class="contact-field-group">
+        <h3>Phone</h3>
+        <div class="contact-values">
+          {{range .Phones}}
+          <a href="tel:{{.Value}}"><span>{{.Value}}</span><small>{{.KindLabel}}</small></a>
+          {{end}}
+        </div>
+      </section>
+      {{end}}
+
+      {{if or .Company .Title}}
+      <section class="contact-field-group">
+        <h3>Work</h3>
+        <dl class="contact-facts">
+          {{if .Company}}<div><dt>Company</dt><dd>{{.Company}}</dd></div>{{end}}
+          {{if .Title}}<div><dt>Title</dt><dd>{{.Title}}</dd></div>{{end}}
+        </dl>
+      </section>
+      {{end}}
     </div>
-  </div>
+    {{else}}
+    <div class="contact-detail-empty">
+      <span class="contact-empty-icon" aria-hidden="true">✦</span>
+      <h2>{{if .Query}}Choose a matching contact{{else}}Choose a contact{{end}}</h2>
+      <p>Select someone from the list to see their details.</p>
+      {{if not .Contacts}}<a class="btn" href="/contacts/new">Add your first contact</a>{{end}}
+    </div>
+    {{end}}
+  </article>
 </section>
+<script src="/static/js/contact-list.js"></script>
 {{end}}

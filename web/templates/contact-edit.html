@@ -1,0 +1,105 @@
+{{define "content"}}<section class="contact-editor">
+  <div class="contact-editor-top">
+    <a class="back-link" href="{{if .IsNew}}/contacts{{else}}/contacts/{{.Contact.ID}}{{end}}">&larr; Back to contacts</a>
+    <div>
+      <h1>{{if .IsNew}}New contact{{else}}Edit contact{{end}}</h1>
+      <p>{{if .IsNew}}Add the details you know. You can fill in the rest later.{{else}}Update this person's contact information.{{end}}</p>
+    </div>
+  </div>
+
+  <form class="contact-edit-form card" method="post" action="{{if .IsNew}}/contacts{{else}}/contacts/{{.Contact.ID}}{{end}}">
+    <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+    <fieldset>
+      <legend>About</legend>
+      <div class="form-grid form-grid-two">
+        <label for="first-name">First name
+          <input id="first-name" name="first_name" type="text" value="{{.Contact.FirstName}}" autocomplete="given-name" maxlength="100" autofocus>
+        </label>
+        <label for="last-name">Last name
+          <input id="last-name" name="last_name" type="text" value="{{.Contact.LastName}}" autocomplete="family-name" maxlength="100">
+        </label>
+        <label for="company">Company
+          <input id="company" name="company" type="text" value="{{.Contact.Company}}" autocomplete="organization" maxlength="200">
+        </label>
+        <label for="title">Job title
+          <input id="title" name="title" type="text" value="{{.Contact.Title}}" autocomplete="organization-title" maxlength="200">
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <div class="fieldset-heading">
+        <h2>Email addresses</h2>
+        <button class="btn btn-ghost btn-sm" type="button" data-add-field="emails">+ Add email</button>
+      </div>
+      <div class="repeatable-fields" data-field-list="emails">
+        {{range .Contact.Emails}}
+        <div class="repeatable-field">
+          <input name="emails" type="email" value="{{.Value}}" autocomplete="email" maxlength="200" aria-label="Email address">
+          <select name="email_kinds" aria-label="Email type">
+            <option value="home" {{if eq .Kind "home"}}selected{{end}}>Personal</option>
+            <option value="work" {{if eq .Kind "work"}}selected{{end}}>Work</option>
+            <option value="school" {{if eq .Kind "school"}}selected{{end}}>School</option>
+          </select>
+          <button class="icon-btn" type="button" data-remove-field aria-label="Remove email">&times;</button>
+        </div>
+        {{else}}
+        <div class="repeatable-field">
+          <input name="emails" type="email" autocomplete="email" maxlength="200" placeholder="name@example.com" aria-label="Email address">
+          <select name="email_kinds" aria-label="Email type">
+            <option value="home" selected>Personal</option>
+            <option value="work">Work</option>
+            <option value="school">School</option>
+          </select>
+          <button class="icon-btn" type="button" data-remove-field aria-label="Remove email">&times;</button>
+        </div>
+        {{end}}
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <div class="fieldset-heading">
+        <h2>Phone numbers</h2>
+        <button class="btn btn-ghost btn-sm" type="button" data-add-field="phones">+ Add phone</button>
+      </div>
+      <div class="repeatable-fields" data-field-list="phones">
+        {{range .Contact.Phones}}
+        <div class="repeatable-field">
+          <input name="phones" type="tel" value="{{.Value}}" autocomplete="tel" maxlength="50" aria-label="Phone number">
+          <select name="phone_kinds" aria-label="Phone type">
+            <option value="home" {{if eq .Kind "home"}}selected{{end}}>Personal</option>
+            <option value="work" {{if eq .Kind "work"}}selected{{end}}>Work</option>
+            <option value="school" {{if eq .Kind "school"}}selected{{end}}>School</option>
+          </select>
+          <button class="icon-btn" type="button" data-remove-field aria-label="Remove phone">&times;</button>
+        </div>
+        {{else}}
+        <div class="repeatable-field">
+          <input name="phones" type="tel" autocomplete="tel" maxlength="50" placeholder="+1 555 0100" aria-label="Phone number">
+          <select name="phone_kinds" aria-label="Phone type">
+            <option value="home" selected>Personal</option>
+            <option value="work">Work</option>
+            <option value="school">School</option>
+          </select>
+          <button class="icon-btn" type="button" data-remove-field aria-label="Remove phone">&times;</button>
+        </div>
+        {{end}}
+      </div>
+    </fieldset>
+
+    <footer class="contact-edit-actions">
+      {{if not .IsNew}}
+      <button class="btn btn-danger" type="button"
+        hx-delete="/contacts/{{.Contact.ID}}"
+        hx-confirm="Delete {{.Contact.DisplayName}}? This cannot be undone.">Delete contact</button>
+      {{end}}
+      <span class="action-spacer"></span>
+      <a class="btn btn-ghost" href="{{if .IsNew}}/contacts{{else}}/contacts/{{.Contact.ID}}{{end}}">Cancel</a>
+      <button class="btn" type="submit">Save contact</button>
+    </footer>
+  </form>
+</section>
+<script src="/static/js/contacts.js"></script>
+{{end}}

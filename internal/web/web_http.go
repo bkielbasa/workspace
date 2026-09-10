@@ -89,17 +89,15 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /logout", s.RequireAuth(s.RequireCSRF(s.logout)))
 
 	mux.HandleFunc("GET /contacts", s.page(s.views.contactsPage))
-	mux.HandleFunc("GET /contacts/rows", s.RequireAuth(s.views.contactsRows))
-	mux.HandleFunc("POST /contacts/rows", s.RequireAuth(s.RequireCSRF(s.views.contactsAdd)))
+	mux.HandleFunc("GET /contacts/new", s.page(s.views.contactNewPage))
+	mux.HandleFunc("POST /contacts", s.RequireAuth(s.RequireCSRF(s.views.contactCreate)))
+	mux.HandleFunc("GET /contacts/{id}", s.page(s.views.contactPage))
+	mux.HandleFunc("GET /contacts/{id}/edit", s.page(s.views.contactEditPage))
+	mux.HandleFunc("POST /contacts/{id}", s.RequireAuth(s.RequireCSRF(s.views.contactUpdate)))
 	mux.HandleFunc("DELETE /contacts/{id}", s.RequireAuth(s.RequireCSRF(s.views.contactsDelete)))
-	mux.HandleFunc("POST /contacts/{id}/emails", s.RequireAuth(s.RequireCSRF(s.views.contactsAddField("emails"))))
-	mux.HandleFunc("POST /contacts/{id}/phones", s.RequireAuth(s.RequireCSRF(s.views.contactsAddField("phones"))))
-	mux.HandleFunc("DELETE /contacts/{id}/emails/{index}", s.RequireAuth(s.RequireCSRF(s.views.contactsRemoveField("emails"))))
-	mux.HandleFunc("DELETE /contacts/{id}/phones/{index}", s.RequireAuth(s.RequireCSRF(s.views.contactsRemoveField("phones"))))
 
 	mux.HandleFunc("GET /calendars", s.page(s.views.calendarsPage))
-	mux.HandleFunc("GET /calendars/rows", s.RequireAuth(s.views.calendarsRows))
-	mux.HandleFunc("POST /calendars/rows", s.RequireAuth(s.RequireCSRF(s.views.calendarsAdd)))
+	mux.HandleFunc("POST /calendars", s.RequireAuth(s.RequireCSRF(s.views.calendarsAdd)))
 	mux.HandleFunc("DELETE /calendars/{id}", s.RequireAuth(s.RequireCSRF(s.views.calendarsDelete)))
 }
 
