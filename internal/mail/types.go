@@ -20,6 +20,14 @@ type Mailbox struct {
 	CreatedAt   time.Time
 }
 
+type MailboxInfo struct {
+	ID          uuid.UUID
+	UserID      uuid.UUID
+	Name        string
+	TotalCount  int
+	UnreadCount int
+}
+
 type Message struct {
 	ID         uuid.UUID
 	MailboxID  uuid.UUID

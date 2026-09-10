@@ -56,6 +56,35 @@ func (r *mailboxRepository) List(ctx context.Context, userID uuid.UUID) ([]mail.
 	return mailboxes, nil
 }
 
+func (r *mailboxRepository) ListWithCounts(ctx context.Context, userID uuid.UUID) ([]mail.MailboxInfo, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT mb.id, mb.user_id, mb.name,
+		       COUNT(m.id) AS total_count,
+		       COUNT(m.id) FILTER (WHERE NOT m.seen) AS unread_count
+		FROM mailboxes mb
+		LEFT JOIN messages m ON m.mailbox_id = mb.id
+		WHERE mb.user_id = $1
+		GROUP BY mb.id, mb.user_id, mb.name
+		ORDER BY mb.created_at, mb.id
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list mailboxes with counts: %w", err)
+	}
+	defer rows.Close()
+	var list []mail.MailboxInfo
+	for rows.Next() {
+		var info mail.MailboxInfo
+		if err := rows.Scan(&info.ID, &info.UserID, &info.Name, &info.TotalCount, &info.UnreadCount); err != nil {
+			return nil, fmt.Errorf("scan mailbox info: %w", err)
+		}
+		list = append(list, info)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate mailboxes: %w", err)
+	}
+	return list, nil
+}
+
 func (r *mailboxRepository) GetByName(ctx context.Context, userID uuid.UUID, name string) (*mail.Mailbox, error) {
 	mailbox := &mail.Mailbox{}
 	err := r.db.QueryRowContext(ctx, `
@@ -138,6 +167,41 @@ func (r *messageRepository) Get(ctx context.Context, id uuid.UUID) (*mail.Messag
 		return nil, fmt.Errorf("get message: %w", err)
 	}
 	return &message, nil
+}
+
+func (r *messageRepository) GetForUser(ctx context.Context, userID, id uuid.UUID) (*mail.Message, *mail.Mailbox, error) {
+	var (
+		message    mail.Message
+		mailbox    mail.Mailbox
+		recipients string
+	)
+	err := r.db.QueryRowContext(ctx, `
+		SELECT m.id, m.mailbox_id, m.uid, m.message_id, m.sender,
+		       array_to_string(m.recipients, ',') AS recipients, m.subject, m.in_reply_to,
+		       m.references_header, m.raw_message, m.mime_type, m.charset, m.size_bytes,
+		       m.seen, m.flagged, m.answered, m.deleted, m.draft, m.received_at, m.sent_at,
+		       m.created_at, m.updated_at,
+		       mb.id, mb.user_id, mb.name, mb.uid_validity, mb.created_at
+		FROM messages m
+		JOIN mailboxes mb ON m.mailbox_id = mb.id
+		WHERE m.id = $1 AND mb.user_id = $2
+	`, id, userID).Scan(
+		&message.ID, &message.MailboxID, &message.UID, &message.MessageID,
+		&message.Sender, &recipients, &message.Subject, &message.InReplyTo,
+		&message.References, &message.RawMessage, &message.MimeType, &message.Charset,
+		&message.SizeBytes, &message.Seen, &message.Flagged, &message.Answered,
+		&message.Deleted, &message.Draft, &message.ReceivedAt, &message.SentAt,
+		&message.CreatedAt, &message.UpdatedAt,
+		&mailbox.ID, &mailbox.UserID, &mailbox.Name, &mailbox.UIDValidity, &mailbox.CreatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, mail.ErrMessageNotFound
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("get message for user: %w", err)
+	}
+	message.Recipients = parseRecipients(recipients)
+	return &message, &mailbox, nil
 }
 
 func (r *messageRepository) List(ctx context.Context, mailboxID uuid.UUID, limit, offset int) ([]mail.Message, error) {

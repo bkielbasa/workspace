@@ -12,6 +12,7 @@ import (
 	"github.com/bklimczak/workspace/internal/calendar"
 	"github.com/bklimczak/workspace/internal/contacts"
 	"github.com/bklimczak/workspace/internal/identity"
+	"github.com/bklimczak/workspace/internal/mail"
 	"github.com/google/uuid"
 )
 
@@ -27,6 +28,18 @@ type calendarService interface {
 	List(context.Context, uuid.UUID) ([]calendar.Event, error)
 	Put(context.Context, calendar.Event) (*calendar.Event, error)
 	Delete(context.Context, uuid.UUID, uuid.UUID) error
+}
+
+type mailService interface {
+	EnsureDefaultMailboxes(context.Context, uuid.UUID) error
+	ListMailboxes(context.Context, uuid.UUID) ([]mail.MailboxInfo, error)
+	GetMailbox(context.Context, uuid.UUID, string) (*mail.Mailbox, error)
+	ListMessages(context.Context, uuid.UUID, int, int) ([]mail.Message, error)
+	SearchMessages(context.Context, uuid.UUID, string) ([]mail.Message, error)
+	GetMessage(context.Context, uuid.UUID, uuid.UUID) (*mail.Message, *mail.Mailbox, error)
+	UpdateFlags(context.Context, uuid.UUID, bool, bool, bool, bool, bool) error
+	DeleteMessage(context.Context, uuid.UUID, uuid.UUID) error
+	SendMessage(context.Context, *identity.User, string, string, string) (*mail.Message, error)
 }
 
 type sessionsService interface {
@@ -45,6 +58,7 @@ type Server struct {
 	files    fs.FS
 	contacts contactsService
 	calendar calendarService
+	mail     mailService
 	sessions sessionsService
 	users    usersService
 	secure   bool
@@ -54,7 +68,7 @@ type Server struct {
 
 // New constructs the web server from the root embedded filesystem and services.
 // files must contain the existing web/templates and web/static directories.
-func New(files fs.FS, contacts contactsService, calendars calendarService, sessions sessionsService, users usersService, secure bool) (*Server, error) {
+func New(files fs.FS, contacts contactsService, calendars calendarService, mail mailService, sessions sessionsService, users usersService, secure bool) (*Server, error) {
 	switch {
 	case files == nil:
 		return nil, fmt.Errorf("web: nil filesystem")
@@ -62,18 +76,20 @@ func New(files fs.FS, contacts contactsService, calendars calendarService, sessi
 		return nil, fmt.Errorf("web: nil contacts service")
 	case calendars == nil:
 		return nil, fmt.Errorf("web: nil calendar service")
+	case mail == nil:
+		return nil, fmt.Errorf("web: nil mail service")
 	case sessions == nil:
 		return nil, fmt.Errorf("web: nil sessions service")
 	case users == nil:
 		return nil, fmt.Errorf("web: nil users service")
 	}
 
-	v, err := newViews(files, contacts, calendars)
+	v, err := newViews(files, contacts, calendars, mail)
 	if err != nil {
 		return nil, err
 	}
 	return &Server{
-		files: files, contacts: contacts, calendar: calendars,
+		files: files, contacts: contacts, calendar: calendars, mail: mail,
 		sessions: sessions, users: users, secure: secure,
 		limiter: newLoginLimiter(30, 15*time.Minute), views: v,
 	}, nil
@@ -88,6 +104,13 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.page(s.views.homePage))
 	mux.HandleFunc("GET /me", s.RequireAuth(s.me))
 	mux.HandleFunc("POST /logout", s.RequireAuth(s.RequireCSRF(s.logout)))
+
+	mux.HandleFunc("GET /mail", s.page(s.views.mailPage))
+	mux.HandleFunc("GET /mail/message/{id}", s.page(s.views.mailDetailPage))
+	mux.HandleFunc("POST /mail/send", s.RequireAuth(s.RequireCSRF(s.views.mailSend)))
+	mux.HandleFunc("POST /mail/message/{id}/toggle-star", s.RequireAuth(s.RequireCSRF(s.views.mailToggleStar)))
+	mux.HandleFunc("POST /mail/message/{id}/toggle-read", s.RequireAuth(s.RequireCSRF(s.views.mailToggleRead)))
+	mux.HandleFunc("POST /mail/message/{id}/delete", s.RequireAuth(s.RequireCSRF(s.views.mailDelete)))
 
 	mux.HandleFunc("GET /contacts", s.page(s.views.contactsPage))
 	mux.HandleFunc("GET /contacts/new", s.page(s.views.contactNewPage))

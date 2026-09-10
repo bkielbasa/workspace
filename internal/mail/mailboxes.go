@@ -12,6 +12,7 @@ import (
 type MailboxRepository interface {
 	CreateDefault(ctx context.Context, userID uuid.UUID) error
 	List(ctx context.Context, userID uuid.UUID) ([]Mailbox, error)
+	ListWithCounts(ctx context.Context, userID uuid.UUID) ([]MailboxInfo, error)
 	GetByName(ctx context.Context, userID uuid.UUID, name string) (*Mailbox, error)
 	Create(ctx context.Context, userID uuid.UUID, name string) (*Mailbox, error)
 }
@@ -39,6 +40,12 @@ func (m *Mailboxes) List(ctx context.Context, userID uuid.UUID) ([]Mailbox, erro
 	ctx, span := m.tracer.Start(ctx, "mailboxes.list")
 	defer span.End()
 	return m.repo.List(ctx, userID)
+}
+
+func (m *Mailboxes) ListWithCounts(ctx context.Context, userID uuid.UUID) ([]MailboxInfo, error) {
+	ctx, span := m.tracer.Start(ctx, "mailboxes.list_with_counts")
+	defer span.End()
+	return m.repo.ListWithCounts(ctx, userID)
 }
 
 func (m *Mailboxes) GetByName(ctx context.Context, userID uuid.UUID, name string) (*Mailbox, error) {

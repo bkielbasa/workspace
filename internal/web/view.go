@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"net/mail"
+	netmail "net/mail"
 	"sort"
 	"strings"
 	"time"
@@ -14,48 +14,67 @@ import (
 	"github.com/bklimczak/workspace/internal/calendar"
 	"github.com/bklimczak/workspace/internal/contacts"
 	"github.com/bklimczak/workspace/internal/identity"
+	"github.com/bklimczak/workspace/internal/mail"
 	"github.com/bklimczak/workspace/internal/obs"
 	"github.com/google/uuid"
 )
 
 var templateFuncs = template.FuncMap{
-	"fmtDate":        func(t time.Time) string { return t.Local().Format("Jan 2, 2006") },
-	"fmtTime":        func(t time.Time) string { return t.Local().Format("15:04") },
-	"contactInitial": contactInitial,
-	"contactSearch":  contactSearchText,
-	"contactMatches": contactMatches,
+	"fmtDate":                  func(t time.Time) string { return t.Local().Format("Jan 2, 2006") },
+	"fmtTime":                  func(t time.Time) string { return t.Local().Format("15:04") },
+	"contactInitial":           contactInitial,
+	"contactSearch":            contactSearchText,
+	"contactMatches":           contactMatches,
+	"mailboxIcon":              mailboxIcon,
+	"mailboxTitle":             mailboxTitle,
+	"senderName":               func(s string) string { name, _ := parseSender(s); return name },
+	"senderEmail":              func(s string) string { _, addr := parseSender(s); return addr },
+	"contactInitialFromSender": contactInitialFromSender,
+	"joinRecipients":           func(recipients []string) string { return strings.Join(recipients, ", ") },
+	"formatMailDate":           formatMailDate,
+	"formatDetailDate":         formatDetailDate,
 }
 
 type viewData struct {
-	Title      string
-	Section    string
-	User       *identity.User
-	CSRFToken  string
-	Contacts   []contacts.Contact
-	Contact    *contacts.Contact
-	Query      string
-	MatchCount int
-	IsNew      bool
-	Events     []calendar.Event
-	Week       weekView
-	Wide       bool
-	PageCSS    template.CSS
-	StyleNonce string
-	Error      string
+	Title          string
+	Section        string
+	User           *identity.User
+	CSRFToken      string
+	Contacts       []contacts.Contact
+	Contact        *contacts.Contact
+	Query          string
+	MatchCount     int
+	IsNew          bool
+	Events         []calendar.Event
+	Week           weekView
+	Wide           bool
+	PageCSS        template.CSS
+	StyleNonce     string
+	Error          string
+	Mailboxes      []mail.MailboxInfo
+	CurrentBox     string
+	Messages       []mailViewItem
+	Message        *mailViewDetail
+	ComposeOpen    bool
+	ComposeTo      string
+	ComposeSubject string
+	ComposeBody    string
 }
 
 type views struct {
 	contacts contactsService
 	calendar calendarService
+	mail     mailService
 
 	home         *template.Template
 	contactsT    *template.Template
 	contactEditT *template.Template
 	calendarT    *template.Template
+	mailT        *template.Template
 	login        *template.Template
 }
 
-func newViews(files fs.FS, contactService contactsService, calendarService calendarService) (*views, error) {
+func newViews(files fs.FS, contactService contactsService, calendarService calendarService, mailService mailService) (*views, error) {
 	base := []string{
 		"web/templates/layout.html",
 		"web/templates/nav.html",
@@ -85,15 +104,19 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	if err != nil {
 		return nil, err
 	}
+	mailT, err := page("web/templates/mail.html")
+	if err != nil {
+		return nil, err
+	}
 	login, err := template.New("").Funcs(templateFuncs).ParseFS(files, "web/templates/login.html")
 	if err != nil {
 		return nil, fmt.Errorf("web: parse login template: %w", err)
 	}
 
 	return &views{
-		contacts: contactService, calendar: calendarService,
+		contacts: contactService, calendar: calendarService, mail: mailService,
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
-		calendarT: calendarT, login: login,
+		calendarT: calendarT, mailT: mailT, login: login,
 	}, nil
 }
 
@@ -475,7 +498,7 @@ func validateContact(contact contacts.Contact) string {
 		return "Add a name, company, email, or phone number."
 	}
 	for _, email := range contact.Emails {
-		address, err := mail.ParseAddress(email.Value)
+		address, err := netmail.ParseAddress(email.Value)
 		if err != nil || !strings.EqualFold(address.Address, email.Value) {
 			return "Enter a valid email address."
 		}
@@ -518,4 +541,234 @@ func contactInitial(contact contacts.Contact) string {
 		return "?"
 	}
 	return strings.ToUpper(string([]rune(name)[0]))
+}
+
+func (v *views) mailPage(w http.ResponseWriter, r *http.Request, user *identity.User) {
+	_ = v.mail.EnsureDefaultMailboxes(r.Context(), user.ID)
+	boxes, err := v.mail.ListMailboxes(r.Context(), user.ID)
+	if err != nil {
+		obs.Log(r.Context(), slog.LevelError, "list mailboxes failed", "error", err)
+	}
+
+	currentBox := strings.TrimSpace(r.URL.Query().Get("box"))
+	if currentBox == "" {
+		currentBox = "INBOX"
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	var msgs []mail.Message
+	if query != "" {
+		msgs, err = v.mail.SearchMessages(r.Context(), user.ID, query)
+		if err != nil {
+			obs.Log(r.Context(), slog.LevelError, "search messages failed", "error", err)
+		}
+	} else {
+		mb, err := v.mail.GetMailbox(r.Context(), user.ID, currentBox)
+		if err == nil && mb != nil {
+			msgs, err = v.mail.ListMessages(r.Context(), mb.ID, 50, 0)
+			if err != nil {
+				obs.Log(r.Context(), slog.LevelError, "list messages failed", "error", err)
+			}
+		}
+	}
+
+	items := make([]mailViewItem, 0, len(msgs))
+	for _, m := range msgs {
+		_, snippet := parseMailContent(m.RawMessage, m.MimeType)
+		name, _ := parseSender(m.Sender)
+		items = append(items, mailViewItem{
+			ID:         m.ID.String(),
+			Sender:     m.Sender,
+			SenderName: name,
+			Recipients: m.Recipients,
+			Subject:    m.Subject,
+			Snippet:    snippet,
+			Seen:       m.Seen,
+			Flagged:    m.Flagged,
+			ReceivedAt: m.ReceivedAt,
+		})
+	}
+
+	composeOpen := r.URL.Query().Get("compose") == "true"
+	composeTo := r.URL.Query().Get("to")
+	composeSubject := r.URL.Query().Get("subject")
+
+	renderView(w, r, v.mailT, "layout", viewData{
+		Title:          "Mail",
+		Section:        "mail",
+		User:           user,
+		CSRFToken:      csrfTokenFromRequest(r),
+		Wide:           true,
+		Mailboxes:      boxes,
+		CurrentBox:     currentBox,
+		Messages:       items,
+		Query:          query,
+		MatchCount:     len(items),
+		ComposeOpen:    composeOpen,
+		ComposeTo:      composeTo,
+		ComposeSubject: composeSubject,
+	})
+}
+
+func (v *views) mailDetailPage(w http.ResponseWriter, r *http.Request, user *identity.User) {
+	id, err := parseUUIDPath(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	msg, mb, err := v.mail.GetMessage(r.Context(), user.ID, id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if !msg.Seen {
+		_ = v.mail.UpdateFlags(r.Context(), msg.ID, true, msg.Flagged, msg.Answered, msg.Deleted, msg.Draft)
+		msg.Seen = true
+	}
+
+	boxes, _ := v.mail.ListMailboxes(r.Context(), user.ID)
+
+	currentBox := strings.TrimSpace(r.URL.Query().Get("box"))
+	if currentBox == "" && mb != nil {
+		currentBox = mb.Name
+	}
+	if currentBox == "" {
+		currentBox = "INBOX"
+	}
+
+	bodyText, _ := parseMailContent(msg.RawMessage, msg.MimeType)
+	name, addr := parseSender(msg.Sender)
+
+	detail := &mailViewDetail{
+		ID:         msg.ID.String(),
+		Sender:     msg.Sender,
+		SenderName: name,
+		SenderAddr: addr,
+		Recipients: msg.Recipients,
+		Subject:    msg.Subject,
+		BodyText:   bodyText,
+		Seen:       msg.Seen,
+		Flagged:    msg.Flagged,
+		ReceivedAt: msg.ReceivedAt,
+		BoxName:    currentBox,
+	}
+
+	renderView(w, r, v.mailT, "layout", viewData{
+		Title:      detail.Subject,
+		Section:    "mail",
+		User:       user,
+		CSRFToken:  csrfTokenFromRequest(r),
+		Wide:       true,
+		Mailboxes:  boxes,
+		CurrentBox: currentBox,
+		Message:    detail,
+	})
+}
+
+func (v *views) mailSend(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	to := strings.TrimSpace(r.FormValue("to"))
+	subject := strings.TrimSpace(r.FormValue("subject"))
+	body := r.FormValue("body")
+	box := strings.TrimSpace(r.FormValue("box"))
+	if box == "" {
+		box = "INBOX"
+	}
+
+	if to == "" {
+		boxes, _ := v.mail.ListMailboxes(r.Context(), user.ID)
+		renderView(w, r, v.mailT, "layout", viewData{
+			Title:          "Mail",
+			Section:        "mail",
+			User:           user,
+			CSRFToken:      csrfTokenFromRequest(r),
+			Wide:           true,
+			Mailboxes:      boxes,
+			CurrentBox:     box,
+			ComposeOpen:    true,
+			ComposeTo:      to,
+			ComposeSubject: subject,
+			ComposeBody:    body,
+			Error:          "Recipient address is required.",
+		})
+		return
+	}
+
+	if _, err := v.mail.SendMessage(r.Context(), user, to, subject, body); err != nil {
+		obs.Log(r.Context(), slog.LevelError, "send message failed", "error", err)
+		boxes, _ := v.mail.ListMailboxes(r.Context(), user.ID)
+		renderView(w, r, v.mailT, "layout", viewData{
+			Title:          "Mail",
+			Section:        "mail",
+			User:           user,
+			CSRFToken:      csrfTokenFromRequest(r),
+			Wide:           true,
+			Mailboxes:      boxes,
+			CurrentBox:     box,
+			ComposeOpen:    true,
+			ComposeTo:      to,
+			ComposeSubject: subject,
+			ComposeBody:    body,
+			Error:          "Failed to send message: " + err.Error(),
+		})
+		return
+	}
+
+	http.Redirect(w, r, "/mail?box=Sent", http.StatusSeeOther)
+}
+
+func (v *views) mailToggleStar(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	id, err := parseUUIDPath(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	msg, _, err := v.mail.GetMessage(r.Context(), user.ID, id)
+	if err == nil && msg != nil {
+		_ = v.mail.UpdateFlags(r.Context(), msg.ID, msg.Seen, !msg.Flagged, msg.Answered, msg.Deleted, msg.Draft)
+	}
+	box := r.FormValue("box")
+	target := "/mail"
+	if box != "" {
+		target += "?box=" + box
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+func (v *views) mailToggleRead(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	id, err := parseUUIDPath(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	msg, _, err := v.mail.GetMessage(r.Context(), user.ID, id)
+	if err == nil && msg != nil {
+		_ = v.mail.UpdateFlags(r.Context(), msg.ID, !msg.Seen, msg.Flagged, msg.Answered, msg.Deleted, msg.Draft)
+	}
+	box := r.FormValue("box")
+	target := "/mail"
+	if box != "" {
+		target += "?box=" + box
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+func (v *views) mailDelete(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	id, err := parseUUIDPath(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	_ = v.mail.DeleteMessage(r.Context(), user.ID, id)
+	box := r.FormValue("box")
+	target := "/mail"
+	if box != "" {
+		target += "?box=" + box
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }

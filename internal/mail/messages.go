@@ -2,9 +2,7 @@ package mail
 
 import (
 	"context"
-	"log/slog"
 
-	"github.com/bklimczak/workspace/internal/obs"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -13,6 +11,7 @@ import (
 type MessageRepository interface {
 	Append(ctx context.Context, message *Message) error
 	Get(ctx context.Context, id uuid.UUID) (*Message, error)
+	GetForUser(ctx context.Context, userID, id uuid.UUID) (*Message, *Mailbox, error)
 	List(ctx context.Context, mailboxID uuid.UUID, limit, offset int) ([]Message, error)
 	UpdateFlags(ctx context.Context, id uuid.UUID, seen, flagged, answered, deleted, draft bool) error
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -40,14 +39,15 @@ func (m *Mail) Get(ctx context.Context, id uuid.UUID) (*Message, error) {
 	return m.repo.Get(ctx, id)
 }
 
+func (m *Mail) GetForUser(ctx context.Context, userID, id uuid.UUID) (*Message, *Mailbox, error) {
+	ctx, span := m.tracer.Start(ctx, "mail.get_for_user")
+	defer span.End()
+	return m.repo.GetForUser(ctx, userID, id)
+}
+
 func (m *Mail) List(ctx context.Context, mailboxID uuid.UUID, limit, offset int) ([]Message, error) {
 	ctx, span := m.tracer.Start(ctx, "mail.list")
 	defer span.End()
-	obs.Log(ctx, slog.LevelInfo, "mail.List called",
-		"mailbox_id", mailboxID.String(),
-		"limit", limit,
-		"offset", offset,
-	)
 	return m.repo.List(ctx, mailboxID, limit, offset)
 }
 

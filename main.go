@@ -60,6 +60,8 @@ func main() {
 	contactSvc := contacts.NewService(postgres.NewContactRepository(db), vcard.Encode)
 	calendarSvc := calendar.NewService(postgres.NewCalendarRepository(db))
 	delivery := mail.NewDelivery(users, mailboxes, messages, outbox, threads, aliases, mailHostname)
+	searchRepo := postgres.NewSearchRepository(db)
+	mailSvc := mail.NewService(mailboxes, messages, searchRepo, delivery, mailHostname)
 
 	go func() {
 		ticker := time.NewTicker(30 * time.Minute)
@@ -99,7 +101,7 @@ func main() {
 		go mustListen(imap.NewTLSServer(":1994", users, messages, mailboxes, tlsCfg))
 	}
 
-	webUI, err := web.New(webFS, contactSvc, calendarSvc, sessions, users, cfg.cookieSecure)
+	webUI, err := web.New(webFS, contactSvc, calendarSvc, mailSvc, sessions, users, cfg.cookieSecure)
 	if err != nil {
 		obs.Fatal(ctx, "web UI initialization failed", "error", err)
 	}
