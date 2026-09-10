@@ -11,6 +11,9 @@ import (
 	neturl "net/url"
 	"strings"
 	"time"
+
+	"github.com/bklimczak/workspace/internal/identity"
+	"github.com/bklimczak/workspace/internal/obs"
 )
 
 // discovery serves the client auto-configuration protocols. Mail clients pick
@@ -35,7 +38,11 @@ type discovery struct {
 	// domains lists the mail domains this server is authoritative for; the
 	// Mozilla document has to name them, since a client rejects a
 	// configuration that does not cover the address it asked about.
-	domains *Domains
+	domains domainLister
+}
+
+type domainLister interface {
+	List(context.Context) ([]identity.Domain, error)
 }
 
 // imapPort and the submission ports advertised to clients. Implicit TLS is
@@ -130,7 +137,7 @@ func (d *discovery) serviceDomains(ctx context.Context, address string) []string
 	if d.domains != nil {
 		hosted, err := d.domains.List(ctx)
 		if err != nil {
-			logWithTrace(ctx, slog.LevelWarn, "discovery: could not list domains", "error", err)
+			obs.Log(ctx, slog.LevelWarn, "discovery: could not list domains", "error", err)
 		}
 		for _, domain := range hosted {
 			add(domain.Name)
@@ -227,7 +234,7 @@ func (d *discovery) mozillaAutoconfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.Write([]byte(xml.Header))
 	if err := xml.NewEncoder(w).Encode(config); err != nil {
-		logWithTrace(r.Context(), slog.LevelError, "discovery: encoding autoconfig failed", "error", err)
+		obs.Log(r.Context(), slog.LevelError, "discovery: encoding autoconfig failed", "error", err)
 	}
 }
 
@@ -240,7 +247,7 @@ func (d *discovery) autodiscoverJSON(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(status)
 		if err := json.NewEncoder(w).Encode(body); err != nil {
-			logWithTrace(r.Context(), slog.LevelError, "discovery: encoding json failed", "error", err)
+			obs.Log(r.Context(), slog.LevelError, "discovery: encoding json failed", "error", err)
 		}
 	}
 
@@ -348,7 +355,7 @@ func (d *discovery) autodiscoverXML(w http.ResponseWriter, r *http.Request) {
 
 		w.Write([]byte(xml.Header))
 		if err := xml.NewEncoder(w).Encode(failure); err != nil {
-			logWithTrace(r.Context(), slog.LevelError, "discovery: encoding autodiscover error failed", "error", err)
+			obs.Log(r.Context(), slog.LevelError, "discovery: encoding autodiscover error failed", "error", err)
 		}
 		return
 	}
@@ -384,6 +391,6 @@ func (d *discovery) autodiscoverXML(w http.ResponseWriter, r *http.Request) {
 
 	w.Write([]byte(xml.Header))
 	if err := xml.NewEncoder(w).Encode(response); err != nil {
-		logWithTrace(r.Context(), slog.LevelError, "discovery: encoding autodiscover failed", "error", err)
+		obs.Log(r.Context(), slog.LevelError, "discovery: encoding autodiscover failed", "error", err)
 	}
 }

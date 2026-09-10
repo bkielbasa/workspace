@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/bklimczak/workspace/internal/obs"
 	"github.com/google/uuid"
 )
 
@@ -123,7 +124,7 @@ func (d *discovery) appleProfile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", appleProfileContentType)
 	w.Header().Set("Content-Disposition", `attachment; filename="`+domain+`-mail.mobileconfig"`)
 	if _, err := w.Write(profile.bytes()); err != nil {
-		logWithTrace(r.Context(), slog.LevelError, "discovery: writing apple profile failed", "error", err)
+		obs.Log(r.Context(), slog.LevelError, "discovery: writing apple profile failed", "error", err)
 	}
 }
 

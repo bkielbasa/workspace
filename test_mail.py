@@ -1,6 +1,7 @@
 import smtplib
 import time
 import ssl
+import os
 from email.message import EmailMessage
 from imapclient import IMAPClient
 
@@ -10,8 +11,8 @@ SMTP_PORT = 2525
 IMAP_HOST = "localhost"
 IMAP_PORT = 1993
 
-USERNAME = "test@mail.local"
-PASSWORD = "test123"
+USERNAME = os.environ["MAIL_TEST_USERNAME"]
+PASSWORD = os.environ["MAIL_TEST_PASSWORD"]
 
 def send_email():
     msg = EmailMessage()

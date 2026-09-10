@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
+	"github.com/bklimczak/workspace/internal/obs"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -40,7 +41,7 @@ func initTelemetry(ctx context.Context) func() {
 		otlptracehttp.WithInsecure(),
 	)
 	if err != nil {
-		log.Printf("otel trace exporter error: %v", err)
+		obs.Log(ctx, slog.LevelError, "otel trace exporter error", "error", err)
 		return stop
 	}
 
@@ -58,7 +59,7 @@ func initTelemetry(ctx context.Context) func() {
 		otlpmetrichttp.WithInsecure(),
 	)
 	if err != nil {
-		log.Printf("otel metric exporter error: %v", err)
+		obs.Log(ctx, slog.LevelError, "otel metric exporter error", "error", err)
 		return stop
 	}
 

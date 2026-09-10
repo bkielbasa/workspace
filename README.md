@@ -11,7 +11,6 @@ This project is a lightweight mail system written in Go. It provides SMTP for se
 - HTTP API for users, contacts, and threads
 - CardDAV and CalDAV endpoints (basic support)
 - Background worker for outbound mail delivery
-- Automatic demo data seeding on startup
 - OpenTelemetry tracing + basic HTTP metrics
 - Retry logic for database connection (useful for containers)
 
@@ -30,7 +29,6 @@ go run main.go
 
 The server will:
 - connect to the database
-- seed demo data
 - start SMTP, IMAP, HTTP servers, and worker
 
 ## Usage
@@ -43,7 +41,7 @@ The server will:
 ### IMAP
 
 - Connect to `localhost:1143`
-- Use credentials created via API or seeded data
+- Use credentials created via the API
 
 ### HTTP API
 
@@ -119,7 +117,7 @@ Observability:
 ## Notes
 
 - Database migrations are expected to be handled externally (e.g. a separate container)
-- Demo data is seeded automatically on startup
+- Create users through the API before signing in.
 - Worker currently has DKIM disabled (placeholder in code)
 
 ## License
