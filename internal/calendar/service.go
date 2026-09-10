@@ -10,6 +10,7 @@ import (
 
 // Repository is the persistence required by Service.
 type Repository interface {
+	Get(ctx context.Context, userID, eventID uuid.UUID) (*Event, error)
 	GetByResource(ctx context.Context, userID uuid.UUID, resource string) (*Event, error)
 	List(ctx context.Context, userID uuid.UUID) ([]Event, error)
 	Put(ctx context.Context, e Event) (*Event, error)
@@ -37,6 +38,12 @@ func (s *Service) DeleteByResource(ctx context.Context, userID uuid.UUID, resour
 	ctx, span := s.tracer.Start(ctx, "calendar.delete_by_resource")
 	defer span.End()
 	return s.repo.DeleteByResource(ctx, userID, resource)
+}
+
+func (s *Service) Get(ctx context.Context, userID, eventID uuid.UUID) (*Event, error) {
+	ctx, span := s.tracer.Start(ctx, "calendar.get")
+	defer span.End()
+	return s.repo.Get(ctx, userID, eventID)
 }
 
 func (s *Service) GetByResource(ctx context.Context, userID uuid.UUID, resource string) (*Event, error) {

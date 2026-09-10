@@ -16,6 +16,16 @@ func NewCalendarRepository(db *sql.DB) calendar.Repository {
 	return &calendarRepository{db: db}
 }
 
+func (r *calendarRepository) Get(ctx context.Context, userID, eventID uuid.UUID) (*calendar.Event, error) {
+	event, err := scanEvent(r.db.QueryRowContext(ctx, `
+		SELECT `+eventColumns+` FROM events WHERE user_id = $1 AND id = $2
+	`, userID, eventID))
+	if err != nil {
+		return nil, err
+	}
+	return &event, nil
+}
+
 func (r *calendarRepository) GetByResource(ctx context.Context, userID uuid.UUID, resource string) (*calendar.Event, error) {
 	event, err := scanEvent(r.db.QueryRowContext(ctx, `
 		SELECT `+eventColumns+` FROM events WHERE user_id = $1 AND resource = $2

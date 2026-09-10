@@ -237,6 +237,9 @@ func (v *views) renderWeek(w http.ResponseWriter, r *http.Request, user *identit
 	data.Week = buildWeek(time.Now(), list, query)
 	if errMsg != "" {
 		data.Week.FormOpen = true
+		data.Week.FormAction = "/calendars"
+		data.Week.FormHeading = "New event"
+		data.Week.FormSubmit = "Add event"
 		data.Week.FormTitle = strings.TrimSpace(r.FormValue("title"))
 		data.Week.FormLocation = strings.TrimSpace(r.FormValue("location"))
 		data.Week.FormDescription = strings.TrimSpace(r.FormValue("description"))
@@ -246,6 +249,38 @@ func (v *views) renderWeek(w http.ResponseWriter, r *http.Request, user *identit
 		if end := strings.TrimSpace(r.FormValue("ends_at")); end != "" {
 			data.Week.EndValue = end
 		}
+	}
+	data.PageCSS = data.Week.CSS
+	data.StyleNonce = styleNonce(r.Context())
+	renderView(w, r, v.calendarT, "layout", data)
+}
+
+func (v *views) renderWeekWithEdit(w http.ResponseWriter, r *http.Request, user *identity.User, id uuid.UUID, errMsg string) {
+	query := strings.TrimSpace(r.URL.Query().Get("week"))
+	if query == "" {
+		query = strings.TrimSpace(r.FormValue("week"))
+	}
+	data := viewData{
+		Title: "Calendar", Section: "calendars", User: user,
+		CSRFToken: csrfTokenFromRequest(r), Wide: true, Error: errMsg,
+	}
+	list, err := v.calendar.List(r.Context(), user.ID)
+	if err != nil && data.Error == "" {
+		data.Error = "Could not load your events."
+	}
+	data.Week = buildWeek(time.Now(), list, query)
+	data.Week.FormOpen = true
+	data.Week.FormAction = "/calendars/" + id.String()
+	data.Week.FormHeading = "Edit event"
+	data.Week.FormSubmit = "Save changes"
+	data.Week.FormTitle = strings.TrimSpace(r.FormValue("title"))
+	data.Week.FormLocation = strings.TrimSpace(r.FormValue("location"))
+	data.Week.FormDescription = strings.TrimSpace(r.FormValue("description"))
+	if start := strings.TrimSpace(r.FormValue("starts_at")); start != "" {
+		data.Week.StartValue = start
+	}
+	if end := strings.TrimSpace(r.FormValue("ends_at")); end != "" {
+		data.Week.EndValue = end
 	}
 	data.PageCSS = data.Week.CSS
 	data.StyleNonce = styleNonce(r.Context())
@@ -304,6 +339,73 @@ func (v *views) calendarsAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, weekPath(mondayOf(start).Format("2006-01-02")), http.StatusSeeOther)
+}
+
+func (v *views) calendarsUpdate(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	id, err := parseUUIDPath(r)
+	if err != nil {
+		http.Error(w, "invalid event id", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	event, err := v.calendar.Get(r.Context(), user.ID, id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	startStr := strings.TrimSpace(r.FormValue("starts_at"))
+	endStr := strings.TrimSpace(r.FormValue("ends_at"))
+	start, startErr := time.ParseInLocation("2006-01-02T15:04", startStr, time.Local)
+	end, endErr := time.ParseInLocation("2006-01-02T15:04", endStr, time.Local)
+
+	hasTitle := r.Form.Has("title")
+	title := strings.TrimSpace(r.FormValue("title"))
+
+	switch {
+	case hasTitle && title == "":
+		v.renderWeekWithEdit(w, r, user, id, "A title is required.")
+		return
+	case startErr != nil || endErr != nil:
+		v.renderWeekWithEdit(w, r, user, id, "Enter valid start and end times.")
+		return
+	case !end.After(start):
+		v.renderWeekWithEdit(w, r, user, id, "The event must end after it starts.")
+		return
+	}
+
+	if hasTitle {
+		event.Title = title
+		event.Location = strings.TrimSpace(r.FormValue("location"))
+		event.Description = strings.TrimSpace(r.FormValue("description"))
+	}
+	event.StartsAt = start.UTC()
+	event.EndsAt = end.UTC()
+	event.ETag = uuid.NewString()
+	event.ICS = ""
+
+	if _, err := v.calendar.Put(r.Context(), *event); err != nil {
+		v.renderWeekWithEdit(w, r, user, id, "Could not save the event.")
+		return
+	}
+
+	target := weekPath(strings.TrimSpace(r.FormValue("week")))
+	if target == "/calendars" {
+		target = weekPath(mondayOf(start).Format("2006-01-02"))
+	}
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", target)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (v *views) calendarsDelete(w http.ResponseWriter, r *http.Request) {

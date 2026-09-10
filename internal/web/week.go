@@ -26,6 +26,9 @@ type weekView struct {
 	// FormOpen reopens the event dialog after a rejected submission so the
 	// typed values are not lost.
 	FormOpen        bool
+	FormAction      string
+	FormHeading     string
+	FormSubmit      string
 	FormTitle       string
 	FormLocation    string
 	FormDescription string
@@ -45,12 +48,15 @@ type weekDay struct {
 }
 
 type weekEvent struct {
-	ID        string
-	Title     string
-	Location  string
-	Hint      string
-	TimeLabel string
-	Class     string
+	ID          string
+	Title       string
+	Location    string
+	Description string
+	StartValue  string
+	EndValue    string
+	Hint        string
+	TimeLabel   string
+	Class       string
 
 	top, height, left, width float64
 }
@@ -224,9 +230,26 @@ func allDayOn(events []calendar.Event, day time.Time) []weekEvent {
 		if !isAllDay(event) || !overlaps(event, dayStart, dayEnd) {
 			continue
 		}
+		startVal := ""
+		if !event.StartsAt.IsZero() {
+			startVal = event.StartsAt.In(time.Local).Format("2006-01-02T15:04")
+		} else {
+			startVal = day.Format("2006-01-02T00:00")
+		}
+		endVal := ""
+		if !event.EndsAt.IsZero() {
+			endVal = event.EndsAt.In(time.Local).Format("2006-01-02T15:04")
+		} else {
+			endVal = day.AddDate(0, 0, 1).Format("2006-01-02T00:00")
+		}
 		result = append(result, weekEvent{
-			ID: event.ID.String(), Title: event.Title, Location: event.Location,
-			Hint: eventHint(event, ""),
+			ID:          event.ID.String(),
+			Title:       event.Title,
+			Location:    event.Location,
+			Description: event.Description,
+			StartValue:  startVal,
+			EndValue:    endVal,
+			Hint:        eventHint(event, ""),
 		})
 	}
 	return result
@@ -284,16 +307,26 @@ func layoutTimed(events []calendar.Event, day time.Time, hourStart, hourEnd int)
 		}
 		gap := 1.5
 		timeLabel := slot.start.Format("15:04") + "–" + slot.end.Format("15:04")
+		startVal := slot.event.StartsAt.In(time.Local).Format("2006-01-02T15:04")
+		endVal := ""
+		if !slot.event.EndsAt.IsZero() {
+			endVal = slot.event.EndsAt.In(time.Local).Format("2006-01-02T15:04")
+		} else {
+			endVal = slot.event.StartsAt.In(time.Local).Add(time.Hour).Format("2006-01-02T15:04")
+		}
 		placed = append(placed, weekEvent{
-			ID:        slot.event.ID.String(),
-			Title:     slot.event.Title,
-			Location:  slot.event.Location,
-			Hint:      eventHint(slot.event, timeLabel),
-			TimeLabel: timeLabel,
-			top:       top,
-			height:    height,
-			left:      float64(slot.column) / float64(slot.columns) * 100,
-			width:     100.0/float64(slot.columns) - gap,
+			ID:          slot.event.ID.String(),
+			Title:       slot.event.Title,
+			Location:    slot.event.Location,
+			Description: slot.event.Description,
+			StartValue:  startVal,
+			EndValue:    endVal,
+			Hint:        eventHint(slot.event, timeLabel),
+			TimeLabel:   timeLabel,
+			top:         top,
+			height:      height,
+			left:        float64(slot.column) / float64(slot.columns) * 100,
+			width:       100.0/float64(slot.columns) - gap,
 		})
 	}
 	return placed

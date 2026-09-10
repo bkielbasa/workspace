@@ -137,3 +137,104 @@ func TestWeekViewReopensDialogAfterError(t *testing.T) {
 		t.Error("typed description was lost")
 	}
 }
+
+func TestWeekPageExposesEventDataAttributes(t *testing.T) {
+	files := os.DirFS("../..")
+	tpl, err := template.New("").Funcs(templateFuncs).ParseFS(files,
+		"web/templates/layout.html", "web/templates/nav.html", "web/templates/calendars.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	eventID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	start := time.Date(2026, 9, 9, 10, 0, 0, 0, time.Local)
+	end := time.Date(2026, 9, 9, 11, 30, 0, 0, time.Local)
+	alldayID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	alldayStart := time.Date(2026, 9, 8, 0, 0, 0, 0, time.Local)
+	alldayEnd := time.Date(2026, 9, 9, 0, 0, 0, 0, time.Local)
+
+	week := buildWeek(time.Date(2026, 9, 10, 14, 30, 0, 0, time.Local), []calendar.Event{
+		{
+			ID:          eventID,
+			Title:       "Team Sync",
+			Location:    "Meeting Room 2",
+			Description: "Discuss roadmap",
+			StartsAt:    start,
+			EndsAt:      end,
+		},
+		{
+			ID:          alldayID,
+			Title:       "Company Holiday",
+			Location:    "Everywhere",
+			Description: "Enjoy the break",
+			StartsAt:    alldayStart,
+			EndsAt:      alldayEnd,
+		},
+	}, "")
+
+	var buf bytes.Buffer
+	if err := tpl.ExecuteTemplate(&buf, "layout", viewData{
+		Title: "Calendar", Section: "calendars", Week: week, PageCSS: week.CSS,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	html := buf.String()
+
+	for _, want := range []string{
+		`data-id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"`,
+		`data-title="Team Sync"`,
+		`data-location="Meeting Room 2"`,
+		`data-description="Discuss roadmap"`,
+		`data-start="2026-09-09T10:00"`,
+		`data-end="2026-09-09T11:30"`,
+		`data-id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"`,
+		`data-title="Company Holiday"`,
+		`data-location="Everywhere"`,
+		`data-description="Enjoy the break"`,
+		`data-date="2026-09-08"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("rendered week page missing %s", want)
+		}
+	}
+}
+
+func TestWeekPageRendersEditMode(t *testing.T) {
+	files := os.DirFS("../..")
+	tpl, err := template.New("").Funcs(templateFuncs).ParseFS(files,
+		"web/templates/layout.html", "web/templates/nav.html", "web/templates/calendars.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	week := buildWeek(time.Date(2026, 9, 10, 14, 30, 0, 0, time.Local), nil, "")
+	week.FormOpen = true
+	week.FormAction = "/calendars/11111111-1111-1111-1111-111111111111"
+	week.FormHeading = "Edit event"
+	week.FormSubmit = "Save changes"
+	week.FormTitle = "Sprint Review"
+	week.StartValue = "2026-09-10T14:00"
+	week.EndValue = "2026-09-10T15:00"
+
+	var buf bytes.Buffer
+	if err := tpl.ExecuteTemplate(&buf, "layout", viewData{
+		Title: "Calendar", Section: "calendars", Week: week, PageCSS: week.CSS,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	html := buf.String()
+
+	for _, want := range []string{
+		`action="/calendars/11111111-1111-1111-1111-111111111111"`,
+		`<h2 data-dialog-title>Edit event</h2>`,
+		`<button type="submit" class="btn" data-dialog-submit>Save changes</button>`,
+		`value="Sprint Review"`,
+		`value="2026-09-10T14:00"`,
+		`value="2026-09-10T15:00"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("rendered edit mode page missing %s", want)
+		}
+	}
+}
+

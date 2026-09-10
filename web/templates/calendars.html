@@ -29,9 +29,15 @@
     <div class="week-allday">
       <div class="week-gutter"><span>All day</span></div>
       {{range .Week.Days}}
-      <div class="week-allday-col{{if .IsToday}} is-today{{end}}">
+      <div class="week-allday-col{{if .IsToday}} is-today{{end}}" data-date="{{.Date}}">
         {{range .AllDay}}
-        <div class="week-chip" title="{{.Hint}}">
+        <div class="week-chip" title="{{.Hint}}"
+          data-id="{{.ID}}"
+          data-title="{{.Title}}"
+          data-location="{{.Location}}"
+          data-description="{{.Description}}"
+          data-start="{{.StartValue}}"
+          data-end="{{.EndValue}}">
           <span>{{.Title}}</span>
           <button type="button" class="icon-btn" aria-label="Delete {{.Title}}"
             hx-delete="/calendars/{{.ID}}?week={{$.Week.Query}}"
@@ -51,7 +57,13 @@
         <div class="week-col{{if .IsToday}} is-today{{end}}" data-date="{{.Date}}">
           {{if .HasNow}}<div class="week-now"></div>{{end}}
           {{range .Events}}
-          <article class="week-event {{.Class}}" title="{{.Hint}}">
+          <article class="week-event {{.Class}}" title="{{.Hint}}"
+            data-id="{{.ID}}"
+            data-title="{{.Title}}"
+            data-location="{{.Location}}"
+            data-description="{{.Description}}"
+            data-start="{{.StartValue}}"
+            data-end="{{.EndValue}}">
             <strong>{{.Title}}</strong>
             <span>{{.TimeLabel}}</span>
             {{if .Location}}<span class="week-event-location">{{.Location}}</span>{{end}}
@@ -64,16 +76,16 @@
         {{end}}
       </div>
     </div>
-    <p class="week-hint">Drag across a day to block out time, or click a slot for one hour.</p>
+    <p class="week-hint">Drag across a day to block out time, click a slot for one hour, drag an event to reschedule, or double-click to edit.</p>
   </div>
 </section>
 
 <dialog class="modal" id="event-dialog"{{if .Week.FormOpen}} data-open{{end}}>
-  <form class="modal-form" method="post" action="/calendars">
+  <form class="modal-form" method="post" action="{{if .Week.FormAction}}{{.Week.FormAction}}{{else}}/calendars{{end}}">
     <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
     <input type="hidden" name="week" value="{{.Week.Query}}">
     <header class="modal-head">
-      <h2>New event</h2>
+      <h2 data-dialog-title>{{if .Week.FormHeading}}{{.Week.FormHeading}}{{else}}New event{{end}}</h2>
       <button type="button" class="icon-btn" data-close-dialog aria-label="Close">&times;</button>
     </header>
     <div class="modal-body">
@@ -98,7 +110,7 @@
     </div>
     <footer class="modal-actions">
       <button type="button" class="btn btn-ghost" data-close-dialog>Cancel</button>
-      <button type="submit" class="btn">Add event</button>
+      <button type="submit" class="btn" data-dialog-submit>{{if .Week.FormSubmit}}{{.Week.FormSubmit}}{{else}}Add event{{end}}</button>
     </footer>
   </form>
 </dialog>

@@ -23,6 +23,7 @@ type contactsService interface {
 }
 
 type calendarService interface {
+	Get(context.Context, uuid.UUID, uuid.UUID) (*calendar.Event, error)
 	List(context.Context, uuid.UUID) ([]calendar.Event, error)
 	Put(context.Context, calendar.Event) (*calendar.Event, error)
 	Delete(context.Context, uuid.UUID, uuid.UUID) error
@@ -98,6 +99,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /calendars", s.page(s.views.calendarsPage))
 	mux.HandleFunc("POST /calendars", s.RequireAuth(s.RequireCSRF(s.views.calendarsAdd)))
+	mux.HandleFunc("POST /calendars/{id}", s.RequireAuth(s.RequireCSRF(s.views.calendarsUpdate)))
 	mux.HandleFunc("DELETE /calendars/{id}", s.RequireAuth(s.RequireCSRF(s.views.calendarsDelete)))
 }
 

@@ -962,6 +962,32 @@ button {
   border-radius: 6px;
   font-size: 0.8rem;
   font-weight: 600;
+  cursor: grab;
+  user-select: none;
+}
+
+.week-chip:active {
+  cursor: grabbing;
+}
+
+.week-chip.is-rescheduling {
+  opacity: 0.35;
+}
+
+.week-chip-ghost {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.2rem 0.35rem 0.2rem 0.5rem;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  pointer-events: none;
+  opacity: 0.85;
 }
 
 .week-chip span,
@@ -1037,6 +1063,16 @@ button {
   border-left: 3px solid var(--accent);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  cursor: grab;
+  user-select: none;
+}
+
+.week-event:active {
+  cursor: grabbing;
+}
+
+.week-event.is-rescheduling {
+  opacity: 0.35;
 }
 
 .week-event strong {
@@ -1050,6 +1086,40 @@ button {
 
 .week-event-location {
   color: var(--text-muted) !important;
+}
+
+.week-event-ghost {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  overflow: hidden;
+  padding: 0.25rem 0.4rem;
+  color: var(--text);
+  background: #254b8c;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  cursor: grabbing;
+}
+
+.week-event-ghost strong {
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.week-event-ghost span {
+  color: var(--accent-text);
+  font-size: 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .week-now {
