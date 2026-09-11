@@ -1,125 +1,103 @@
-# Mail Server (SMTP / IMAP / HTTP API)
+# Workspace
 
-This project is a lightweight mail system written in Go. It provides SMTP for sending mail, IMAP for retrieving mail, an HTTP API for user and contact management, and basic observability (metrics + tracing).
+**Workspace** is a self-hosted personal communication and productivity suite written in Go. It combines a dark-themed, server-rendered web application with standard mail and synchronization protocols: a Gmail-inspired webmail client, an interactive calendar with drag-and-drop rescheduling, a contacts address book, account profile management, and native SMTP, IMAP, CalDAV, and CardDAV servers.
 
-## Features
+---
 
-- SMTP server (port 2525) for receiving email
-- SMTPS (port 2465) when TLS is configured
-- IMAP server (port 1143) for mailbox access
-- IMAPS (port 1993) when TLS is configured
-- HTTP API for users, contacts, and threads
-- CardDAV and CalDAV endpoints (basic support)
-- Background worker for outbound mail delivery
-- OpenTelemetry tracing + basic HTTP metrics
-- Retry logic for database connection (useful for containers)
+## Key Features
+
+### 1. Web Application (Server-Rendered + HTMX)
+- **Mail (Gmail-inspired)**:
+  - Mailbox folders (`Inbox`, `Sent`, `Drafts`, `Trash`, `Spam`) with unread count badges.
+  - Search, star/unstar (`★`), mark read/unread, and deletion/trashing.
+  - Detailed message view with parsed RFC 5322 MIME headers and body formatting.
+  - Floating compose dock with keyboard shortcuts (`c` to compose, `Esc` to close) and reply support.
+- **Calendar**:
+  - Weekly view with time grid.
+  - Drag-and-drop event rescheduling.
+  - Double-click to edit events, plus event creation and deletion.
+  - CalDAV synchronization.
+- **Contacts**:
+  - Address book with search, full contact editing (names, company, title, structured emails, phone numbers, addresses, and notes).
+- **User Profile & Security**:
+  - Account details view (email, creation date).
+  - Display name editing.
+  - In-app password change with Argon2id hashing and automatic session revocation/rotation.
+- **Authentication**:
+  - Cookie sessions (SHA-256 hashed tokens, 24-hour TTL, background cleanup).
+  - CSRF protection via double-submit cookies (`X-CSRF-Token` header / `_csrf` form field).
+  - Rate-limited sign-in attempts.
+
+### 2. Mail Services (SMTP & IMAP)
+- **SMTP Server**: Port `2525` (plain) and `2465` (SMTPS with TLS) for receiving and routing mail.
+- **IMAP Server**: Port `1143` (plain) and `1993` (IMAPS with TLS) for desktop/mobile email clients.
+- **Delivery Worker**: Background worker handling queued outbound email delivery.
+
+### 3. Sync & Client Autodiscovery
+- **CalDAV** (`/cal/`, `/.well-known/caldav`): Calendar syncing for Apple Calendar, Thunderbird, etc.
+- **CardDAV** (`/dav/`, `/.well-known/carddav`): Address book syncing.
+- **Client Autodiscovery**:
+  - Mozilla Thunderbird Autoconfig (`/mail/config-v1.1.xml`)
+  - Microsoft Outlook Autodiscover (`/autodiscover/autodiscover.xml`)
+  - Apple Mobileconfig profile generator (`/apple.mobileconfig`)
+
+### 4. REST API & Observability
+- HTTP REST API for user administration (`/users`), contacts, and message threads.
+- OpenTelemetry tracing and HTTP metrics.
+
+---
 
 ## Getting Started
 
-### Requirements
+### Prerequisites
+- **Go** 1.22+
+- **PostgreSQL** database
 
-- Go
-- A running SQL database
-
-### Run
-
-```
+### Running
+```bash
 go run main.go
 ```
 
-The server will:
-- connect to the database
-- start SMTP, IMAP, HTTP servers, and worker
+On startup, the server connects to PostgreSQL (with retry logic), initializes the database services, and launches SMTP, IMAP, HTTP/Web UI, and the outbound delivery worker.
 
-## Usage
-
-### SMTP
-
-- Connect to `localhost:2525`
-- Send email using any SMTP client
-
-### IMAP
-
-- Connect to `localhost:1143`
-- Use credentials created via the API
-
-### HTTP API
-
-Base address: `http://localhost:<httpAddr>`
-
-#### Web login (sessions)
-
-The server serves a sign-in page and issues cookie-based sessions. This is the
-intended way to access the HTTP API from a browser.
-
-- `GET /login` – sign-in page
-- `POST /login` – authenticate (`{email, password}`), sets a session + CSRF cookie
-- `GET /me` – current signed-in user (requires session)
-- `POST /logout` – revoke the session (requires session + CSRF)
-- `GET /` – authenticated landing page
-
-Sessions are kept in the `sessions` table: tokens are stored as SHA-256 hashes,
-expire after 24h, are periodically purged, and are revoked when a password
-changes or an account is disabled. All admin/mutation endpoints are gated
-behind `requireAuth`; mutating endpoints also require a CSRF token
-(`X-CSRF-Token` header matching the `csrf` cookie).
-
-User endpoints:
-- `POST /users` – create user
-- `GET /users` – list users
-- `GET /users/{id}` – get user
-- `PATCH /users/{id}` – update user
-- `DELETE /users/{id}` – delete user
-- `POST /users/{id}/password` – change password
-
-Contacts:
-- `GET /contacts`
-- `POST /contacts`
-- `DELETE /contacts`
-
-Threads:
-- `GET /threads`
-
-DAV endpoints:
-- `/dav/` – CardDAV
-- `/cal/` – CalDAV
+---
 
 ## Configuration
 
-Environment variables:
+Configured via environment variables:
 
-- `TLS_CERT_FILE` – path to TLS certificate
-- `TLS_KEY_FILE` – path to TLS key
-- `COOKIE_SECURE` – force the `Secure` attribute on session/CSRF cookies
-  (`true`/`false`). Cookies are always marked Secure over TLS; set to `true` if
-  the API is served behind a TLS-terminating reverse proxy.
+| Variable | Description | Default |
+|---|---|---|
+| `DATABASE_URL` | PostgreSQL connection URL | required |
+| `HTTP_ADDR` | Web UI and HTTP API listen address | `:8080` |
+| `MAIL_HOSTNAME` | Hostname for SMTP/IMAP HELO and autodiscovery | `localhost` |
+| `TLS_CERT_FILE` | Path to TLS certificate file (enables SMTPS & IMAPS) | _optional_ |
+| `TLS_KEY_FILE` | Path to TLS private key file | _optional_ |
+| `COOKIE_SECURE` | Force `Secure` flag on session and CSRF cookies (`true`/`false`) | `false` |
 
-If not provided, TLS servers (SMTPS/IMAPS) are disabled.
+---
 
-Database connection is configured via `loadConfig()` (see code).
+## Key Routes Overview
 
-## Development
+### Web UI
+- `GET /login`, `POST /login` – Sign in
+- `POST /logout` – Sign out
+- `GET /` – Home dashboard
+- `GET /mail` – Webmail client
+- `GET /mail/message/{id}` – Message view
+- `POST /mail/send` – Compose and send email
+- `POST /mail/message/{id}/toggle-star` – Star / unstar message
+- `POST /mail/message/{id}/toggle-read` – Mark read / unread
+- `POST /mail/message/{id}/delete` – Delete message
+- `GET /calendars`, `POST /calendars`, `POST /calendars/{id}`, `DELETE /calendars/{id}` – Calendar
+- `GET /contacts`, `POST /contacts`, `GET /contacts/{id}`, `POST /contacts/{id}`, `DELETE /contacts/{id}` – Contacts
+- `GET /profile`, `POST /profile`, `POST /profile/password` – Profile & password settings
 
-- Entry point: `main.go`
-- HTTP routes defined in `http.ServeMux`
-- Core services:
-  - Users
-  - Mail
-  - Mailboxes
-  - Contacts
-  - Threads
-  - Delivery / Worker
-
-Observability:
-- Tracing initialized at startup
-- HTTP requests wrapped with OpenTelemetry middleware
-
-## Notes
-
-- Database migrations are expected to be handled externally (e.g. a separate container)
-- Create users through the API before signing in.
-- Worker currently has DKIM disabled (placeholder in code)
-
-## License
-
-Add your license here.
+### Protocols & Discovery
+- `Port 2525` / `2465` – SMTP / SMTPS
+- `Port 1143` / `1993` – IMAP / IMAPS
+- `/cal/` – CalDAV
+- `/dav/` – CardDAV
+- `/mail/config-v1.1.xml` – Thunderbird autoconfig
+- `/autodiscover/autodiscover.xml` – Outlook Autodiscover
+- `/apple.mobileconfig` – Apple device configuration profile
