@@ -181,11 +181,47 @@ data:
 
   015_contacts_multi_value.up.sql: |
     -- A contact can hold several emails and phones (vCard TEL/EMAIL list).
-    -- Each entry is {"value": "...", "type": ["HOME","INTERNET",...]} and keeps
-    -- the original vCard header for faithful re-serialisation.
-    ALTER TABLE contacts
-        ADD COLUMN IF NOT EXISTS emails JSONB NOT NULL DEFAULT '[]',
-        ADD COLUMN IF NOT EXISTS phones JSONB NOT NULL DEFAULT '[]';
+    -- Ensure phone column exists so queries and backfill don't fail if table was created without it
+    ALTER TABLE contacts ADD COLUMN IF NOT EXISTS phone TEXT;
+
+    DO $$
+    BEGIN
+        -- Convert emails to JSONB if it was created as text
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'contacts' AND column_name = 'emails' AND data_type = 'text'
+        ) THEN
+            ALTER TABLE contacts ALTER COLUMN emails TYPE JSONB USING (
+                CASE 
+                    WHEN emails IS NULL OR emails = '' THEN '[]'::jsonb
+                    WHEN emails ~ '^\s*\[.*\]\s*$' THEN emails::jsonb
+                    ELSE jsonb_build_array(jsonb_build_object('value', emails, 'type', jsonb_build_array('INTERNET')))
+                END
+            );
+            ALTER TABLE contacts ALTER COLUMN emails SET DEFAULT '[]'::jsonb;
+            ALTER TABLE contacts ALTER COLUMN emails SET NOT NULL;
+        ELSE
+            ALTER TABLE contacts ADD COLUMN IF NOT EXISTS emails JSONB NOT NULL DEFAULT '[]';
+        END IF;
+
+        -- Convert phones to JSONB if it was created as text
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'contacts' AND column_name = 'phones' AND data_type = 'text'
+        ) THEN
+            ALTER TABLE contacts ALTER COLUMN phones TYPE JSONB USING (
+                CASE 
+                    WHEN phones IS NULL OR phones = '' THEN '[]'::jsonb
+                    WHEN phones ~ '^\s*\[.*\]\s*$' THEN phones::jsonb
+                    ELSE jsonb_build_array(jsonb_build_object('value', phones, 'type', jsonb_build_array('CELL', 'VOICE')))
+                END
+            );
+            ALTER TABLE contacts ALTER COLUMN phones SET DEFAULT '[]'::jsonb;
+            ALTER TABLE contacts ALTER COLUMN phones SET NOT NULL;
+        ELSE
+            ALTER TABLE contacts ADD COLUMN IF NOT EXISTS phones JSONB NOT NULL DEFAULT '[]';
+        END IF;
+    END $$;
 
     UPDATE contacts SET
         emails = CASE
@@ -194,7 +230,7 @@ data:
             )
             ELSE '[]'::jsonb
         END
-    WHERE emails = '[]'::jsonb AND email <> '';
+    WHERE emails::text = '[]' AND email IS NOT NULL AND email <> '';
 
     UPDATE contacts SET
         phones = CASE
@@ -203,7 +239,7 @@ data:
             )
             ELSE '[]'::jsonb
         END
-    WHERE phones = '[]'::jsonb AND phone IS NOT NULL AND phone <> '';
+    WHERE phones::text = '[]' AND phone IS NOT NULL AND phone <> '';
 
   016_events_caldav.up.sql: |
     -- CalDAV clients (iOS, DAVx5) address an event by the resource name in the
