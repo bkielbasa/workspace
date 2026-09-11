@@ -51,6 +51,7 @@ type viewData struct {
 	PageCSS        template.CSS
 	StyleNonce     string
 	Error          string
+	Success        string
 	Mailboxes      []mail.MailboxInfo
 	CurrentBox     string
 	Messages       []mailViewItem
@@ -71,6 +72,7 @@ type views struct {
 	contactEditT *template.Template
 	calendarT    *template.Template
 	mailT        *template.Template
+	profileT     *template.Template
 	login        *template.Template
 }
 
@@ -108,6 +110,10 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	if err != nil {
 		return nil, err
 	}
+	profileT, err := page("web/templates/profile.html")
+	if err != nil {
+		return nil, err
+	}
 	login, err := template.New("").Funcs(templateFuncs).ParseFS(files, "web/templates/login.html")
 	if err != nil {
 		return nil, fmt.Errorf("web: parse login template: %w", err)
@@ -116,7 +122,7 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	return &views{
 		contacts: contactService, calendar: calendarService, mail: mailService,
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
-		calendarT: calendarT, mailT: mailT, login: login,
+		calendarT: calendarT, mailT: mailT, profileT: profileT, login: login,
 	}, nil
 }
 

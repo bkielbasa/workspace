@@ -87,6 +87,8 @@ func (dummyUserService) Authenticate(context.Context, string, string) (*identity
 	return nil, nil
 }
 func (dummyUserService) Get(context.Context, uuid.UUID) (*identity.User, error) { return nil, nil }
+func (dummyUserService) Update(context.Context, uuid.UUID, string, bool) error  { return nil }
+func (dummyUserService) ChangePassword(context.Context, uuid.UUID, string) error { return nil }
 
 func TestMuxRouteRegistrationNoConflict(t *testing.T) {
 	mux := http.NewServeMux()

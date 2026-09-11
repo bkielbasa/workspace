@@ -51,6 +51,8 @@ type sessionsService interface {
 type usersService interface {
 	Authenticate(context.Context, string, string) (*identity.User, error)
 	Get(context.Context, uuid.UUID) (*identity.User, error)
+	Update(context.Context, uuid.UUID, string, bool) error
+	ChangePassword(context.Context, uuid.UUID, string) error
 }
 
 // Server owns the web templates, assets, and cookie authentication policy.
@@ -104,6 +106,9 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.page(s.views.homePage))
 	mux.HandleFunc("GET /me", s.RequireAuth(s.me))
 	mux.HandleFunc("POST /logout", s.RequireAuth(s.RequireCSRF(s.logout)))
+	mux.HandleFunc("GET /profile", s.page(s.profilePage))
+	mux.HandleFunc("POST /profile", s.RequireAuth(s.RequireCSRF(s.profileUpdate)))
+	mux.HandleFunc("POST /profile/password", s.RequireAuth(s.RequireCSRF(s.profileChangePassword)))
 
 	mux.HandleFunc("GET /mail", s.page(s.views.mailPage))
 	mux.HandleFunc("GET /mail/message/{id}", s.page(s.views.mailDetailPage))

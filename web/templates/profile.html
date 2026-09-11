@@ -1,0 +1,81 @@
+{{define "content"}}<div class="profile-container">
+  <div class="profile-header">
+    <h1>Account Profile</h1>
+    <p class="subtitle">Manage your personal settings and password</p>
+  </div>
+
+  {{if .Success}}
+  <div class="profile-alert success" role="status">
+    {{.Success}}
+  </div>
+  {{end}}
+
+  {{if .Error}}
+  <div class="profile-alert error" role="alert">
+    {{.Error}}
+  </div>
+  {{end}}
+
+  <div class="profile-grid">
+    <section class="card profile-card">
+      <div class="card-head">
+        <h2>Profile Details</h2>
+        <p class="subtitle">Your identity in this workspace</p>
+      </div>
+      <div class="card-body">
+        <form method="post" action="/profile" class="profile-form">
+          <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+
+          <label for="profile-email">Email address
+            <input id="profile-email" type="email" value="{{.User.Email}}" disabled readonly title="Email address cannot be changed">
+            <span class="field-hint">Primary email used for sign in and mail</span>
+          </label>
+
+          <label for="display-name">Display name
+            <input id="display-name" name="display_name" type="text" value="{{.User.DisplayName}}" maxlength="100" placeholder="e.g. Alice Smith" autocomplete="name">
+            <span class="field-hint">How your name appears in calendar, mail, and headers</span>
+          </label>
+
+          <div class="profile-meta">
+            <span class="profile-meta-label">Member since</span>
+            <span class="profile-meta-value">{{fmtDate .User.CreatedAt}}</span>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn">Save profile</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section class="card profile-card">
+      <div class="card-head">
+        <h2>Change Password</h2>
+        <p class="subtitle">Update your password to keep your account secure</p>
+      </div>
+      <div class="card-body">
+        <form method="post" action="/profile/password" class="profile-form">
+          <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+
+          <label for="current-password">Current password
+            <input id="current-password" name="current_password" type="password" required autocomplete="current-password" placeholder="Enter your current password">
+          </label>
+
+          <label for="new-password">New password
+            <input id="new-password" name="new_password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters">
+            <span class="field-hint">Must be at least 8 characters</span>
+          </label>
+
+          <label for="confirm-password">Confirm new password
+            <input id="confirm-password" name="confirm_password" type="password" required minlength="8" autocomplete="new-password" placeholder="Re-enter your new password">
+          </label>
+
+          <div class="form-actions">
+            <button type="submit" class="btn">Change password</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </div>
+</div>
+{{end}}

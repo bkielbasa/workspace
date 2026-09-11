@@ -209,6 +209,14 @@ func (u testUserService) Get(context.Context, uuid.UUID) (*identity.User, error)
 	return &identity.User{ID: u.userID, Email: "alice@example.com", Enabled: true}, nil
 }
 
+func (u testUserService) Update(context.Context, uuid.UUID, string, bool) error {
+	return nil
+}
+
+func (u testUserService) ChangePassword(context.Context, uuid.UUID, string) error {
+	return nil
+}
+
 type contactService struct{}
 
 func (contactService) List(context.Context, uuid.UUID) ([]contacts.Contact, error) {
@@ -267,6 +275,14 @@ func (userService) Authenticate(context.Context, string, string) (*identity.User
 
 func (userService) Get(context.Context, uuid.UUID) (*identity.User, error) {
 	return &identity.User{}, nil
+}
+
+func (userService) Update(context.Context, uuid.UUID, string, bool) error {
+	return nil
+}
+
+func (userService) ChangePassword(context.Context, uuid.UUID, string) error {
+	return nil
 }
 
 type mailServiceStub struct {
