@@ -1,0 +1,6 @@
+apiVersion: v2
+name: workspace
+description: Self-hosted Google Workspace alternative — mail (SMTP/IMAP), contacts (CardDAV), calendar (CalDAV)
+type: application
+version: 0.1.0
+appVersion: "latest"
