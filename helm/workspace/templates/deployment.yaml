@@ -15,6 +15,13 @@ spec:
         {{- include "workspace.selectorLabels" . | nindent 8 }}
     spec:
       initContainers:
+        - name: copy-migrations
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["cp", "-r", "/app/migrations/.", "/migrations/"]
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
         - name: migrate
           image: {{ .Values.migrate.image }}
           args:
@@ -31,7 +38,6 @@ spec:
           volumeMounts:
             - name: migrations
               mountPath: /migrations
-              readOnly: true
       containers:
         - name: workspace
           image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
@@ -78,9 +84,6 @@ spec:
               value: {{ . | quote }}
             {{- end }}
           volumeMounts:
-            - name: migrations
-              mountPath: /migrations
-              readOnly: true
             {{- if and .Values.tls.enabled .Values.tls.secretName }}
             - name: tls
               mountPath: /certs
@@ -109,8 +112,7 @@ spec:
           {{- end }}
       volumes:
         - name: migrations
-          configMap:
-            name: {{ include "workspace.fullname" . }}-migrations
+          emptyDir: {}
         {{- if and .Values.tls.enabled .Values.tls.secretName }}
         - name: tls
           secret:

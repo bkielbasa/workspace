@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/bklimczak/workspace/internal/caldav"
@@ -62,6 +63,11 @@ func main() {
 	delivery := mail.NewDelivery(users, mailboxes, messages, outbox, threads, aliases, mailHostname)
 	searchRepo := postgres.NewSearchRepository(db)
 	mailSvc := mail.NewService(mailboxes, messages, searchRepo, delivery, mailHostname)
+
+	dkim := initDKIM()
+	worker := mail.NewWorker(outbox, delivery, dkim, mailHostname)
+	worker.Start(ctx)
+	obs.Log(ctx, slog.LevelInfo, "background outbox worker started")
 
 	go func() {
 		ticker := time.NewTicker(30 * time.Minute)
@@ -175,3 +181,34 @@ func mustListen(s listener) {
 		obs.Fatal(context.Background(), "listener stopped", "error", err)
 	}
 }
+
+func initDKIM() *DKIM {
+	domain := getEnv("DKIM_DOMAIN", "")
+	selector := getEnv("DKIM_SELECTOR", "default")
+	keyPath := getEnv("DKIM_PRIVATE_KEY_FILE", "")
+
+	if domain == "" || keyPath == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(keyPath)
+	if err != nil {
+		obs.Log(context.Background(), slog.LevelWarn, "dkim disabled: failed to read key file", "error", err)
+		return nil
+	}
+
+	key, err := LoadDKIMPrivateKey(data)
+	if err != nil {
+		obs.Log(context.Background(), slog.LevelWarn, "dkim disabled: invalid key", "error", err)
+		return nil
+	}
+
+	obs.Log(context.Background(), slog.LevelInfo, "dkim enabled", "domain", domain, "selector", selector)
+
+	return &DKIM{
+		Domain:   domain,
+		Selector: selector,
+		Private:  key,
+	}
+}
+
