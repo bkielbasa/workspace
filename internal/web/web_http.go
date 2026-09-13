@@ -40,6 +40,7 @@ type mailService interface {
 	UpdateFlags(context.Context, uuid.UUID, bool, bool, bool, bool, bool) error
 	DeleteMessage(context.Context, uuid.UUID, uuid.UUID) error
 	SendMessage(context.Context, *identity.User, string, string, string) (*mail.Message, error)
+	SendMessageWithAttachments(context.Context, *identity.User, string, string, string, []mail.Attachment) (*mail.Message, error)
 }
 
 type sessionsService interface {
@@ -112,6 +113,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /mail", s.page(s.views.mailPage))
 	mux.HandleFunc("GET /mail/message/{id}", s.page(s.views.mailDetailPage))
+	mux.HandleFunc("GET /mail/message/{id}/attachment/{idx}", s.page(s.views.mailAttachmentDownload))
 	mux.HandleFunc("POST /mail/send", s.RequireAuth(s.RequireCSRF(s.views.mailSend)))
 	mux.HandleFunc("POST /mail/message/{id}/toggle-star", s.RequireAuth(s.RequireCSRF(s.views.mailToggleStar)))
 	mux.HandleFunc("POST /mail/message/{id}/toggle-read", s.RequireAuth(s.RequireCSRF(s.views.mailToggleRead)))

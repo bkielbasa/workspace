@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -11,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/bklimczak/workspace/internal/mail"
 )
 
 type mailViewItem struct {
@@ -26,17 +29,32 @@ type mailViewItem struct {
 }
 
 type mailViewDetail struct {
-	ID         string
-	Sender     string
-	SenderName string
-	SenderAddr string
-	Recipients []string
-	Subject    string
-	BodyText   string
-	Seen       bool
-	Flagged    bool
-	ReceivedAt time.Time
-	BoxName    string
+	ID          string
+	Sender      string
+	SenderName  string
+	SenderAddr  string
+	Recipients  []string
+	Subject     string
+	BodyText    string
+	Seen        bool
+	Flagged     bool
+	ReceivedAt  time.Time
+	BoxName     string
+	Attachments []mail.AttachmentInfo
+}
+
+// formatBytes renders a byte count for the attachment list.
+func formatBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 var htmlTagPattern = regexp.MustCompile(`<[^>]*>`)

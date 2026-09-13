@@ -70,6 +70,9 @@ func (dummyMailService) DeleteMessage(context.Context, uuid.UUID, uuid.UUID) err
 func (dummyMailService) SendMessage(context.Context, *identity.User, string, string, string) (*mail.Message, error) {
 	return nil, nil
 }
+func (dummyMailService) SendMessageWithAttachments(context.Context, *identity.User, string, string, string, []mail.Attachment) (*mail.Message, error) {
+	return nil, nil
+}
 
 type dummySessionService struct{}
 

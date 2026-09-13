@@ -1,7 +1,6 @@
 package mail
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -146,6 +145,12 @@ func (s *Service) DeleteMessage(ctx context.Context, userID, messageID uuid.UUID
 }
 
 func (s *Service) SendMessage(ctx context.Context, user *identity.User, to, subject, body string) (*Message, error) {
+	return s.SendMessageWithAttachments(ctx, user, to, subject, body, nil)
+}
+
+// SendMessageWithAttachments sends a message, building a multipart/mixed
+// body when files are attached. Limits from the upload policy apply.
+func (s *Service) SendMessageWithAttachments(ctx context.Context, user *identity.User, to, subject, body string, atts []Attachment) (*Message, error) {
 	ctx, span := s.tracer.Start(ctx, "mail.send_message")
 	defer span.End()
 
@@ -153,34 +158,43 @@ func (s *Service) SendMessage(ctx context.Context, user *identity.User, to, subj
 	if to == "" {
 		return nil, errors.New("recipient required")
 	}
+	if len(atts) > MaxAttachmentCount {
+		return nil, fmt.Errorf("too many attachments (max %d)", MaxAttachmentCount)
+	}
+	var total int64
+	for i := range atts {
+		atts[i].Filename = sanitizeFilename(atts[i].Filename)
+		if atts[i].Filename == "" {
+			atts[i].Filename = "attachment"
+		}
+		if strings.TrimSpace(atts[i].ContentType) == "" {
+			atts[i].ContentType = "application/octet-stream"
+		}
+		if int64(len(atts[i].Data)) > MaxAttachmentBytes {
+			return nil, fmt.Errorf("attachment %q exceeds %d MB", atts[i].Filename, MaxAttachmentBytes>>20)
+		}
+		total += int64(len(atts[i].Data))
+	}
+	if total > MaxAttachmentsTotalBytes {
+		return nil, fmt.Errorf("attachments exceed %d MB total", MaxAttachmentsTotalBytes>>20)
+	}
 
 	hostname := s.hostname
 	if hostname == "" {
 		hostname = "mail.local"
 	}
 
-	msgID := fmt.Sprintf("<%d@%s>", time.Now().UnixNano(), hostname)
 	now := time.Now()
-
-	var buf bytes.Buffer
-	buf.WriteString("From: " + user.Email + "\r\n")
-	buf.WriteString("To: " + to + "\r\n")
-	buf.WriteString("Subject: " + subject + "\r\n")
-	buf.WriteString("Date: " + now.Format(time.RFC1123Z) + "\r\n")
-	buf.WriteString("Message-ID: " + msgID + "\r\n")
-	buf.WriteString("MIME-Version: 1.0\r\n")
-	buf.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
-	buf.WriteString("\r\n")
-	buf.WriteString(body)
-	raw := buf.String()
+	msgID := fmt.Sprintf("<%d@%s>", now.UnixNano(), hostname)
+	raw, mimeType := buildRawMessage(user.Email, to, subject, hostname, msgID, now, body, atts)
 
 	msg := &Message{
 		MessageID:  msgID,
 		Sender:     user.Email,
 		Recipients: []string{to},
-		Subject:    subject,
+		Subject:    sanitizeHeaderValue(subject),
 		RawMessage: raw,
-		MimeType:   "text/plain",
+		MimeType:   mimeType,
 		Charset:    "UTF-8",
 		SizeBytes:  int64(len(raw)),
 		ReceivedAt: now,

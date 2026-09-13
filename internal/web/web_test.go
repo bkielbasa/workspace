@@ -3,6 +3,7 @@ package web_test
 import (
 	"context"
 	"io/fs"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -286,9 +287,10 @@ func (userService) ChangePassword(context.Context, uuid.UUID, string) error {
 }
 
 type mailServiceStub struct {
-	mailboxes []mail.MailboxInfo
-	messages  []mail.Message
-	lastSent  *mail.Message
+	mailboxes    []mail.MailboxInfo
+	messages     []mail.Message
+	lastSent     *mail.Message
+	lastSentAtts int
 }
 
 func (m *mailServiceStub) EnsureDefaultMailboxes(context.Context, uuid.UUID) error {
@@ -352,6 +354,10 @@ func (m *mailServiceStub) DeleteMessage(ctx context.Context, userID, id uuid.UUI
 }
 
 func (m *mailServiceStub) SendMessage(ctx context.Context, user *identity.User, to, subject, body string) (*mail.Message, error) {
+	return m.SendMessageWithAttachments(ctx, user, to, subject, body, nil)
+}
+
+func (m *mailServiceStub) SendMessageWithAttachments(ctx context.Context, user *identity.User, to, subject, body string, atts []mail.Attachment) (*mail.Message, error) {
 	msg := &mail.Message{
 		ID:         uuid.New(),
 		Sender:     user.Email,
@@ -362,6 +368,7 @@ func (m *mailServiceStub) SendMessage(ctx context.Context, user *identity.User, 
 		ReceivedAt: time.Now(),
 	}
 	m.lastSent = msg
+	m.lastSentAtts = len(atts)
 	return msg, nil
 }
 
@@ -501,6 +508,125 @@ func TestMailRoutes(t *testing.T) {
 		}
 		if len(mailSvc.messages) != 0 {
 			t.Errorf("expected message to be deleted")
+		}
+	}
+}
+
+func TestMailAttachmentRoutes(t *testing.T) {
+	files := os.DirFS("../..")
+	userID := uuid.New()
+	msgID := uuid.New()
+	raw := strings.Join([]string{
+		"From: alice@example.com",
+		"To: bob@example.com",
+		"Subject: Files",
+		"MIME-Version: 1.0",
+		`Content-Type: multipart/mixed; boundary="b1"`,
+		"",
+		"--b1",
+		"Content-Type: text/plain",
+		"",
+		"see attached",
+		"--b1",
+		`Content-Type: application/pdf; name="report.pdf"`,
+		"Content-Transfer-Encoding: base64",
+		`Content-Disposition: attachment; filename="report.pdf"`,
+		"",
+		"aGVsbG8=",
+		"--b1--",
+		"",
+	}, "\r\n")
+
+	mailSvc := &mailServiceStub{
+		messages: []mail.Message{
+			{
+				ID:         msgID,
+				MailboxID:  uuid.New(),
+				Sender:     "Alice <alice@example.com>",
+				Recipients: []string{"bob@example.com"},
+				Subject:    "Files",
+				RawMessage: raw,
+				MimeType:   "multipart/mixed",
+				ReceivedAt: time.Now(),
+			},
+		},
+	}
+
+	server, err := web.New(files, contactService{}, calendarService{}, mailSvc, testSessionService{userID: userID}, testUserService{userID: userID}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux)
+
+	// 1. Detail view lists the attachment.
+	{
+		req := httptest.NewRequest(http.MethodGet, "/mail/message/"+msgID.String(), nil)
+		req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET detail status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		if body := rec.Body.String(); !strings.Contains(body, "report.pdf") {
+			t.Errorf("detail view missing attachment filename")
+		}
+	}
+
+	// 2. Download serves the file bytes as an attachment.
+	{
+		req := httptest.NewRequest(http.MethodGet, "/mail/message/"+msgID.String()+"/attachment/0", nil)
+		req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET attachment status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		if disp := rec.Header().Get("Content-Disposition"); !strings.Contains(disp, "attachment") || !strings.Contains(disp, "report.pdf") {
+			t.Errorf("unexpected Content-Disposition %q", disp)
+		}
+		if rec.Body.String() != "hello" {
+			t.Errorf("attachment body = %q, want %q", rec.Body.String(), "hello")
+		}
+	}
+
+	// 3. Unknown index is 404.
+	{
+		req := httptest.NewRequest(http.MethodGet, "/mail/message/"+msgID.String()+"/attachment/5", nil)
+		req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("GET bad attachment status = %d, want %d", rec.Code, http.StatusNotFound)
+		}
+	}
+
+	// 4. Multipart compose with a file sends with attachments.
+	{
+		var buf strings.Builder
+		w := multipart.NewWriter(&buf)
+		_ = w.WriteField("_csrf", "test-csrf-token")
+		_ = w.WriteField("to", "bob@example.com")
+		_ = w.WriteField("subject", "With file")
+		_ = w.WriteField("body", "see attached")
+		fw, err := w.CreateFormFile("attachments", "notes.txt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = fw.Write([]byte("file contents"))
+		_ = w.Close()
+
+		req := httptest.NewRequest(http.MethodPost, "/mail/send", strings.NewReader(buf.String()))
+		req.Header.Set("Content-Type", w.FormDataContentType())
+		req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+		req.AddCookie(&http.Cookie{Name: "csrf", Value: "test-csrf-token"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("POST multipart send status = %d, want %d. Body: %s", rec.Code, http.StatusSeeOther, rec.Body.String())
+		}
+		if mailSvc.lastSentAtts != 1 {
+			t.Errorf("expected 1 attachment sent, got %d", mailSvc.lastSentAtts)
 		}
 	}
 }

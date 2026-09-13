@@ -122,6 +122,20 @@
       <div class="mail-detail-body">
         <pre class="mail-body-pre">{{.Message.BodyText}}</pre>
       </div>
+      {{if .Message.Attachments}}
+      <div class="mail-attachments">
+        <h3 class="mail-attachments-title">Attachments ({{len .Message.Attachments}})</h3>
+        <ul class="mail-attachments-list">
+          {{range $i, $a := .Message.Attachments}}
+          <li class="mail-attachment-item">
+            <span class="mail-attachment-icon" aria-hidden="true">📎</span>
+            <a class="mail-attachment-link" href="/mail/message/{{$.Message.ID}}/attachment/{{$i}}?box={{$.CurrentBox}}" download>{{$a.Filename}}</a>
+            <span class="mail-attachment-meta">{{$a.ContentType}} &middot; {{formatBytes $a.Size}}</span>
+          </li>
+          {{end}}
+        </ul>
+      </div>
+      {{end}}
       <footer class="mail-detail-footer">
         <button type="button" class="btn btn-ghost btn-reply-dock" data-reply-btn data-to="{{.Message.SenderAddr}}" data-subject="Re: {{.Message.Subject}}">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
@@ -210,7 +224,7 @@
         <button type="button" class="compose-control-btn" id="compose-close-btn" aria-label="Close compose">&times;</button>
       </div>
     </div>
-    <form class="compose-dock-form" action="/mail/send" method="post">
+    <form class="compose-dock-form" action="/mail/send" method="post" enctype="multipart/form-data">
       <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
       <input type="hidden" name="box" value="{{.CurrentBox}}">
       {{if .Error}}<div class="compose-error">{{.Error}}</div>{{end}}
@@ -224,6 +238,10 @@
       </div>
       <div class="compose-dock-body">
         <textarea id="compose-body" name="body" placeholder="Write your message here..." rows="12">{{.ComposeBody}}</textarea>
+      </div>
+      <div class="compose-dock-field compose-attachments-field">
+        <label for="compose-attachments" class="compose-field-label">Attach</label>
+        <input type="file" id="compose-attachments" name="attachments" multiple>
       </div>
       <div class="compose-dock-footer">
         <button type="submit" class="btn btn-send">

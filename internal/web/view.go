@@ -1,13 +1,19 @@
 package web
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
 	netmail "net/mail"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +39,7 @@ var templateFuncs = template.FuncMap{
 	"joinRecipients":           func(recipients []string) string { return strings.Join(recipients, ", ") },
 	"formatMailDate":           formatMailDate,
 	"formatDetailDate":         formatDetailDate,
+	"formatBytes":              formatBytes,
 }
 
 type viewData struct {
@@ -648,17 +655,18 @@ func (v *views) mailDetailPage(w http.ResponseWriter, r *http.Request, user *ide
 	name, addr := parseSender(msg.Sender)
 
 	detail := &mailViewDetail{
-		ID:         msg.ID.String(),
-		Sender:     msg.Sender,
-		SenderName: name,
-		SenderAddr: addr,
-		Recipients: msg.Recipients,
-		Subject:    msg.Subject,
-		BodyText:   bodyText,
-		Seen:       msg.Seen,
-		Flagged:    msg.Flagged,
-		ReceivedAt: msg.ReceivedAt,
-		BoxName:    currentBox,
+		ID:          msg.ID.String(),
+		Sender:      msg.Sender,
+		SenderName:  name,
+		SenderAddr:  addr,
+		Recipients:  msg.Recipients,
+		Subject:     msg.Subject,
+		BodyText:    bodyText,
+		Seen:        msg.Seen,
+		Flagged:     msg.Flagged,
+		ReceivedAt:  msg.ReceivedAt,
+		BoxName:     currentBox,
+		Attachments: mail.ParseAttachments(msg.RawMessage),
 	}
 
 	renderView(w, r, v.mailT, "layout", viewData{
@@ -673,8 +681,70 @@ func (v *views) mailDetailPage(w http.ResponseWriter, r *http.Request, user *ide
 	})
 }
 
+// maxComposeRequestBytes caps the whole compose POST (body + files).
+const maxComposeRequestBytes = 16 << 20
+
+func (v *views) renderComposeError(w http.ResponseWriter, r *http.Request, user *identity.User, box, to, subject, body, errMsg string) {
+	boxes, _ := v.mail.ListMailboxes(r.Context(), user.ID)
+	renderView(w, r, v.mailT, "layout", viewData{
+		Title:          "Mail",
+		Section:        "mail",
+		User:           user,
+		CSRFToken:      csrfTokenFromRequest(r),
+		Wide:           true,
+		Mailboxes:      boxes,
+		CurrentBox:     box,
+		ComposeOpen:    true,
+		ComposeTo:      to,
+		ComposeSubject: subject,
+		ComposeBody:    body,
+		Error:          errMsg,
+	})
+}
+
+// collectUploads reads attached files from a multipart compose form.
+// Browsers send an empty part when no file is chosen; those are skipped.
+func collectUploads(r *http.Request) ([]mail.Attachment, error) {
+	if r.MultipartForm == nil {
+		return nil, nil
+	}
+	var atts []mail.Attachment
+	for _, fh := range r.MultipartForm.File["attachments"] {
+		if strings.TrimSpace(fh.Filename) == "" {
+			continue
+		}
+		if len(atts) >= mail.MaxAttachmentCount {
+			return nil, fmt.Errorf("too many attachments (max %d)", mail.MaxAttachmentCount)
+		}
+		f, err := fh.Open()
+		if err != nil {
+			return nil, fmt.Errorf("cannot read %q", fh.Filename)
+		}
+		data, err := io.ReadAll(io.LimitReader(f, mail.MaxAttachmentBytes+1))
+		_ = f.Close()
+		if err != nil {
+			return nil, fmt.Errorf("cannot read %q", fh.Filename)
+		}
+		if int64(len(data)) > mail.MaxAttachmentBytes {
+			return nil, fmt.Errorf("%q exceeds %d MB", fh.Filename, mail.MaxAttachmentBytes>>20)
+		}
+		atts = append(atts, mail.Attachment{
+			Filename:    fh.Filename,
+			ContentType: http.DetectContentType(data),
+			Data:        data,
+		})
+	}
+	return atts, nil
+}
+
 func (v *views) mailSend(w http.ResponseWriter, r *http.Request) {
 	user := UserFromContext(r.Context())
+	r.Body = http.MaxBytesReader(w, r.Body, maxComposeRequestBytes)
+	if err := r.ParseMultipartForm(maxComposeRequestBytes); err != nil && !errors.Is(err, http.ErrNotMultipart) {
+		obs.Log(r.Context(), slog.LevelWarn, "compose parse error", "error", err)
+		v.renderComposeError(w, r, user, "INBOX", "", "", "", "Message too large (max 16 MB).")
+		return
+	}
 	to := strings.TrimSpace(r.FormValue("to"))
 	subject := strings.TrimSpace(r.FormValue("subject"))
 	body := r.FormValue("body")
@@ -684,45 +754,78 @@ func (v *views) mailSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if to == "" {
-		boxes, _ := v.mail.ListMailboxes(r.Context(), user.ID)
-		renderView(w, r, v.mailT, "layout", viewData{
-			Title:          "Mail",
-			Section:        "mail",
-			User:           user,
-			CSRFToken:      csrfTokenFromRequest(r),
-			Wide:           true,
-			Mailboxes:      boxes,
-			CurrentBox:     box,
-			ComposeOpen:    true,
-			ComposeTo:      to,
-			ComposeSubject: subject,
-			ComposeBody:    body,
-			Error:          "Recipient address is required.",
-		})
+		v.renderComposeError(w, r, user, box, to, subject, body, "Recipient address is required.")
 		return
 	}
 
-	if _, err := v.mail.SendMessage(r.Context(), user, to, subject, body); err != nil {
+	atts, err := collectUploads(r)
+	if err != nil {
+		v.renderComposeError(w, r, user, box, to, subject, body, err.Error())
+		return
+	}
+
+	if _, err := v.mail.SendMessageWithAttachments(r.Context(), user, to, subject, body, atts); err != nil {
 		obs.Log(r.Context(), slog.LevelError, "send message failed", "error", err)
-		boxes, _ := v.mail.ListMailboxes(r.Context(), user.ID)
-		renderView(w, r, v.mailT, "layout", viewData{
-			Title:          "Mail",
-			Section:        "mail",
-			User:           user,
-			CSRFToken:      csrfTokenFromRequest(r),
-			Wide:           true,
-			Mailboxes:      boxes,
-			CurrentBox:     box,
-			ComposeOpen:    true,
-			ComposeTo:      to,
-			ComposeSubject: subject,
-			ComposeBody:    body,
-			Error:          "Failed to send message: " + err.Error(),
-		})
+		v.renderComposeError(w, r, user, box, to, subject, body, "Failed to send message: "+err.Error())
 		return
 	}
 
 	http.Redirect(w, r, "/mail?box=Sent", http.StatusSeeOther)
+}
+
+// mailAttachmentDownload serves one attachment of a message the user owns.
+// Files are always served as downloads (never inline) with nosniff so a
+// hostile HTML/SVG attachment cannot run in the session origin.
+func (v *views) mailAttachmentDownload(w http.ResponseWriter, r *http.Request, user *identity.User) {
+	id, err := parseUUIDPath(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	idx, err := strconv.Atoi(r.PathValue("idx"))
+	if err != nil || idx < 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	msg, _, err := v.mail.GetMessage(r.Context(), user.ID, id)
+	if err != nil || msg == nil {
+		http.NotFound(w, r)
+		return
+	}
+	att, err := mail.ExtractAttachment(msg.RawMessage, idx)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	contentType := "application/octet-stream"
+	if mt, _, err := mime.ParseMediaType(att.ContentType); err == nil && mt != "" {
+		contentType = mt
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", "attachment; "+encodeDispositionFilename(att.Filename))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	http.ServeContent(w, r, att.Filename, msg.ReceivedAt, bytes.NewReader(att.Data))
+}
+
+// encodeDispositionFilename renders a safe Content-Disposition filename
+// parameter, with RFC 5987 encoding for non-ASCII names.
+func encodeDispositionFilename(name string) string {
+	ascii := true
+	for i := 0; i < len(name); i++ {
+		if name[i] < 0x20 || name[i] >= 0x7f || name[i] == '"' || name[i] == '\\' {
+			ascii = false
+			break
+		}
+	}
+	safe := strings.ReplaceAll(name, `"`, `'`)
+	safe = strings.ReplaceAll(safe, `\`, "_")
+	if ascii {
+		return `filename="` + safe + `"`
+	}
+	return `filename="attachment"; filename*=UTF-8''` + url.PathEscape(name)
 }
 
 func (v *views) mailToggleStar(w http.ResponseWriter, r *http.Request) {
