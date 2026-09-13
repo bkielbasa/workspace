@@ -220,6 +220,61 @@ func (u testUserService) ChangePassword(context.Context, uuid.UUID, string) erro
 
 type contactService struct{}
 
+type contactServiceWithEmails struct {
+	contactService
+	list []contacts.Contact
+}
+
+func (c contactServiceWithEmails) List(context.Context, uuid.UUID) ([]contacts.Contact, error) {
+	return c.list, nil
+}
+
+func TestMailComposeToSuggestsContacts(t *testing.T) {
+	files := os.DirFS("../..")
+	userID := uuid.New()
+	contactsSvc := contactServiceWithEmails{list: []contacts.Contact{
+		{
+			ID:        uuid.New(),
+			FirstName: "Bob",
+			LastName:  "Builder",
+			Emails: []contacts.Field{
+				{Value: "bob@example.com"},
+				{Value: "bob@work.example.com"},
+			},
+		},
+		{
+			ID:        uuid.New(),
+			FirstName: "NoMail",
+			LastName:  "Person",
+			Phones:    []contacts.Field{{Value: "+123"}},
+		},
+	}}
+
+	server, err := web.New(files, contactsSvc, calendarService{}, &mailServiceStub{}, testSessionService{userID: userID}, testUserService{userID: userID}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/mail?compose=true", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /mail status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`value="bob@example.com"`, `value="bob@work.example.com"`, "Bob Builder", "compose-contacts-list"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("compose missing %q", want)
+		}
+	}
+	if strings.Contains(body, "NoMail") {
+		t.Errorf("contact without email should not be suggested")
+	}
+}
+
 func (contactService) List(context.Context, uuid.UUID) ([]contacts.Contact, error) {
 	return nil, nil
 }

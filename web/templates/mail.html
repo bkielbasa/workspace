@@ -230,7 +230,14 @@
       {{if .Error}}<div class="compose-error">{{.Error}}</div>{{end}}
       <div class="compose-dock-field">
         <label for="compose-to" class="compose-field-label">To</label>
-        <input type="email" id="compose-to" name="to" value="{{.ComposeTo}}" placeholder="Recipients" required autocomplete="off">
+        <input type="email" id="compose-to" name="to" value="{{.ComposeTo}}" placeholder="Recipients" required autocomplete="off" list="compose-contacts-list">
+        {{if .ComposeRecipients}}
+        <datalist id="compose-contacts-list">
+          {{range .ComposeRecipients}}
+          <option value="{{.Email}}">{{.Name}}</option>
+          {{end}}
+        </datalist>
+        {{end}}
       </div>
       <div class="compose-dock-field">
         <label for="compose-subject" class="compose-field-label">Subject</label>

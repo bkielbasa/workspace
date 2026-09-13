@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"html/template"
@@ -67,6 +68,8 @@ type viewData struct {
 	ComposeTo      string
 	ComposeSubject string
 	ComposeBody    string
+	// ComposeRecipients lists contacts with emails for the To autocomplete.
+	ComposeRecipients []composeRecipient
 }
 
 type views struct {
@@ -556,13 +559,55 @@ func contactInitial(contact contacts.Contact) string {
 	return strings.ToUpper(string([]rune(name)[0]))
 }
 
+// composeRecipients flattens every filled email of the user's contacts into
+// a sorted, deduplicated suggestion list for the compose To field.
+func (v *views) composeRecipients(ctx context.Context, userID uuid.UUID) []composeRecipient {
+	list, err := v.contacts.List(ctx, userID)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []composeRecipient
+	for _, c := range list {
+		name := strings.TrimSpace(c.DisplayName())
+		for _, f := range c.Emails {
+			email := strings.TrimSpace(f.Value)
+			if !strings.Contains(email, "@") {
+				continue
+			}
+			key := strings.ToLower(email)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			label := name
+			if label == "" || strings.EqualFold(label, email) {
+				label = email
+			}
+			out = append(out, composeRecipient{Name: label, Email: email})
+			if len(out) >= 200 {
+				break
+			}
+		}
+		if len(out) >= 200 {
+			break
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Email < out[j].Email
+	})
+	return out
+}
+
 func (v *views) mailPage(w http.ResponseWriter, r *http.Request, user *identity.User) {
 	_ = v.mail.EnsureDefaultMailboxes(r.Context(), user.ID)
 	boxes, err := v.mail.ListMailboxes(r.Context(), user.ID)
 	if err != nil {
 		obs.Log(r.Context(), slog.LevelError, "list mailboxes failed", "error", err)
 	}
-
 	currentBox := strings.TrimSpace(r.URL.Query().Get("box"))
 	if currentBox == "" {
 		currentBox = "INBOX"
@@ -607,19 +652,20 @@ func (v *views) mailPage(w http.ResponseWriter, r *http.Request, user *identity.
 	composeSubject := r.URL.Query().Get("subject")
 
 	renderView(w, r, v.mailT, "layout", viewData{
-		Title:          "Mail",
-		Section:        "mail",
-		User:           user,
-		CSRFToken:      csrfTokenFromRequest(r),
-		Wide:           true,
-		Mailboxes:      boxes,
-		CurrentBox:     currentBox,
-		Messages:       items,
-		Query:          query,
-		MatchCount:     len(items),
-		ComposeOpen:    composeOpen,
-		ComposeTo:      composeTo,
-		ComposeSubject: composeSubject,
+		Title:             "Mail",
+		Section:           "mail",
+		User:              user,
+		CSRFToken:         csrfTokenFromRequest(r),
+		Wide:              true,
+		Mailboxes:         boxes,
+		CurrentBox:        currentBox,
+		Messages:          items,
+		Query:             query,
+		MatchCount:        len(items),
+		ComposeOpen:       composeOpen,
+		ComposeTo:         composeTo,
+		ComposeSubject:    composeSubject,
+		ComposeRecipients: v.composeRecipients(r.Context(), user.ID),
 	})
 }
 
@@ -670,14 +716,15 @@ func (v *views) mailDetailPage(w http.ResponseWriter, r *http.Request, user *ide
 	}
 
 	renderView(w, r, v.mailT, "layout", viewData{
-		Title:      detail.Subject,
-		Section:    "mail",
-		User:       user,
-		CSRFToken:  csrfTokenFromRequest(r),
-		Wide:       true,
-		Mailboxes:  boxes,
-		CurrentBox: currentBox,
-		Message:    detail,
+		Title:             detail.Subject,
+		Section:           "mail",
+		User:              user,
+		CSRFToken:         csrfTokenFromRequest(r),
+		Wide:              true,
+		Mailboxes:         boxes,
+		CurrentBox:        currentBox,
+		Message:           detail,
+		ComposeRecipients: v.composeRecipients(r.Context(), user.ID),
 	})
 }
 
@@ -687,18 +734,19 @@ const maxComposeRequestBytes = 16 << 20
 func (v *views) renderComposeError(w http.ResponseWriter, r *http.Request, user *identity.User, box, to, subject, body, errMsg string) {
 	boxes, _ := v.mail.ListMailboxes(r.Context(), user.ID)
 	renderView(w, r, v.mailT, "layout", viewData{
-		Title:          "Mail",
-		Section:        "mail",
-		User:           user,
-		CSRFToken:      csrfTokenFromRequest(r),
-		Wide:           true,
-		Mailboxes:      boxes,
-		CurrentBox:     box,
-		ComposeOpen:    true,
-		ComposeTo:      to,
-		ComposeSubject: subject,
-		ComposeBody:    body,
-		Error:          errMsg,
+		Title:             "Mail",
+		Section:           "mail",
+		User:              user,
+		CSRFToken:         csrfTokenFromRequest(r),
+		Wide:              true,
+		Mailboxes:         boxes,
+		CurrentBox:        box,
+		ComposeOpen:       true,
+		ComposeTo:         to,
+		ComposeSubject:    subject,
+		ComposeBody:       body,
+		ComposeRecipients: v.composeRecipients(r.Context(), user.ID),
+		Error:             errMsg,
 	})
 }
 

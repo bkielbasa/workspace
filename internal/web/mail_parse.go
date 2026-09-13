@@ -43,6 +43,13 @@ type mailViewDetail struct {
 	Attachments []mail.AttachmentInfo
 }
 
+// composeRecipient is one selectable address for the compose To field:
+// every filled email of every contact.
+type composeRecipient struct {
+	Name  string
+	Email string
+}
+
 // formatBytes renders a byte count for the attachment list.
 func formatBytes(n int64) string {
 	const unit = 1024
