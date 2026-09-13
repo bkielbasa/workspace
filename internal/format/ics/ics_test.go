@@ -39,3 +39,17 @@ func TestEncodeRoundTripsLocationAndDescription(t *testing.T) {
 		t.Fatalf("Parse description = %q", event.Description)
 	}
 }
+
+func TestEncodePreservesClientUID(t *testing.T) {
+	raw := ics.Encode(calendar.Event{
+		ID:    uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		UID:   "client-supplied-uid",
+		Title: "Synced",
+	})
+	if !strings.Contains(raw, "UID:client-supplied-uid") {
+		t.Fatalf("Encode must keep client UID:\n%s", raw)
+	}
+	if strings.Contains(raw, "11111111-1111-1111-1111-111111111111") {
+		t.Fatalf("Encode must not leak server ID as UID:\n%s", raw)
+	}
+}

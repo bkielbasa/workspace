@@ -1,17 +1,21 @@
 package carddav
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/bklimczak/workspace/internal/contacts"
 	"github.com/bklimczak/workspace/internal/format/vcard"
 	"github.com/bklimczak/workspace/internal/identity"
+	"github.com/bklimczak/workspace/internal/obs"
 	"github.com/google/uuid"
 )
 
@@ -61,6 +65,11 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
+
+	obs.Log(r.Context(), slog.LevelInfo, "carddav request",
+		"method", r.Method,
+		"path", r.URL.Path,
+	)
 
 	switch r.Method {
 	case "PROPFIND":
@@ -176,7 +185,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request, userID uuid.UUID)
       </d:prop>
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
-  </d:response>`, userID, contact.ID, contact.ETag)
+  </d:response>`, userID, contact.ID, quoteETag(contact.ETag))
 			}
 		}
 
@@ -199,14 +208,120 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request, userID uuid.UUID)
       </d:prop>
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
-  </d:response>`, userID, contact.ID, contact.ETag)
+  </d:response>`, userID, contact.ID, quoteETag(contact.ETag))
 	}
 	fmt.Fprint(w, `
 </d:multistatus>`)
 }
 
 func (h *handler) report(w http.ResponseWriter, r *http.Request, userID uuid.UUID) {
-	h.list(w, r, userID)
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+
+	var req reportRequest
+	if err := xml.Unmarshal(body, &req); err != nil {
+		http.Error(w, "bad report", http.StatusBadRequest)
+		return
+	}
+
+	var list []contacts.Contact
+	if h.contacts != nil {
+		list, _ = h.contacts.List(r.Context(), userID)
+	}
+	byID := make(map[uuid.UUID]contacts.Contact, len(list))
+	etags := make([]string, 0, len(list))
+	for _, contact := range list {
+		byID[contact.ID] = contact
+		etags = append(etags, contact.ETag)
+	}
+
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	switch req.XMLName.Local {
+	case "addressbook-multiget":
+		w.WriteHeader(http.StatusMultiStatus)
+		fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">`)
+		for _, href := range req.Hrefs {
+			id, err := cardIDFromPath(href)
+			contact, ok := byID[id]
+			if err != nil || !ok {
+				fmt.Fprintf(w, `
+  <d:response>
+    <d:href>%s</d:href>
+    <d:status>HTTP/1.1 404 Not Found</d:status>
+  </d:response>`, escapeXML(href))
+				continue
+			}
+			fmt.Fprintf(w, `
+  <d:response>
+    <d:href>%s</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>%s</d:getetag>
+        <card:address-data>%s</card:address-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`, escapeXML(href), quoteETag(contact.ETag), escapeXML(contactCard(contact)))
+		}
+		fmt.Fprint(w, `
+</d:multistatus>`)
+	case "sync-collection":
+		token := listToken(etags)
+		w.WriteHeader(http.StatusMultiStatus)
+		fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">`)
+		for _, contact := range list {
+			fmt.Fprintf(w, `
+  <d:response>
+    <d:href>/dav/%s/contacts/%s.vcf</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>%s</d:getetag>
+        <card:address-data>%s</card:address-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`, userID, contact.ID, quoteETag(contact.ETag), escapeXML(contactCard(contact)))
+		}
+		fmt.Fprintf(w, `
+  <d:sync-token>%s</d:sync-token>
+</d:multistatus>`, token)
+	default:
+		http.Error(w, "unsupported report", http.StatusUnsupportedMediaType)
+	}
+}
+
+// reportRequest decodes the REPORT body enough to route it. Field tags
+// without a namespace match the local name in any namespace, which is what
+// iOS and other clients send (D:, d:, card:, cal: prefixes vary).
+type reportRequest struct {
+	XMLName xml.Name
+	Hrefs   []string `xml:"href"`
+}
+
+// contactCard returns the storable vCard, rebuilding it when the contact
+// has no raw card yet (e.g. created in the web UI).
+func contactCard(contact contacts.Contact) string {
+	if strings.TrimSpace(contact.VCard) != "" {
+		return contact.VCard
+	}
+	return vcard.Encode(contact, "")
+}
+
+// quoteETag renders an entity-tag per RFC 4918. Stored etags are bare
+// UUIDs; emitting them quoted is what sync clients compare against.
+func quoteETag(etag string) string {
+	etag = strings.TrimSpace(etag)
+	if strings.HasPrefix(etag, `"`) && strings.HasSuffix(etag, `"`) {
+		return etag
+	}
+	return `"` + etag + `"`
+}
+
+func escapeXML(s string) string {
+	var out bytes.Buffer
+	_ = xml.EscapeText(&out, []byte(s))
+	return out.String()
 }
 
 func (h *handler) put(w http.ResponseWriter, r *http.Request, userID uuid.UUID) {
@@ -224,7 +339,7 @@ func (h *handler) put(w http.ResponseWriter, r *http.Request, userID uuid.UUID) 
 		return
 	}
 
-	w.Header().Set("ETag", saved.ETag)
+	w.Header().Set("ETag", quoteETag(saved.ETag))
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -252,11 +367,9 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request, userID uuid.UUID) 
 		return
 	}
 
-	card := contact.VCard
-	if strings.TrimSpace(card) == "" {
-		card = vcard.Encode(contact, "")
-	}
+	card := contactCard(contact)
 	w.Header().Set("Content-Type", "text/vcard; charset=utf-8")
+	w.Header().Set("ETag", quoteETag(contact.ETag))
 	fmt.Fprint(w, card)
 }
 

@@ -48,14 +48,20 @@ func Parse(raw string, userID uuid.UUID, resource string) (calendar.Event, error
 // Encode serializes an event as a full iCalendar object. Clients (iOS, DAVx5)
 // drop VEVENTs that have no UID or DTSTAMP, and require the envelope to be
 // versioned, so the minimal object below is enough to be importable.
+// A client-supplied UID is preserved verbatim: changing it on read-back
+// makes sync clients treat the event as deleted-and-recreated.
 func Encode(e calendar.Event) string {
+	uid := strings.TrimSpace(e.UID)
+	if uid == "" {
+		uid = e.ID.String()
+	}
 	var b strings.Builder
 	b.WriteString("BEGIN:VCALENDAR\n")
 	b.WriteString("VERSION:2.0\n")
 	b.WriteString("PRODID:-//Workspace//Workspace//EN\n")
 	b.WriteString("CALSCALE:GREGORIAN\n")
 	b.WriteString("BEGIN:VEVENT\n")
-	b.WriteString("UID:" + e.ID.String() + "\n")
+	b.WriteString("UID:" + uid + "\n")
 	b.WriteString("DTSTAMP:" + e.UpdatedAt.UTC().Format("20060102T150405Z") + "\n")
 	b.WriteString("DTSTART:" + e.StartsAt.UTC().Format("20060102T150405Z") + "\n")
 	b.WriteString("DTEND:" + e.EndsAt.UTC().Format("20060102T150405Z") + "\n")
