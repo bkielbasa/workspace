@@ -18,6 +18,9 @@ type DKIM struct {
 }
 
 func (d *DKIM) Sign(raw string) (string, error) {
+    if d == nil || d.Private == nil {
+        return "", fmt.Errorf("dkim disabled")
+    }
     headers, body := splitHeaderBody(raw)
 
     canonBody := canonicalizeBodyRelaxed(body)

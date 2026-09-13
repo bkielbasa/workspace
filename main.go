@@ -65,7 +65,11 @@ func main() {
 	mailSvc := mail.NewService(mailboxes, messages, searchRepo, delivery, mailHostname)
 
 	dkim := initDKIM()
-	worker := mail.NewWorker(outbox, delivery, dkim, mailHostname)
+	var dkimSigner mail.DKIMSigner
+	if dkim != nil {
+		dkimSigner = dkim
+	}
+	worker := mail.NewWorker(outbox, delivery, dkimSigner, mailHostname)
 	worker.Start(ctx)
 	obs.Log(ctx, slog.LevelInfo, "background outbox worker started")
 
