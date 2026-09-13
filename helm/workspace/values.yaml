@@ -71,6 +71,11 @@ resources: {}
 migrate:
   image: migrate/migrate:latest
 
+# Prometheus scraping: labels the HTTP Service for the cluster's
+# auto-discovery ServiceMonitor (port `http`, path /metrics).
+metrics:
+  enabled: true
+
 # Canonical hostname advertised in autoconfig/autodiscover responses.
 # Leave empty to fall back to the request Host header (local dev only).
 mailHost: ""

@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -63,10 +64,25 @@ func initTelemetry(ctx context.Context) func() {
 		return stop
 	}
 
-	mp := metric.NewMeterProvider(
-		metric.WithReader(metric.NewPeriodicReader(mexp, metric.WithInterval(15*time.Second))),
-		metric.WithResource(sel),
-	)
+	readers := []metric.Reader{
+		metric.NewPeriodicReader(mexp, metric.WithInterval(15*time.Second)),
+	}
+
+	// Prometheus pull path for the prometheus.io/scrape ServiceMonitor:
+	// the same counters are also readable at GET /metrics. A missing
+	// reader here only disables scraping; OTLP delivery above still works.
+	if preader, err := otelprom.New(); err != nil {
+		obs.Log(ctx, slog.LevelError, "prometheus metric reader error", "error", err)
+	} else {
+		readers = append(readers, preader)
+	}
+
+	opts := make([]metric.Option, 0, len(readers)+1)
+	for _, r := range readers {
+		opts = append(opts, metric.WithReader(r))
+	}
+	opts = append(opts, metric.WithResource(sel))
+	mp := metric.NewMeterProvider(opts...)
 	otel.SetMeterProvider(mp)
 
 	return func() {

@@ -5,6 +5,9 @@ metadata:
   name: {{ include "workspace.fullname" . }}
   labels:
     {{- include "workspace.labels" . | nindent 4 }}
+    {{- if .Values.metrics.enabled }}
+    prometheus.io/scrape: "true"
+    {{- end }}
 spec:
   type: ClusterIP
   selector:

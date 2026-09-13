@@ -22,6 +22,7 @@ import (
 	"github.com/bklimczak/workspace/internal/postgres"
 	"github.com/bklimczak/workspace/internal/smtp"
 	"github.com/bklimczak/workspace/internal/web"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -154,6 +155,10 @@ func main() {
 
 	mux.Handle("/dav/", carddav.New(contactSvc, users))
 	mux.Handle("/cal/", caldav.New(calendarSvc, users))
+
+	// Prometheus scrape endpoint for the prometheus.io/scrape
+	// ServiceMonitor (same OTel counters as the OTLP pipeline).
+	mux.Handle("/metrics", promhttp.Handler())
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		obs.HTTPRequest(r.Context())
