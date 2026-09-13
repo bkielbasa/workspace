@@ -161,6 +161,12 @@ func TestProfilePageRenders(t *testing.T) {
 	if !strings.Contains(body, "confirm_password") {
 		t.Errorf("expected body to contain confirm_password input")
 	}
+	if !strings.Contains(body, "iPhone Setup") {
+		t.Errorf("expected body to contain iPhone setup card")
+	}
+	if !strings.Contains(body, "/apple/mail.mobileconfig?email=testuser%40example.com") {
+		t.Errorf("expected body to link the iPhone profile for the user")
+	}
 }
 
 func TestProfilePageSuccessBanners(t *testing.T) {

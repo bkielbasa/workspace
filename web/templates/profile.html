@@ -76,6 +76,19 @@
         </form>
       </div>
     </section>
+
+    <section class="card profile-card">
+      <div class="card-head">
+        <h2>iPhone Setup</h2>
+        <p class="subtitle">Mail, contacts and calendar on Apple devices</p>
+      </div>
+      <div class="card-body">
+        <p>Open this link in Safari on your iPhone to install a configuration profile for <strong>{{.User.Email}}</strong>. iOS does not auto-discover these settings, so the profile writes the Mail, Contacts and Calendar accounts for you.</p>
+        <div class="form-actions">
+          <a class="btn" href="/apple/mail.mobileconfig?email={{.User.Email | urlquery}}">Download iPhone profile</a>
+        </div>
+      </div>
+    </section>
   </div>
 </div>
 {{end}}
