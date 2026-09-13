@@ -15,13 +15,6 @@ spec:
         {{- include "workspace.selectorLabels" . | nindent 8 }}
     spec:
       initContainers:
-        - name: copy-migrations
-          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["cp", "-r", "/app/migrations/.", "/migrations/"]
-          volumeMounts:
-            - name: migrations
-              mountPath: /migrations
         - name: migrate
           image: {{ .Values.migrate.image }}
           args:
