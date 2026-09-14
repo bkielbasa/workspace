@@ -12,6 +12,7 @@ import (
 type Repository interface {
 	Get(ctx context.Context, userID, eventID uuid.UUID) (*Event, error)
 	GetByResource(ctx context.Context, userID uuid.UUID, resource string) (*Event, error)
+	GetByUID(ctx context.Context, userID uuid.UUID, uid string) (*Event, error)
 	List(ctx context.Context, userID uuid.UUID) ([]Event, error)
 	Put(ctx context.Context, e Event) (*Event, error)
 	Delete(ctx context.Context, userID, eventID uuid.UUID) error
@@ -50,6 +51,12 @@ func (s *Service) GetByResource(ctx context.Context, userID uuid.UUID, resource 
 	ctx, span := s.tracer.Start(ctx, "calendar.get_by_resource")
 	defer span.End()
 	return s.repo.GetByResource(ctx, userID, resource)
+}
+
+func (s *Service) GetByUID(ctx context.Context, userID uuid.UUID, uid string) (*Event, error) {
+	ctx, span := s.tracer.Start(ctx, "calendar.get_by_uid")
+	defer span.End()
+	return s.repo.GetByUID(ctx, userID, uid)
 }
 
 func (s *Service) List(ctx context.Context, userID uuid.UUID) ([]Event, error) {

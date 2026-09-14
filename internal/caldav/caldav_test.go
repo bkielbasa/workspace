@@ -36,6 +36,16 @@ func (s stubCalendar) GetByResource(_ context.Context, _ uuid.UUID, resource str
 	return nil, fmt.Errorf("not found")
 }
 
+func (s stubCalendar) GetByUID(_ context.Context, _ uuid.UUID, uid string) (*calendar.Event, error) {
+	for _, e := range s.events {
+		if e.UID == uid {
+			cp := e
+			return &cp, nil
+		}
+	}
+	return nil, fmt.Errorf("not found")
+}
+
 func (s stubCalendar) DeleteByResource(context.Context, uuid.UUID, string) error { return nil }
 
 type stubAuth struct{ userID uuid.UUID }

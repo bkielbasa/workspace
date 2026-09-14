@@ -36,14 +36,16 @@ func scanContact(row scanRow) (contacts.Contact, error) {
 	return contact, nil
 }
 
-const eventColumns = `id, user_id, title, COALESCE(location, ''), COALESCE(description, ''), starts_at, ends_at, COALESCE(uid, ''), COALESCE(ics, ''), COALESCE(resource, id::text), etag, created_at, updated_at`
+const eventColumns = `id, user_id, title, COALESCE(location, ''), COALESCE(description, ''), starts_at, ends_at, COALESCE(uid, ''), COALESCE(ics, ''), COALESCE(resource, id::text), etag, COALESCE(attendees, '{}'), COALESCE(sequence, 0), created_at, updated_at`
 
 func scanEvent(row scanRow) (calendar.Event, error) {
 	var event calendar.Event
 	var starts, ends sql.NullTime
+	var attendees sql.NullString
 	err := row.Scan(
 		&event.ID, &event.UserID, &event.Title, &event.Location, &event.Description,
 		&starts, &ends, &event.UID, &event.ICS, &event.Resource, &event.ETag,
+		&attendees, &event.Sequence,
 		&event.CreatedAt, &event.UpdatedAt,
 	)
 	if err != nil {
@@ -51,6 +53,7 @@ func scanEvent(row scanRow) (calendar.Event, error) {
 	}
 	event.StartsAt = starts.Time
 	event.EndsAt = ends.Time
+	event.Attendees = parseTextArray(attendees.String)
 	return event, nil
 }
 
@@ -66,6 +69,52 @@ func parseRecipients(raw string) []string {
 		}
 	}
 	return recipients
+}
+
+// parseTextArray decodes a Postgres text[] literal ({a,"b,c",NULL}).
+// The pgx stdlib driver hands arrays to database/sql as their literal
+// string form, so structs cannot scan them into []string directly.
+func parseTextArray(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "{}" {
+		return nil
+	}
+	if !strings.HasPrefix(raw, "{") || !strings.HasSuffix(raw, "}") {
+		return nil
+	}
+	inner := raw[1 : len(raw)-1]
+	var out []string
+	var cur strings.Builder
+	inQuotes := false
+	escaped := false
+	flush := func() {
+		out = append(out, cur.String())
+		cur.Reset()
+	}
+	for _, r := range inner {
+		switch {
+		case escaped:
+			cur.WriteRune(r)
+			escaped = false
+		case r == '\\':
+			escaped = true
+		case r == '"':
+			inQuotes = !inQuotes
+		case r == ',' && !inQuotes:
+			flush()
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	flush()
+	var clean []string
+	for _, v := range out {
+		if v == "NULL" {
+			continue
+		}
+		clean = append(clean, v)
+	}
+	return clean
 }
 
 func scanMessage(row scanRow, includeBodyMetadata bool) (mail.Message, error) {

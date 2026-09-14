@@ -122,6 +122,23 @@
       <div class="mail-detail-body">
         <pre class="mail-body-pre">{{.Message.BodyText}}</pre>
       </div>
+      {{if .Message.Invite}}
+      <div class="mail-invite">
+        <div class="mail-invite-icon" aria-hidden="true">📅</div>
+        <div class="mail-invite-details">
+          <strong class="mail-invite-title">{{if .Message.Invite.Title}}{{.Message.Invite.Title}}{{else}}(no title){{end}}</strong>
+          <span class="mail-invite-meta">
+            {{if .Message.Invite.Organizer}}from {{.Message.Invite.Organizer}} &middot; {{end}}
+            {{if not .Message.Invite.StartsAt.IsZero}}{{formatDetailDate .Message.Invite.StartsAt}}{{end}}
+          </span>
+        </div>
+        <form class="inline-form" method="post" action="/mail/message/{{.Message.ID}}/add-to-calendar">
+          <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+          <input type="hidden" name="box" value="{{$.CurrentBox}}">
+          <button type="submit" class="btn btn-sm">{{.Message.Invite.ActionLabel}}</button>
+        </form>
+      </div>
+      {{end}}
       {{if .Message.Attachments}}
       <div class="mail-attachments">
         <h3 class="mail-attachments-title">Attachments ({{len .Message.Attachments}})</h3>

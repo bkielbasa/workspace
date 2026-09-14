@@ -297,6 +297,10 @@ func (calendarService) Get(context.Context, uuid.UUID, uuid.UUID) (*calendar.Eve
 	return &calendar.Event{}, nil
 }
 
+func (calendarService) GetByUID(context.Context, uuid.UUID, string) (*calendar.Event, error) {
+	return nil, calendar.ErrInvalidEvent
+}
+
 func (calendarService) List(context.Context, uuid.UUID) ([]calendar.Event, error) {
 	return nil, nil
 }
@@ -346,6 +350,7 @@ type mailServiceStub struct {
 	messages     []mail.Message
 	lastSent     *mail.Message
 	lastSentAtts int
+	sentInvites  []string
 }
 
 func (m *mailServiceStub) EnsureDefaultMailboxes(context.Context, uuid.UUID) error {
@@ -425,6 +430,11 @@ func (m *mailServiceStub) SendMessageWithAttachments(ctx context.Context, user *
 	m.lastSent = msg
 	m.lastSentAtts = len(atts)
 	return msg, nil
+}
+
+func (m *mailServiceStub) SendInvite(ctx context.Context, user *identity.User, to, subject, body, icsData, icsMethod string) (*mail.Message, error) {
+	m.sentInvites = append(m.sentInvites, icsMethod+":"+to)
+	return m.SendMessageWithAttachments(ctx, user, to, subject, body+icsData+icsMethod, nil)
 }
 
 func TestMailRoutes(t *testing.T) {
@@ -683,5 +693,215 @@ func TestMailAttachmentRoutes(t *testing.T) {
 		if mailSvc.lastSentAtts != 1 {
 			t.Errorf("expected 1 attachment sent, got %d", mailSvc.lastSentAtts)
 		}
+	}
+}
+
+type calendarServiceWithStore struct {
+	calendarService
+	events map[uuid.UUID]calendar.Event
+}
+
+func newCalendarStore() *calendarServiceWithStore {
+	return &calendarServiceWithStore{events: map[uuid.UUID]calendar.Event{}}
+}
+
+func (c *calendarServiceWithStore) Get(_ context.Context, _ uuid.UUID, id uuid.UUID) (*calendar.Event, error) {
+	if e, ok := c.events[id]; ok {
+		cp := e
+		return &cp, nil
+	}
+	return nil, calendar.ErrInvalidEvent
+}
+
+func (c *calendarServiceWithStore) GetByUID(_ context.Context, _ uuid.UUID, uid string) (*calendar.Event, error) {
+	for _, e := range c.events {
+		if e.UID == uid {
+			cp := e
+			return &cp, nil
+		}
+	}
+	return nil, calendar.ErrInvalidEvent
+}
+
+func (c *calendarServiceWithStore) List(_ context.Context, _ uuid.UUID) ([]calendar.Event, error) {
+	var out []calendar.Event
+	for _, e := range c.events {
+		out = append(out, e)
+	}
+	return out, nil
+}
+
+func (c *calendarServiceWithStore) Put(_ context.Context, e calendar.Event) (*calendar.Event, error) {
+	if e.ID == uuid.Nil {
+		e.ID = uuid.New()
+	}
+	if e.ETag == "" {
+		e.ETag = "test-etag"
+	}
+	c.events[e.ID] = e
+	cp := e
+	return &cp, nil
+}
+
+func (c *calendarServiceWithStore) Delete(_ context.Context, _ uuid.UUID, id uuid.UUID) error {
+	delete(c.events, id)
+	return nil
+}
+
+const inviteTestICS = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\n" +
+	"BEGIN:VEVENT\r\nUID:invite-web-1\r\nDTSTART:20260922T100000Z\r\nDTEND:20260922T110000Z\r\n" +
+	"SUMMARY:Web Planning\r\nSEQUENCE:1\r\nORGANIZER:mailto:boss@example.com\r\n" +
+	"ATTENDEE:mailto:alice@example.com\r\nEND:VEVENT\r\nEND:VCALENDAR"
+
+func inviteTestServer(t *testing.T, userID uuid.UUID, mailSvc *mailServiceStub, calSvc *calendarServiceWithStore) *http.ServeMux {
+	t.Helper()
+	files := os.DirFS("../..")
+	server, err := web.New(files, contactService{}, calSvc, mailSvc, testSessionService{userID: userID}, testUserService{userID: userID}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux)
+	return mux
+}
+
+func TestMailInviteAddToCalendar(t *testing.T) {
+	userID := uuid.New()
+	msgID := uuid.New()
+	mailSvc := &mailServiceStub{
+		messages: []mail.Message{
+			{
+				ID:         msgID,
+				Sender:     "Boss <boss@example.com>",
+				Recipients: []string{"alice@example.com"},
+				Subject:    "Invitation: Web Planning",
+				RawMessage: "From: boss@example.com\r\nContent-Type: text/calendar\r\n\r\n" + inviteTestICS + "\r\n",
+				MimeType:   "text/calendar",
+				ReceivedAt: time.Now(),
+			},
+		},
+	}
+	calSvc := newCalendarStore()
+	mux := inviteTestServer(t, userID, mailSvc, calSvc)
+
+	// Detail shows the invite box.
+	req := httptest.NewRequest(http.MethodGet, "/mail/message/"+msgID.String(), nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET detail status = %d", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "Add to calendar") || !strings.Contains(body, "Web Planning") {
+		t.Errorf("detail missing invite box")
+	}
+
+	// Import creates the event and redirects to its week.
+	form := url.Values{"_csrf": {"test-csrf-token"}, "box": {"INBOX"}}
+	req = httptest.NewRequest(http.MethodPost, "/mail/message/"+msgID.String()+"/add-to-calendar", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+	req.AddCookie(&http.Cookie{Name: "csrf", Value: "test-csrf-token"})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("POST add-to-calendar status = %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); !strings.HasPrefix(loc, "/calendars?week=") {
+		t.Errorf("unexpected redirect %q", loc)
+	}
+	if len(calSvc.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(calSvc.events))
+	}
+	for _, e := range calSvc.events {
+		if e.UID != "invite-web-1" || e.Title != "Web Planning" {
+			t.Errorf("unexpected stored event: %+v", e)
+		}
+	}
+
+	// Re-adding is idempotent (update path, still one event).
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/mail/message/"+msgID.String()+"/add-to-calendar", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+	req.AddCookie(&http.Cookie{Name: "csrf", Value: "test-csrf-token"})
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther || len(calSvc.events) != 1 {
+		t.Errorf("re-add status = %d, events = %d", rec.Code, len(calSvc.events))
+	}
+}
+
+func TestCalendarInviteSendUpdateCancel(t *testing.T) {
+	userID := uuid.New()
+	mailSvc := &mailServiceStub{}
+	calSvc := newCalendarStore()
+	mux := inviteTestServer(t, userID, mailSvc, calSvc)
+
+	post := func(target string, form url.Values) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+		req.AddCookie(&http.Cookie{Name: "csrf", Value: "test-csrf-token"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Create with attendees: REQUEST goes out, junk dropped.
+	form := url.Values{
+		"_csrf": {"test-csrf-token"}, "title": {"Team Sync"},
+		"starts_at": {"2026-09-22T10:00"}, "ends_at": {"2026-09-22T11:00"},
+		"attendees": {"bob@example.com, not-an-email, alice@example.com"},
+		"week":      {"2026-09-21"},
+	}
+	if rec := post("/calendars", form); rec.Code != http.StatusSeeOther {
+		t.Fatalf("POST /calendars status = %d. Body: %s", rec.Code, rec.Body.String())
+	}
+	if len(mailSvc.sentInvites) != 1 || mailSvc.sentInvites[0] != "REQUEST:bob@example.com" {
+		t.Fatalf("invites = %v", mailSvc.sentInvites)
+	}
+	var eventID uuid.UUID
+	for id, e := range calSvc.events {
+		eventID = id
+		if len(e.Attendees) != 1 || e.Attendees[0] != "bob@example.com" {
+			t.Fatalf("stored attendees = %v", e.Attendees)
+		}
+	}
+
+	// Update attendees: REQUEST to carol, CANCEL to bob.
+	form.Set("attendees", "carol@example.com")
+	form.Set("title", "Team Sync")
+	if rec := post("/calendars/"+eventID.String(), form); rec.Code != http.StatusSeeOther {
+		t.Fatalf("POST update status = %d", rec.Code)
+	}
+	want := map[string]bool{"REQUEST:bob@example.com": true, "REQUEST:carol@example.com": true, "CANCEL:bob@example.com": true}
+	for _, got := range mailSvc.sentInvites {
+		delete(want, got)
+	}
+	if len(want) != 0 {
+		t.Errorf("missing invites %v (got %v)", want, mailSvc.sentInvites)
+	}
+
+	// Delete: CANCEL to remaining attendee.
+	req := httptest.NewRequest(http.MethodDelete, "/calendars/"+eventID.String()+"?week=2026-09-21", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+	req.AddCookie(&http.Cookie{Name: "csrf", Value: "test-csrf-token"})
+	req.Header.Set("X-CSRF-Token", "test-csrf-token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther && rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE status = %d", rec.Code)
+	}
+	found := false
+	for _, got := range mailSvc.sentInvites {
+		if got == "CANCEL:carol@example.com" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("missing CANCEL:carol (got %v)", mailSvc.sentInvites)
+	}
+	if len(calSvc.events) != 0 {
+		t.Errorf("expected event deleted, %d remain", len(calSvc.events))
 	}
 }

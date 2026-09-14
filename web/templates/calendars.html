@@ -36,6 +36,7 @@
           data-title="{{.Title}}"
           data-location="{{.Location}}"
           data-description="{{.Description}}"
+          data-attendees="{{.Attendees}}"
           data-start="{{.StartValue}}"
           data-end="{{.EndValue}}">
           <span>{{.Title}}</span>
@@ -62,6 +63,7 @@
             data-title="{{.Title}}"
             data-location="{{.Location}}"
             data-description="{{.Description}}"
+            data-attendees="{{.Attendees}}"
             data-start="{{.StartValue}}"
             data-end="{{.EndValue}}">
             <strong>{{.Title}}</strong>
@@ -106,6 +108,10 @@
       </label>
       <label for="event-description">Description
         <textarea id="event-description" name="description" rows="3" maxlength="4000" placeholder="Agenda, notes, links…">{{.Week.FormDescription}}</textarea>
+      </label>
+      <label for="event-attendees">Attendees
+        <input id="event-attendees" name="attendees" type="text" autocomplete="off" maxlength="1000" placeholder="colleague@example.com, …" value="{{.Week.FormAttendees}}">
+        <span class="field-hint">Comma-separated emails — invitations are sent on save</span>
       </label>
     </div>
     <footer class="modal-actions">

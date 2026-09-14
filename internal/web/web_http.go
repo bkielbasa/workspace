@@ -25,6 +25,7 @@ type contactsService interface {
 
 type calendarService interface {
 	Get(context.Context, uuid.UUID, uuid.UUID) (*calendar.Event, error)
+	GetByUID(context.Context, uuid.UUID, string) (*calendar.Event, error)
 	List(context.Context, uuid.UUID) ([]calendar.Event, error)
 	Put(context.Context, calendar.Event) (*calendar.Event, error)
 	Delete(context.Context, uuid.UUID, uuid.UUID) error
@@ -41,6 +42,7 @@ type mailService interface {
 	DeleteMessage(context.Context, uuid.UUID, uuid.UUID) error
 	SendMessage(context.Context, *identity.User, string, string, string) (*mail.Message, error)
 	SendMessageWithAttachments(context.Context, *identity.User, string, string, string, []mail.Attachment) (*mail.Message, error)
+	SendInvite(context.Context, *identity.User, string, string, string, string, string) (*mail.Message, error)
 }
 
 type sessionsService interface {
@@ -114,6 +116,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /mail", s.page(s.views.mailPage))
 	mux.HandleFunc("GET /mail/message/{id}", s.page(s.views.mailDetailPage))
 	mux.HandleFunc("GET /mail/message/{id}/attachment/{idx}", s.page(s.views.mailAttachmentDownload))
+	mux.HandleFunc("POST /mail/message/{id}/add-to-calendar", s.RequireAuth(s.RequireCSRF(s.views.mailAddToCalendar)))
 	mux.HandleFunc("POST /mail/send", s.RequireAuth(s.RequireCSRF(s.views.mailSend)))
 	mux.HandleFunc("POST /mail/message/{id}/toggle-star", s.RequireAuth(s.RequireCSRF(s.views.mailToggleStar)))
 	mux.HandleFunc("POST /mail/message/{id}/toggle-read", s.RequireAuth(s.RequireCSRF(s.views.mailToggleRead)))

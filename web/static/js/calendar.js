@@ -9,6 +9,7 @@
   const titleInput = dialog.querySelector("[name=title]");
   const locationInput = dialog.querySelector("[name=location]");
   const descriptionInput = dialog.querySelector("[name=description]");
+  const attendeesInput = dialog.querySelector("[name=attendees]");
   const startInput = dialog.querySelector("[name=starts_at]");
   const endInput = dialog.querySelector("[name=ends_at]");
   const when = dialog.querySelector("[data-when]");
@@ -50,6 +51,7 @@
     titleInput.value = "";
     if (locationInput) locationInput.value = "";
     if (descriptionInput) descriptionInput.value = "";
+    if (attendeesInput) attendeesInput.value = "";
   };
 
   const show = () => {
@@ -99,6 +101,7 @@
     titleInput.value = el.dataset.title || "";
     if (locationInput) locationInput.value = el.dataset.location || "";
     if (descriptionInput) descriptionInput.value = el.dataset.description || "";
+    if (attendeesInput) attendeesInput.value = el.dataset.attendees || "";
     startInput.value = el.dataset.start || "";
     endInput.value = el.dataset.end || "";
 
@@ -148,6 +151,7 @@
     addField("title", el.dataset.title || "");
     addField("location", el.dataset.location || "");
     addField("description", el.dataset.description || "");
+    addField("attendees", el.dataset.attendees || "");
     addField("starts_at", startVal);
     addField("ends_at", endVal);
 

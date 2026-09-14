@@ -41,6 +41,8 @@ type mailViewDetail struct {
 	ReceivedAt  time.Time
 	BoxName     string
 	Attachments []mail.AttachmentInfo
+	// Invite is set when the message carries a meeting invitation.
+	Invite *mailInvite
 }
 
 // composeRecipient is one selectable address for the compose To field:

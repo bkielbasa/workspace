@@ -1,6 +1,7 @@
 package ics
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,7 +15,21 @@ import (
 // yield a zero time. Parse only fails when FromPayload rejects the identity
 // (missing user or resource).
 func Parse(raw string, userID uuid.UUID, resource string) (calendar.Event, error) {
+	payload, err := ParsePayload(raw)
+	if err != nil {
+		return calendar.Event{}, err
+	}
+	payload.Resource = resource
+	return calendar.FromPayload(userID, payload)
+}
+
+// ParsePayload extracts event and scheduling fields without identity
+// validation, for callers (mail invites) that build the event themselves.
+func ParsePayload(raw string) (calendar.Payload, error) {
 	var title, uid, location, description string
+	var method, organizer, status string
+	var attendees []string
+	var sequence int
 	var start, end time.Time
 	for _, line := range unfold(raw) {
 		name, params, value := splitLine(line)
@@ -27,14 +42,25 @@ func Parse(raw string, userID uuid.UUID, resource string) (calendar.Event, error
 			description = unescapeText(value)
 		case "UID":
 			uid = strings.TrimSpace(value)
+		case "METHOD":
+			method = strings.ToUpper(strings.TrimSpace(value))
+		case "ORGANIZER":
+			organizer = mailTo(value)
+		case "ATTENDEE":
+			if email := mailTo(value); email != "" {
+				attendees = append(attendees, email)
+			}
+		case "SEQUENCE":
+			fmt.Sscanf(strings.TrimSpace(value), "%d", &sequence)
+		case "STATUS":
+			status = strings.ToUpper(strings.TrimSpace(value))
 		case "DTSTART":
 			start = parseTime(params, value)
 		case "DTEND":
 			end = parseTime(params, value)
 		}
 	}
-	return calendar.FromPayload(userID, calendar.Payload{
-		Resource:    resource,
+	return calendar.Payload{
 		ICS:         raw,
 		UID:         uid,
 		Title:       title,
@@ -42,7 +68,71 @@ func Parse(raw string, userID uuid.UUID, resource string) (calendar.Event, error
 		Description: description,
 		StartsAt:    start,
 		EndsAt:      end,
-	})
+		Method:      method,
+		Organizer:   organizer,
+		Attendees:   attendees,
+		Sequence:    sequence,
+		Status:      status,
+	}, nil
+}
+
+// mailTo strips the mailto: scheme from ORGANIZER/ATTENDEE values.
+func mailTo(value string) string {
+	value = strings.TrimSpace(value)
+	if i := strings.Index(value, ":"); i >= 0 && !strings.Contains(value[:i], "@") {
+		value = value[i+1:]
+	}
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(strings.ToLower(value), "mailto:") {
+		value = strings.TrimSpace(value[len("mailto:"):])
+	}
+	return value
+}
+
+// BuildInvite renders an iTIP invitation (METHOD:REQUEST or METHOD:CANCEL)
+// for an event organized by organizer. Attendees come from the event.
+func BuildInvite(e calendar.Event, organizer, method string) string {
+	uid := strings.TrimSpace(e.UID)
+	if uid == "" {
+		uid = e.ID.String()
+	}
+	stamp := e.UpdatedAt.UTC()
+	if stamp.IsZero() {
+		stamp = time.Now().UTC()
+	}
+	status := "CONFIRMED"
+	if strings.ToUpper(strings.TrimSpace(method)) == "CANCEL" {
+		status = "CANCELLED"
+	}
+	var b strings.Builder
+	b.WriteString("BEGIN:VCALENDAR\r\n")
+	b.WriteString("VERSION:2.0\r\n")
+	b.WriteString("PRODID:-//Workspace//Workspace//EN\r\n")
+	b.WriteString("METHOD:" + strings.ToUpper(strings.TrimSpace(method)) + "\r\n")
+	b.WriteString("BEGIN:VEVENT\r\n")
+	b.WriteString("UID:" + uid + "\r\n")
+	b.WriteString("DTSTAMP:" + stamp.Format("20060102T150405Z") + "\r\n")
+	b.WriteString("DTSTART:" + e.StartsAt.UTC().Format("20060102T150405Z") + "\r\n")
+	b.WriteString("DTEND:" + e.EndsAt.UTC().Format("20060102T150405Z") + "\r\n")
+	b.WriteString("SUMMARY:" + escapeText(e.Title) + "\r\n")
+	if e.Location != "" {
+		b.WriteString("LOCATION:" + escapeText(e.Location) + "\r\n")
+	}
+	if e.Description != "" {
+		b.WriteString("DESCRIPTION:" + escapeText(e.Description) + "\r\n")
+	}
+	fmt.Fprintf(&b, "SEQUENCE:%d\r\n", e.Sequence)
+	b.WriteString("STATUS:" + status + "\r\n")
+	b.WriteString("ORGANIZER:mailto:" + organizer + "\r\n")
+	for _, a := range e.Attendees {
+		if strings.TrimSpace(a) == "" {
+			continue
+		}
+		b.WriteString("ATTENDEE;RSVP=TRUE:mailto:" + strings.TrimSpace(a) + "\r\n")
+	}
+	b.WriteString("END:VEVENT\r\n")
+	b.WriteString("END:VCALENDAR\r\n")
+	return b.String()
 }
 
 // Encode serializes an event as a full iCalendar object. Clients (iOS, DAVx5)

@@ -1,10 +1,13 @@
 package mail
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"mime/multipart"
 	"sort"
 	"strings"
 	"time"
@@ -146,6 +149,94 @@ func (s *Service) DeleteMessage(ctx context.Context, userID, messageID uuid.UUID
 
 func (s *Service) SendMessage(ctx context.Context, user *identity.User, to, subject, body string) (*Message, error) {
 	return s.SendMessageWithAttachments(ctx, user, to, subject, body, nil)
+}
+
+// SendInvite sends an iTIP invitation (METHOD:REQUEST or METHOD:CANCEL)
+// with a text/calendar part alongside a plain-text summary. Recipients'
+// mail clients render this as a meeting invitation.
+func (s *Service) SendInvite(ctx context.Context, user *identity.User, to, subject, body, icsData, icsMethod string) (*Message, error) {
+	ctx, span := s.tracer.Start(ctx, "mail.send_invite")
+	defer span.End()
+
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return nil, errors.New("recipient required")
+	}
+	method := strings.ToUpper(strings.TrimSpace(icsMethod))
+	if method == "" {
+		method = "REQUEST"
+	}
+
+	hostname := s.hostname
+	if hostname == "" {
+		hostname = "mail.local"
+	}
+	now := time.Now()
+	msgID := fmt.Sprintf("<%d@%s>", now.UnixNano(), hostname)
+
+	var buf bytes.Buffer
+	buf.WriteString("From: " + sanitizeHeaderValue(user.Email) + "\r\n")
+	buf.WriteString("To: " + sanitizeHeaderValue(to) + "\r\n")
+	buf.WriteString("Subject: " + sanitizeHeaderValue(subject) + "\r\n")
+	buf.WriteString("Date: " + now.Format(time.RFC1123Z) + "\r\n")
+	buf.WriteString("Message-ID: " + msgID + "\r\n")
+	buf.WriteString("MIME-Version: 1.0\r\n")
+
+	boundary := mimeBoundary()
+	buf.WriteString("Content-Type: multipart/mixed; boundary=\"" + boundary + "\"\r\n")
+	buf.WriteString("\r\n")
+
+	w := multipart.NewWriter(&buf)
+	_ = w.SetBoundary(boundary)
+
+	text, _ := w.CreatePart(map[string][]string{
+		"Content-Type":              {"text/plain; charset=UTF-8"},
+		"Content-Transfer-Encoding": {"8bit"},
+	})
+	_, _ = io.WriteString(text, body)
+
+	cal, _ := w.CreatePart(map[string][]string{
+		"Content-Type":              {fmt.Sprintf("text/calendar; charset=UTF-8; method=%s; name=\"invite.ics\"", method)},
+		"Content-Transfer-Encoding": {"base64"},
+		"Content-Disposition":       {"attachment; filename=\"invite.ics\""},
+	})
+	_, _ = writeBase64Lines(cal, []byte(icsData))
+	_ = w.Close()
+	raw := buf.String()
+
+	msg := &Message{
+		MessageID:  msgID,
+		Sender:     user.Email,
+		Recipients: []string{to},
+		Subject:    sanitizeHeaderValue(subject),
+		RawMessage: raw,
+		MimeType:   "multipart/mixed",
+		Charset:    "UTF-8",
+		SizeBytes:  int64(len(raw)),
+		ReceivedAt: now,
+		SentAt:     &now,
+		Seen:       true,
+	}
+
+	if s.delivery != nil {
+		if err := s.delivery.Deliver(ctx, to, msg); err != nil {
+			obs.Log(ctx, slog.LevelWarn, "mail delivery error", "error", err)
+		}
+	}
+
+	sentBox, err := s.mailboxes.GetByName(ctx, user.ID, "Sent")
+	if err == nil && sentBox != nil {
+		sentCopy := *msg
+		sentCopy.ID = uuid.Nil
+		sentCopy.UID = 0
+		sentCopy.MailboxID = sentBox.ID
+		sentCopy.Seen = true
+		sentCopy.ReceivedAt = now
+		_ = s.messages.Append(ctx, &sentCopy)
+		return &sentCopy, nil
+	}
+
+	return msg, nil
 }
 
 // SendMessageWithAttachments sends a message, building a multipart/mixed

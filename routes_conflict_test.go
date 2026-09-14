@@ -35,6 +35,9 @@ type dummyCalendarService struct{}
 func (dummyCalendarService) Get(context.Context, uuid.UUID, uuid.UUID) (*calendar.Event, error) {
 	return nil, nil
 }
+func (dummyCalendarService) GetByUID(context.Context, uuid.UUID, string) (*calendar.Event, error) {
+	return nil, nil
+}
 func (dummyCalendarService) List(context.Context, uuid.UUID) ([]calendar.Event, error) {
 	return nil, nil
 }
@@ -71,6 +74,9 @@ func (dummyMailService) SendMessage(context.Context, *identity.User, string, str
 	return nil, nil
 }
 func (dummyMailService) SendMessageWithAttachments(context.Context, *identity.User, string, string, string, []mail.Attachment) (*mail.Message, error) {
+	return nil, nil
+}
+func (dummyMailService) SendInvite(context.Context, *identity.User, string, string, string, string, string) (*mail.Message, error) {
 	return nil, nil
 }
 

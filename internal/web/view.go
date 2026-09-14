@@ -20,6 +20,7 @@ import (
 
 	"github.com/bklimczak/workspace/internal/calendar"
 	"github.com/bklimczak/workspace/internal/contacts"
+	"github.com/bklimczak/workspace/internal/format/ics"
 	"github.com/bklimczak/workspace/internal/identity"
 	"github.com/bklimczak/workspace/internal/mail"
 	"github.com/bklimczak/workspace/internal/obs"
@@ -282,6 +283,7 @@ func (v *views) renderWeek(w http.ResponseWriter, r *http.Request, user *identit
 		data.Week.FormTitle = strings.TrimSpace(r.FormValue("title"))
 		data.Week.FormLocation = strings.TrimSpace(r.FormValue("location"))
 		data.Week.FormDescription = strings.TrimSpace(r.FormValue("description"))
+		data.Week.FormAttendees = strings.TrimSpace(r.FormValue("attendees"))
 		if start := strings.TrimSpace(r.FormValue("starts_at")); start != "" {
 			data.Week.StartValue = start
 		}
@@ -315,6 +317,7 @@ func (v *views) renderWeekWithEdit(w http.ResponseWriter, r *http.Request, user 
 	data.Week.FormTitle = strings.TrimSpace(r.FormValue("title"))
 	data.Week.FormLocation = strings.TrimSpace(r.FormValue("location"))
 	data.Week.FormDescription = strings.TrimSpace(r.FormValue("description"))
+	data.Week.FormAttendees = strings.TrimSpace(r.FormValue("attendees"))
 	if start := strings.TrimSpace(r.FormValue("starts_at")); start != "" {
 		data.Week.StartValue = start
 	}
@@ -373,9 +376,14 @@ func (v *views) calendarsAdd(w http.ResponseWriter, r *http.Request) {
 		v.renderWeek(w, r, user, "Could not save the event.")
 		return
 	}
-	if _, err := v.calendar.Put(r.Context(), event); err != nil {
+	event.Attendees = parseAttendeeList(r.FormValue("attendees"), user.Email)
+	saved, err := v.calendar.Put(r.Context(), event)
+	if err != nil {
 		v.renderWeek(w, r, user, "Could not save the event.")
 		return
+	}
+	if saved != nil && len(saved.Attendees) > 0 {
+		v.sendEventInvites(r.Context(), user, *saved, "REQUEST", saved.Attendees)
 	}
 	http.Redirect(w, r, weekPath(mondayOf(start).Format("2006-01-02")), http.StatusSeeOther)
 }
@@ -419,19 +427,43 @@ func (v *views) calendarsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	old := *event
 	if hasTitle {
 		event.Title = title
 		event.Location = strings.TrimSpace(r.FormValue("location"))
 		event.Description = strings.TrimSpace(r.FormValue("description"))
+	}
+	if r.Form.Has("attendees") {
+		event.Attendees = parseAttendeeList(r.FormValue("attendees"), user.Email)
 	}
 	event.StartsAt = start.UTC()
 	event.EndsAt = end.UTC()
 	event.ETag = uuid.NewString()
 	event.ICS = ""
 
-	if _, err := v.calendar.Put(r.Context(), *event); err != nil {
+	attendeesChanged := !equalEmails(old.Attendees, event.Attendees)
+	detailsChanged := old.Title != event.Title ||
+		old.Location != event.Location ||
+		old.Description != event.Description ||
+		!old.StartsAt.Equal(event.StartsAt) ||
+		!old.EndsAt.Equal(event.EndsAt)
+	notify := attendeesChanged || detailsChanged
+
+	if len(event.Attendees) > 0 && notify {
+		event.Sequence++
+	}
+	saved, err := v.calendar.Put(r.Context(), *event)
+	if err != nil {
 		v.renderWeekWithEdit(w, r, user, id, "Could not save the event.")
 		return
+	}
+
+	removed := subtractEmails(old.Attendees, event.Attendees)
+	if len(removed) > 0 && saved != nil {
+		v.sendEventInvites(r.Context(), user, *saved, "CANCEL", removed)
+	}
+	if saved != nil && len(event.Attendees) > 0 && notify {
+		v.sendEventInvites(r.Context(), user, *saved, "REQUEST", event.Attendees)
 	}
 
 	target := weekPath(strings.TrimSpace(r.FormValue("week")))
@@ -454,6 +486,9 @@ func (v *views) calendarsDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid event id", http.StatusBadRequest)
 		return
 	}
+	if event, err := v.calendar.Get(r.Context(), user.ID, id); err == nil && event != nil && len(event.Attendees) > 0 {
+		v.sendEventInvites(r.Context(), user, *event, "CANCEL", event.Attendees)
+	}
 	if err := v.calendar.Delete(r.Context(), user.ID, id); err != nil {
 		http.Error(w, "could not delete event", http.StatusInternalServerError)
 		return
@@ -465,6 +500,61 @@ func (v *views) calendarsDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+// sendEventInvites emails an iTIP invitation to recipients. Failures are
+// logged but never block saving the event itself.
+func (v *views) sendEventInvites(ctx context.Context, user *identity.User, event calendar.Event, method string, recipients []string) {
+	if len(recipients) == 0 {
+		return
+	}
+	cancelled := strings.ToUpper(strings.TrimSpace(method)) == "CANCEL"
+	subject := "Invitation: " + event.Title
+	if cancelled {
+		subject = "Cancelled: " + event.Title
+	}
+	body := inviteMailBody(event.Title, event.Location, event.Description, event.StartsAt, event.EndsAt, cancelled)
+	icsData := ics.BuildInvite(event, user.Email, method)
+	for _, to := range recipients {
+		if _, err := v.mail.SendInvite(ctx, user, to, subject, body, icsData, method); err != nil {
+			obs.Log(ctx, slog.LevelError, "send invite failed",
+				"recipient", to, "method", method, "error", err)
+		}
+	}
+}
+
+// equalEmails compares attendee lists case-insensitively, ignoring order.
+func equalEmails(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := map[string]int{}
+	for _, e := range a {
+		counts[strings.ToLower(strings.TrimSpace(e))]++
+	}
+	for _, e := range b {
+		key := strings.ToLower(strings.TrimSpace(e))
+		if counts[key] == 0 {
+			return false
+		}
+		counts[key]--
+	}
+	return true
+}
+
+// subtractEmails returns entries of a absent from b (case-insensitive).
+func subtractEmails(a, b []string) []string {
+	inB := map[string]bool{}
+	for _, e := range b {
+		inB[strings.ToLower(strings.TrimSpace(e))] = true
+	}
+	var out []string
+	for _, e := range a {
+		if !inB[strings.ToLower(strings.TrimSpace(e))] {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func parseUUIDPath(r *http.Request) (uuid.UUID, error) {
@@ -699,6 +789,7 @@ func (v *views) mailDetailPage(w http.ResponseWriter, r *http.Request, user *ide
 
 	bodyText, _ := parseMailContent(msg.RawMessage, msg.MimeType)
 	name, addr := parseSender(msg.Sender)
+	invite, _ := findMailInvite(msg.RawMessage)
 
 	detail := &mailViewDetail{
 		ID:          msg.ID.String(),
@@ -713,6 +804,7 @@ func (v *views) mailDetailPage(w http.ResponseWriter, r *http.Request, user *ide
 		ReceivedAt:  msg.ReceivedAt,
 		BoxName:     currentBox,
 		Attachments: mail.ParseAttachments(msg.RawMessage),
+		Invite:      invite,
 	}
 
 	renderView(w, r, v.mailT, "layout", viewData{
@@ -856,6 +948,94 @@ func (v *views) mailAttachmentDownload(w http.ResponseWriter, r *http.Request, u
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	http.ServeContent(w, r, att.Filename, msg.ReceivedAt, bytes.NewReader(att.Data))
+}
+
+// mailAddToCalendar imports a meeting invitation from a message into the
+// user's calendar. Re-adding applies newer SEQUENCE updates; CANCEL removes
+// the matching event. Events are matched by iCalendar UID.
+func (v *views) mailAddToCalendar(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	id, err := parseUUIDPath(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	msg, _, err := v.mail.GetMessage(r.Context(), user.ID, id)
+	if err != nil || msg == nil {
+		http.NotFound(w, r)
+		return
+	}
+	invite, ok := findMailInvite(msg.RawMessage)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	if invite.IsCancel() {
+		if existing, err := v.calendar.GetByUID(r.Context(), user.ID, invite.UID); err == nil && existing != nil {
+			_ = v.calendar.Delete(r.Context(), user.ID, existing.ID)
+		}
+		http.Redirect(w, r, "/calendars", http.StatusSeeOther)
+		return
+	}
+
+	if existing, err := v.calendar.GetByUID(r.Context(), user.ID, invite.UID); err == nil && existing != nil {
+		if invite.Sequence < existing.Sequence {
+			http.Redirect(w, r, inviteWeekPath(existing.StartsAt), http.StatusSeeOther)
+			return
+		}
+		existing.Title = invite.Title
+		existing.Location = invite.Location
+		existing.Description = invite.Description
+		if !invite.StartsAt.IsZero() {
+			existing.StartsAt = invite.StartsAt
+		}
+		if !invite.EndsAt.IsZero() {
+			existing.EndsAt = invite.EndsAt
+		}
+		existing.Sequence = invite.Sequence
+		existing.ICS = invite.ICS
+		existing.ETag = uuid.NewString()
+		if saved, err := v.calendar.Put(r.Context(), *existing); err == nil && saved != nil {
+			http.Redirect(w, r, inviteWeekPath(saved.StartsAt), http.StatusSeeOther)
+			return
+		}
+		http.Redirect(w, r, inviteWeekPath(existing.StartsAt), http.StatusSeeOther)
+		return
+	}
+
+	event, err := ics.Parse(invite.ICS, user.ID, inviteResource(invite.UID))
+	if err != nil {
+		obs.Log(r.Context(), slog.LevelError, "import invite failed", "error", err)
+		http.Redirect(w, r, "/mail/message/"+id.String(), http.StatusSeeOther)
+		return
+	}
+	event.ETag = uuid.NewString()
+	if saved, err := v.calendar.Put(r.Context(), event); err != nil {
+		obs.Log(r.Context(), slog.LevelError, "import invite failed", "error", err)
+		http.Redirect(w, r, "/mail/message/"+id.String(), http.StatusSeeOther)
+		return
+	} else {
+		http.Redirect(w, r, inviteWeekPath(saved.StartsAt), http.StatusSeeOther)
+	}
+}
+
+// inviteResource derives a URL-safe CalDAV resource name from an iTIP UID.
+func inviteResource(uid string) string {
+	var b strings.Builder
+	for _, r := range uid {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '.' || r == '-' || r == '_' || r == '@':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	if b.Len() == 0 {
+		return uuid.NewString()
+	}
+	return b.String()
 }
 
 // encodeDispositionFilename renders a safe Content-Disposition filename

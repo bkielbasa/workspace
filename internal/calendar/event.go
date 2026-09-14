@@ -23,8 +23,12 @@ type Event struct {
 	ICS         string
 	Resource    string
 	ETag        string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// Attendees holds invitee emails for events organized by the user.
+	Attendees []string
+	// Sequence is the iTIP SEQUENCE number for REQUEST updates/cancels.
+	Sequence  int
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Href is the CalDAV (or similar) resource name without extension.
@@ -82,6 +86,12 @@ type Payload struct {
 	Description string
 	StartsAt    time.Time
 	EndsAt      time.Time
+	// Scheduling fields for iTIP invitations (METHOD:REQUEST/CANCEL/...).
+	Method    string
+	Organizer string
+	Attendees []string
+	Sequence  int
+	Status    string
 }
 
 // FromPayload builds an event from a format adapter (ICS, etc.).
@@ -100,6 +110,8 @@ func FromPayload(userID uuid.UUID, payload Payload) (Event, error) {
 		UID:         payload.UID,
 		ICS:         payload.ICS,
 		Resource:    payload.Resource,
+		Attendees:   payload.Attendees,
+		Sequence:    payload.Sequence,
 		ETag:        uuid.NewString(),
 	}, nil
 }

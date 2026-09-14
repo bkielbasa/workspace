@@ -32,6 +32,7 @@ type weekView struct {
 	FormTitle       string
 	FormLocation    string
 	FormDescription string
+	FormAttendees   string
 	// CSS carries the computed geometry. It is served in a nonced <style>
 	// element because the CSP forbids inline style attributes.
 	CSS template.CSS
@@ -52,6 +53,7 @@ type weekEvent struct {
 	Title       string
 	Location    string
 	Description string
+	Attendees   string
 	StartValue  string
 	EndValue    string
 	Hint        string
@@ -247,6 +249,7 @@ func allDayOn(events []calendar.Event, day time.Time) []weekEvent {
 			Title:       event.Title,
 			Location:    event.Location,
 			Description: event.Description,
+			Attendees:   strings.Join(event.Attendees, ", "),
 			StartValue:  startVal,
 			EndValue:    endVal,
 			Hint:        eventHint(event, ""),
@@ -319,6 +322,7 @@ func layoutTimed(events []calendar.Event, day time.Time, hourStart, hourEnd int)
 			Title:       slot.event.Title,
 			Location:    slot.event.Location,
 			Description: slot.event.Description,
+			Attendees:   strings.Join(slot.event.Attendees, ", "),
 			StartValue:  startVal,
 			EndValue:    endVal,
 			Hint:        eventHint(slot.event, timeLabel),
