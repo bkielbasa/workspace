@@ -134,3 +134,58 @@ func TestMailDateFormatting(t *testing.T) {
 		t.Errorf("expected 'Jan 15, 2023, 10:00', got %q", detailFormatted)
 	}
 }
+
+func TestParseNestedMultipartInviteBody(t *testing.T) {
+	// Apple iCloud shape: mixed > alternative > plain+html, plus calendar.
+	raw := strings.Join([]string{
+		`From: =?UTF-8?Q?Bart=C5=82omiej?= <noreply@email.apple.com>`,
+		`Subject: =?UTF-8?Q?Test_zaproszenia_=E2=80=9D?=`,
+		"MIME-Version: 1.0",
+		`Content-Type: multipart/mixed; boundary="outer"`,
+		"",
+		"--outer",
+		`Content-Type: multipart/alternative; boundary="inner"`,
+		"",
+		"--inner",
+		"Content-Type: text/plain; charset=UTF-8",
+		"Content-Transfer-Encoding: quoted-printable",
+		"",
+		"iCloud Calendar=C5=9Aalendars invite body",
+		"--inner",
+		"Content-Type: text/html; charset=UTF-8",
+		"",
+		"<p>html fallback</p>",
+		"--inner--",
+		"--outer",
+		"Content-Type: text/calendar; method=REQUEST",
+		"Content-Transfer-Encoding: base64",
+		"",
+		"QkVHSU46VkNBTEVOREFS",
+		"--outer--",
+		"",
+	}, "\r\n")
+	body, snippet := parseMailContent(raw, "")
+	if !strings.Contains(body, "iCloud Calendar") || strings.Contains(body, "multipart") {
+		t.Errorf("nested body not extracted: %q", body)
+	}
+	if !strings.Contains(snippet, "iCloud") {
+		t.Errorf("nested snippet wrong: %q", snippet)
+	}
+}
+
+func TestDecodeHeader(t *testing.T) {
+	if got := decodeHeader("=?UTF-8?Q?Bart=C5=82omiej_Klimczak_invite?="); got != "Bartłomiej Klimczak invite" {
+		t.Errorf("subject = %q", got)
+	}
+	// Multi-word split across folded lines decodes as one string.
+	if got := decodeHeader("=?UTF-8?Q?Test_zaproszenia_=E2=80=9D?="); got != "Test zaproszenia ”" {
+		t.Errorf("folded subject = %q", got)
+	}
+	if got := decodeHeader("plain subject"); got != "plain subject" {
+		t.Errorf("plain passthrough = %q", got)
+	}
+	name, addr := parseSender("=?UTF-8?Q?Bart=C5=82omiej?= <noreply@email.apple.com>")
+	if name != "Bartłomiej" || addr != "noreply@email.apple.com" {
+		t.Errorf("sender = %q <%s>", name, addr)
+	}
+}

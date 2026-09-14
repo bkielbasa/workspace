@@ -119,29 +119,7 @@ func parseMailContent(raw string, fallbackMime string) (body string, snippet str
 
 	var textBody string
 	if strings.HasPrefix(mediaType, "multipart/") {
-		boundary := params["boundary"]
-		if boundary != "" {
-			mr := multipart.NewReader(bytes.NewReader(bodyBytes), boundary)
-			var htmlFallback string
-			for {
-				p, err := mr.NextPart()
-				if err != nil {
-					break
-				}
-				pType, _, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
-				pEnc := p.Header.Get("Content-Transfer-Encoding")
-				reader := decodeTransfer(p, pEnc)
-				data, _ := io.ReadAll(reader)
-				if strings.HasPrefix(pType, "text/plain") && textBody == "" {
-					textBody = string(data)
-				} else if strings.HasPrefix(pType, "text/html") && htmlFallback == "" {
-					htmlFallback = string(data)
-				}
-			}
-			if textBody == "" && htmlFallback != "" {
-				textBody = stripHTML(htmlFallback)
-			}
-		}
+		textBody = walkTextParts(bodyBytes, params["boundary"])
 	} else {
 		reader := decodeTransfer(bytes.NewReader(bodyBytes), encoding)
 		data, _ := io.ReadAll(reader)
@@ -171,17 +149,76 @@ func parseMailContent(raw string, fallbackMime string) (body string, snippet str
 	return textBody, snippet
 }
 
+// walkTextParts extracts the readable body from (possibly nested) multiparts,
+// preferring the first text/plain part at any depth and falling back to
+// stripped text/html. Real-world invites (e.g. Apple) nest alternative
+// inside mixed, which a single-level walk misses entirely.
+func walkTextParts(body []byte, boundary string) string {
+	if boundary == "" {
+		return ""
+	}
+	var plain, html string
+	var walk func(data []byte, bound string)
+	walk = func(data []byte, bound string) {
+		if bound == "" {
+			return
+		}
+		mr := multipart.NewReader(bytes.NewReader(data), bound)
+		for {
+			p, err := mr.NextPart()
+			if err != nil {
+				return
+			}
+			pType, pParams, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
+			raw, err := io.ReadAll(p)
+			if err != nil {
+				continue
+			}
+			if strings.HasPrefix(pType, "multipart/") {
+				walk(raw, pParams["boundary"])
+				continue
+			}
+			text, _ := io.ReadAll(decodeTransfer(bytes.NewReader(raw), p.Header.Get("Content-Transfer-Encoding")))
+			switch {
+			case strings.HasPrefix(pType, "text/plain") && plain == "":
+				plain = string(text)
+			case strings.HasPrefix(pType, "text/html") && html == "":
+				html = string(text)
+			}
+		}
+	}
+	walk(body, boundary)
+	if plain != "" {
+		return plain
+	}
+	return stripHTML(html)
+}
+
 func parseSender(sender string) (name string, addr string) {
 	if a, err := netmail.ParseAddress(sender); err == nil {
 		if a.Name != "" {
-			return a.Name, a.Address
+			return decodeHeader(a.Name), a.Address
 		}
 		if parts := strings.Split(a.Address, "@"); len(parts) > 0 && parts[0] != "" {
 			return parts[0], a.Address
 		}
 		return a.Address, a.Address
 	}
-	return sender, sender
+	return decodeHeader(sender), sender
+}
+
+// decodeHeader decodes RFC 2047 encoded words (=?charset?Q?...?=) found in
+// Subject/From headers. Non-UTF8 charsets fall back to the raw value when
+// no charset reader is available.
+func decodeHeader(s string) string {
+	if !strings.Contains(s, "=?") {
+		return s
+	}
+	dec := new(mime.WordDecoder)
+	if decoded, err := dec.DecodeHeader(s); err == nil {
+		return decoded
+	}
+	return s
 }
 
 func mailboxIcon(name string) string {

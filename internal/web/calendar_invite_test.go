@@ -75,3 +75,40 @@ func TestInviteWeekPath(t *testing.T) {
 		t.Fatalf("empty week path = %q", got)
 	}
 }
+
+func TestFindMailInviteNestedAppleShape(t *testing.T) {
+	raw := strings.Join([]string{
+		"From: Boss <boss@example.com>",
+		"To: alice@example.com",
+		"MIME-Version: 1.0",
+		`Content-Type: multipart/mixed; boundary="outer"`,
+		"",
+		"--outer",
+		`Content-Type: multipart/alternative; boundary="inner"`,
+		"",
+		"--inner",
+		"Content-Type: text/plain; charset=UTF-8",
+		"",
+		"see attached",
+		"--inner--",
+		"--outer",
+		"Content-Type: text/calendar; method=REQUEST",
+		"Content-Transfer-Encoding: Base64",
+		`Content-Disposition: attachment; filename="invite.ics"`,
+		"",
+		"QkVHSU46VkNBTEVOREFSDQpWRVJTSU9OOjIuMA0KTUVUSE9EOlJFUVVFU1QNCkJFR0lOOlZFVkVOVA0KVUlEOm5lc3RlZC0xDQpEVFNUQVJUOjIwMjYwOTE0VDE5MDAwMFoNCkRURU5EOjIwMjYwOTE0VDIwMDAwMFoNClNVTU1BUlk6VGVzdCB6YXByb3N6ZW5pYQ0KU0VRVUVOQ0U6MA0KT1JHQU5JWkVSOm1haWx0bzpib3NzQGV4YW1wbGUuY29tDQpFTkQ6VkVWRU5UDQpFTkQ6VkNBTEVOREFS",
+		"--outer--",
+		"",
+	}, "\r\n")
+	invite, ok := findMailInvite(raw)
+	if !ok {
+		t.Fatal("expected nested invite to be found")
+	}
+	if invite.UID != "nested-1" || invite.Title != "Test zaproszenia" {
+		t.Fatalf("unexpected invite: %+v", invite)
+	}
+	body, _ := parseMailContent(raw, "")
+	if !strings.Contains(body, "see attached") {
+		t.Fatalf("nested body = %q", body)
+	}
+}
