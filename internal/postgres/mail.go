@@ -144,16 +144,16 @@ func (r *messageRepository) Append(ctx context.Context, message *mail.Message) e
 }
 
 const messageColumns = `
-	id, mailbox_id, uid, message_id, sender,
-	array_to_string(recipients, ',') AS recipients, subject, in_reply_to,
-	references_header, raw_message, mime_type, charset, size_bytes,
+	id, mailbox_id, uid, COALESCE(message_id, ''), sender,
+	COALESCE(array_to_string(recipients, ','), '') AS recipients, COALESCE(subject, ''), COALESCE(in_reply_to, ''),
+	COALESCE(references_header, ''), raw_message, COALESCE(mime_type, ''), COALESCE(charset, ''), size_bytes,
 	seen, flagged, answered, deleted, draft, received_at, sent_at,
 	created_at, updated_at`
 
 const joinedMessageColumns = `
-	m.id, m.mailbox_id, m.uid, m.message_id, m.sender,
-	array_to_string(m.recipients, ',') AS recipients, m.subject, m.in_reply_to,
-	m.references_header, m.raw_message, m.mime_type, m.charset, m.size_bytes,
+	m.id, m.mailbox_id, m.uid, COALESCE(m.message_id, ''), m.sender,
+	COALESCE(array_to_string(m.recipients, ','), '') AS recipients, COALESCE(m.subject, ''), COALESCE(m.in_reply_to, ''),
+	COALESCE(m.references_header, ''), m.raw_message, COALESCE(m.mime_type, ''), COALESCE(m.charset, ''), m.size_bytes,
 	m.seen, m.flagged, m.answered, m.deleted, m.draft, m.received_at, m.sent_at,
 	m.created_at, m.updated_at`
 
@@ -176,9 +176,9 @@ func (r *messageRepository) GetForUser(ctx context.Context, userID, id uuid.UUID
 		recipients string
 	)
 	err := r.db.QueryRowContext(ctx, `
-		SELECT m.id, m.mailbox_id, m.uid, m.message_id, m.sender,
-		       array_to_string(m.recipients, ',') AS recipients, m.subject, m.in_reply_to,
-		       m.references_header, m.raw_message, m.mime_type, m.charset, m.size_bytes,
+		SELECT m.id, m.mailbox_id, m.uid, COALESCE(m.message_id, ''), m.sender,
+		       COALESCE(array_to_string(m.recipients, ','), '') AS recipients, COALESCE(m.subject, ''), COALESCE(m.in_reply_to, ''),
+		       COALESCE(m.references_header, ''), m.raw_message, COALESCE(m.mime_type, ''), COALESCE(m.charset, ''), m.size_bytes,
 		       m.seen, m.flagged, m.answered, m.deleted, m.draft, m.received_at, m.sent_at,
 		       m.created_at, m.updated_at,
 		       mb.id, mb.user_id, mb.name, mb.uid_validity, mb.created_at
