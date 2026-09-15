@@ -88,6 +88,6 @@ files:
 
 # Persistent volume for user files. Single-node cluster, ReadWriteOnce.
 persistence:
-  storageClass: "local-path"
+  storageClass: "local-path-mini"
   accessMode: ReadWriteOnce
   size: 20Gi
