@@ -1068,7 +1068,7 @@ func (v *views) mailRSVP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	title := firstNonEmpty(msg.Subject, invite.Title, "the invitation")
+	title := firstNonEmpty(decodeHeader(msg.Subject), invite.Title, "the invitation")
 	name := strings.TrimSpace(user.DisplayName)
 	if name == "" {
 		name = user.Email

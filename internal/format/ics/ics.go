@@ -45,9 +45,9 @@ func ParsePayload(raw string) (calendar.Payload, error) {
 		case "METHOD":
 			method = strings.ToUpper(strings.TrimSpace(value))
 		case "ORGANIZER":
-			organizer = mailTo(value)
+			organizer = calendarAddr(params, value)
 		case "ATTENDEE":
-			if email := mailTo(value); email != "" {
+			if email := calendarAddr(params, value); email != "" {
 				attendees = append(attendees, email)
 			}
 		case "SEQUENCE":
@@ -109,6 +109,21 @@ func mailTo(value string) string {
 		value = strings.TrimSpace(value[len("mailto:"):])
 	}
 	return value
+}
+
+// calendarAddr extracts the email from an ORGANIZER/ATTENDEE line, preferring
+// the EMAIL parameter: Apple puts an opaque routing ID in the mailto: URI
+// (…@imip.me.com) and the real address in EMAIL=.
+func calendarAddr(params, value string) string {
+	for _, param := range strings.Split(params, ";") {
+		name, val, ok := strings.Cut(strings.TrimSpace(param), "=")
+		if ok && strings.EqualFold(strings.TrimSpace(name), "EMAIL") {
+			if email := mailTo(strings.Trim(val, `"`)); email != "" && strings.Contains(email, "@") {
+				return email
+			}
+		}
+	}
+	return mailTo(value)
 }
 
 // BuildInvite renders an iTIP invitation (METHOD:REQUEST or METHOD:CANCEL)

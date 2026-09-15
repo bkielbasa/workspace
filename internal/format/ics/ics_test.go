@@ -126,3 +126,29 @@ func TestBuildReply(t *testing.T) {
 		t.Errorf("reply must not carry STATUS:\n%s", raw)
 	}
 }
+
+func TestParsePrefersEmailParam(t *testing.T) {
+	// Apple-style: opaque routing ID in the URI, real address in EMAIL=.
+	raw := strings.Join([]string{
+		"BEGIN:VCALENDAR",
+		"METHOD:REQUEST",
+		"BEGIN:VEVENT",
+		"UID:org-1",
+		"DTSTART:20260914T190000Z",
+		"SUMMARY:X",
+		"ORGANIZER;CN=\"Boss\";EMAIL=boss@example.com:mailto:opaque123@imip.me.com",
+		"ATTENDEE;CN=Alice;EMAIL=alice@example.com:mailto:opaque456@imip.me.com",
+		"END:VEVENT",
+		"END:VCALENDAR",
+	}, "\r\n")
+	payload, err := ics.ParsePayload(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.Organizer != "boss@example.com" {
+		t.Errorf("organizer = %q", payload.Organizer)
+	}
+	if len(payload.Attendees) != 1 || payload.Attendees[0] != "alice@example.com" {
+		t.Errorf("attendees = %q", payload.Attendees)
+	}
+}
