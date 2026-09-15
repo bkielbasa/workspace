@@ -79,3 +79,15 @@ metrics:
 # Canonical hostname advertised in autoconfig/autodiscover responses.
 # Leave empty to fall back to the request Host header (local dev only).
 mailHost: ""
+
+# User files served over WebDAV at /files/. Quotas are bytes.
+files:
+  dataDir: /data/files
+  quotaBytes: "10737418240"
+  maxFileBytes: "1073741824"
+
+# Persistent volume for user files. Single-node cluster, ReadWriteOnce.
+persistence:
+  storageClass: "local-path"
+  accessMode: ReadWriteOnce
+  size: 20Gi

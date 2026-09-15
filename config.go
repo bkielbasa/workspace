@@ -6,11 +6,14 @@ import (
 )
 
 type config struct {
-	httpAddr     string
-	databaseURL  string
-	mailHost     string
-	davHost      string
-	cookieSecure bool
+	httpAddr      string
+	databaseURL   string
+	mailHost      string
+	davHost       string
+	cookieSecure  bool
+	filesDataDir  string
+	filesQuota    int64
+	filesMaxFile  int64
 }
 
 // mailHostname is the canonical hostname announced in SMTP banners and EHLO
@@ -27,6 +30,9 @@ func loadConfig() config {
 		mailHost:     getEnv("MAIL_HOST", ""),
 		davHost:      getEnv("DAV_HOST", ""),
 		cookieSecure: envBool("COOKIE_SECURE", false),
+		filesDataDir: getEnv("FILES_DATA_DIR", "./data/files"),
+		filesQuota:   envBytes("FILES_QUOTA_BYTES", 10<<30),
+		filesMaxFile: envBytes("FILES_MAX_FILE_BYTES", 1<<30),
 	}
 
 	if cfg.mailHost != "" {
@@ -53,6 +59,20 @@ func envBool(key string, defaultValue bool) bool {
 
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
+		return defaultValue
+	}
+
+	return parsed
+}
+
+func envBytes(key string, defaultValue int64) int64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 0 {
 		return defaultValue
 	}
 

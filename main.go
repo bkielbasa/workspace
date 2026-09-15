@@ -13,6 +13,7 @@ import (
 	"github.com/bklimczak/workspace/internal/calendar"
 	"github.com/bklimczak/workspace/internal/carddav"
 	"github.com/bklimczak/workspace/internal/contacts"
+	"github.com/bklimczak/workspace/internal/files"
 	"github.com/bklimczak/workspace/internal/format/vcard"
 	"github.com/bklimczak/workspace/internal/httpapi"
 	"github.com/bklimczak/workspace/internal/identity"
@@ -61,6 +62,10 @@ func main() {
 	outbox := mail.NewOutbox(postgres.NewOutboxRepository(db))
 	contactSvc := contacts.NewService(postgres.NewContactRepository(db), vcard.Encode)
 	calendarSvc := calendar.NewService(postgres.NewCalendarRepository(db))
+	fileStore, err := files.NewStore(cfg.filesDataDir, cfg.filesQuota, cfg.filesMaxFile)
+	if err != nil {
+		obs.Fatal(ctx, "files store unavailable", "error", err)
+	}
 	delivery := mail.NewDelivery(users, mailboxes, messages, outbox, threads, aliases, mailHostname)
 	searchRepo := postgres.NewSearchRepository(db)
 	mailSvc := mail.NewService(mailboxes, messages, searchRepo, delivery, mailHostname)
@@ -155,6 +160,7 @@ func main() {
 
 	mux.Handle("/dav/", carddav.New(contactSvc, users))
 	mux.Handle("/cal/", caldav.New(calendarSvc, users))
+	mux.Handle("/files/", files.New(fileStore, users))
 
 	// Prometheus scrape endpoint for the prometheus.io/scrape
 	// ServiceMonitor (same OTel counters as the OTLP pipeline).

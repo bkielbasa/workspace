@@ -83,7 +83,15 @@ spec:
             - name: DAV_HOST
               value: {{ . | quote }}
             {{- end }}
+            - name: FILES_DATA_DIR
+              value: {{ .Values.files.dataDir | quote }}
+            - name: FILES_QUOTA_BYTES
+              value: {{ .Values.files.quotaBytes | quote }}
+            - name: FILES_MAX_FILE_BYTES
+              value: {{ .Values.files.maxFileBytes | quote }}
           volumeMounts:
+            - name: data
+              mountPath: /data
             {{- if and .Values.tls.enabled .Values.tls.secretName }}
             - name: tls
               mountPath: /certs
@@ -113,6 +121,9 @@ spec:
       volumes:
         - name: migrations
           emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "workspace.fullname" . }}-data
         {{- if and .Values.tls.enabled .Values.tls.secretName }}
         - name: tls
           secret:
