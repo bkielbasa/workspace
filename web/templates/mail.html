@@ -119,13 +119,6 @@
           </div>
         </div>
       </header>
-      <div class="mail-detail-body{{if .Message.BodyHTML}} is-html{{end}}">
-        {{if .Message.BodyHTML}}
-        <div class="mail-body-html">{{.Message.BodyHTML}}</div>
-        {{else}}
-        <pre class="mail-body-pre">{{.Message.BodyText}}</pre>
-        {{end}}
-      </div>
       {{if .Message.Invite}}
       <div class="mail-rsvp">
         <div class="mail-rsvp-icon" aria-hidden="true">📅</div>
@@ -151,6 +144,13 @@
         </form>
       </div>
       {{end}}
+      <div class="mail-detail-body{{if .Message.BodyHTML}} is-html{{end}}">
+        {{if .Message.BodyHTML}}
+        <div class="mail-body-html">{{.Message.BodyHTML}}</div>
+        {{else}}
+        <pre class="mail-body-pre">{{.Message.BodyText}}</pre>
+        {{end}}
+      </div>
       {{if .Message.Attachments}}
       <div class="mail-attachments">
         <h3 class="mail-attachments-title">Attachments ({{len .Message.Attachments}})</h3>
