@@ -86,8 +86,9 @@ files:
   quotaBytes: "10737418240"
   maxFileBytes: "1073741824"
 
-# Persistent volume for user files. Single-node cluster, ReadWriteOnce.
+# Persistent volume for user files. NFS-backed so files survive node
+# changes; Retain policy keeps data if the claim is ever deleted.
 persistence:
-  storageClass: "local-path-mini"
+  storageClass: "qnap-nfs"
   accessMode: ReadWriteOnce
   size: 20Gi
