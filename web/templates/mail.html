@@ -119,7 +119,7 @@
           </div>
         </div>
       </header>
-      <div class="mail-detail-body">
+      <div class="mail-detail-body{{if .Message.BodyHTML}} is-html{{end}}">
         {{if .Message.BodyHTML}}
         <div class="mail-body-html">{{.Message.BodyHTML}}</div>
         {{else}}

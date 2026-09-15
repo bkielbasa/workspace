@@ -1990,6 +1990,21 @@ button {
   word-break: break-word;
 }
 
+/* Mail HTML universally assumes a light canvas (dark text, white cards).
+   Our UI is dark, so the body gets its own light card like Gmail does —
+   otherwise explicit dark colors render unreadably on our background. */
+.mail-detail-body.is-html {
+  background: #fff;
+  color: #1d1d1f;
+  color-scheme: light;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+}
+
+.mail-detail-body.is-html .mail-body-html {
+  color: #1d1d1f;
+}
+
 .mail-body-html img {
   max-width: 100%;
   height: auto;
