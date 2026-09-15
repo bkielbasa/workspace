@@ -48,9 +48,13 @@ func sessionTokenFromContext(ctx context.Context) string {
 // SecurityHeaders applies the baseline browser security policy to each response.
 // Pages that need computed styles (the week grid) emit a <style> element
 // carrying the per-request nonce, so no inline style attributes are needed.
+// Email bodies are the exception: sanitized mail HTML keeps its inline
+// styles (like Gmail, which renders them), so style-src allows 'unsafe-inline'.
+// Scripts stay fully banned and the sanitizer strips url()/expression from
+// style values, which is what makes inline styles safe here.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		styleSrc := "style-src 'self'"
+		styleSrc := "style-src 'self' 'unsafe-inline'"
 		nonce, err := newRandomToken()
 		if err == nil {
 			styleSrc += " 'nonce-" + nonce + "'"

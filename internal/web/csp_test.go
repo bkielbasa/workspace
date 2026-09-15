@@ -24,11 +24,13 @@ func TestSecurityHeadersNonceMatchesRenderedStyle(t *testing.T) {
 		t.Fatal("handler received no style nonce")
 	}
 	policy := recorder.Header().Get("Content-Security-Policy")
-	if want := "style-src 'self' 'nonce-" + rendered + "'"; !strings.Contains(policy, want) {
+	if want := "style-src 'self' 'unsafe-inline' 'nonce-" + rendered + "'"; !strings.Contains(policy, want) {
 		t.Fatalf("CSP %q does not contain %q", policy, want)
 	}
-	if strings.Contains(policy, "unsafe-inline") {
-		t.Fatalf("CSP should not fall back to unsafe-inline: %q", policy)
+	// Scripts must stay fully banned even though inline styles are allowed
+	// for sanitized mail bodies.
+	if strings.Contains(policy, "script-src 'self' 'unsafe-inline'") {
+		t.Fatalf("CSP must not allow inline scripts: %q", policy)
 	}
 }
 
