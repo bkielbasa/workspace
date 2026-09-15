@@ -201,6 +201,8 @@ func (r *messageRepository) GetForUser(ctx context.Context, userID, id uuid.UUID
 		return nil, nil, fmt.Errorf("get message for user: %w", err)
 	}
 	message.Recipients = parseRecipients(recipients)
+	// Repairs messages stored before the ingest separator fix.
+	message.RawMessage = mail.EnsureHeaderBodySeparator(message.RawMessage)
 	return &message, &mailbox, nil
 }
 
