@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"html/template"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bklimczak/workspace/internal/mail"
+	"github.com/microcosm-cc/bluemonday"
 )
 
 type mailViewItem struct {
@@ -36,6 +38,7 @@ type mailViewDetail struct {
 	Recipients  []string
 	Subject     string
 	BodyText    string
+	BodyHTML    template.HTML
 	Seen        bool
 	Flagged     bool
 	ReceivedAt  time.Time
@@ -117,14 +120,18 @@ func parseMailContent(raw string, fallbackMime string) (body string, snippet str
 		mediaType = fallbackMime
 	}
 
-	var textBody string
+	var textBody, htmlBody string
 	if strings.HasPrefix(mediaType, "multipart/") {
-		textBody = walkTextParts(bodyBytes, params["boundary"])
+		textBody, htmlBody = walkBodies(bodyBytes, params["boundary"])
+		if textBody == "" && htmlBody != "" {
+			textBody = stripHTML(htmlBody)
+		}
 	} else {
 		reader := decodeTransfer(bytes.NewReader(bodyBytes), encoding)
 		data, _ := io.ReadAll(reader)
 		if strings.HasPrefix(mediaType, "text/html") {
-			textBody = stripHTML(string(data))
+			htmlBody = string(data)
+			textBody = stripHTML(htmlBody)
 		} else {
 			textBody = string(data)
 		}
@@ -149,15 +156,14 @@ func parseMailContent(raw string, fallbackMime string) (body string, snippet str
 	return textBody, snippet
 }
 
-// walkTextParts extracts the readable body from (possibly nested) multiparts,
-// preferring the first text/plain part at any depth and falling back to
-// stripped text/html. Real-world invites (e.g. Apple) nest alternative
-// inside mixed, which a single-level walk misses entirely.
-func walkTextParts(body []byte, boundary string) string {
+// walkBodies collects the readable bodies from (possibly nested) multiparts:
+// the first text/plain part and the first text/html part at any depth.
+// Real-world mail (e.g. Apple) nests alternative inside mixed, which a
+// single-level walk misses entirely.
+func walkBodies(body []byte, boundary string) (plain, html string) {
 	if boundary == "" {
-		return ""
+		return "", ""
 	}
-	var plain, html string
 	var walk func(data []byte, bound string)
 	walk = func(data []byte, bound string) {
 		if bound == "" {
@@ -188,10 +194,55 @@ func walkTextParts(body []byte, boundary string) string {
 		}
 	}
 	walk(body, boundary)
+	return plain, html
+}
+
+// walkTextParts extracts the readable body, preferring plain text.
+func walkTextParts(body []byte, boundary string) string {
+	plain, html := walkBodies(body, boundary)
 	if plain != "" {
 		return plain
 	}
 	return stripHTML(html)
+}
+
+// htmlSanitizer is the allowlist applied to HTML mail bodies: scripts,
+// forms, frames, event handlers and remote oddities are dropped, while
+// text formatting, tables and links survive. This mirrors what mainstream
+// clients render, minus their image proxying.
+var htmlSanitizer = bluemonday.UGCPolicy()
+
+// parseMailHTML returns the sanitized HTML body for rich rendering, or ""
+// when the message has no HTML part. Callers render it only via
+// template.HTML after this sanitization.
+func parseMailHTML(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	msg, err := netmail.ReadMessage(strings.NewReader(raw))
+	if err != nil {
+		return ""
+	}
+	contentType := msg.Header.Get("Content-Type")
+	bodyBytes, err := io.ReadAll(msg.Body)
+	if err != nil {
+		return ""
+	}
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return ""
+	}
+	var html string
+	if strings.HasPrefix(mediaType, "multipart/") {
+		_, html = walkBodies(bodyBytes, params["boundary"])
+	} else if strings.HasPrefix(mediaType, "text/html") {
+		data, _ := io.ReadAll(decodeTransfer(bytes.NewReader(bodyBytes), msg.Header.Get("Content-Transfer-Encoding")))
+		html = string(data)
+	}
+	if strings.TrimSpace(html) == "" {
+		return ""
+	}
+	return htmlSanitizer.Sanitize(html)
 }
 
 func parseSender(sender string) (name string, addr string) {

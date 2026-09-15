@@ -189,3 +189,47 @@ func TestDecodeHeader(t *testing.T) {
 		t.Errorf("sender = %q <%s>", name, addr)
 	}
 }
+
+func TestParseMailHTMLNestedSanitized(t *testing.T) {
+	raw := strings.Join([]string{
+		"From: a@b.c",
+		`Content-Type: multipart/mixed; boundary="m1"`,
+		"",
+		"--m1",
+		`Content-Type: multipart/alternative; boundary="m2"`,
+		"",
+		"--m2",
+		"Content-Type: text/plain",
+		"",
+		"plain version",
+		"--m2",
+		"Content-Type: text/html",
+		"",
+		`<p>rich <b>version</b></p><script>alert(1)</script><a href="https://example.com">link</a>`,
+		"--m2--",
+		"--m1--",
+		"",
+	}, "\r\n")
+	html := parseMailHTML(raw)
+	if !strings.Contains(html, "rich") || !strings.Contains(html, "https://example.com") {
+		t.Errorf("html lost content: %q", html)
+	}
+	if strings.Contains(html, "<script") || strings.Contains(html, "alert(1)") {
+		t.Errorf("script not stripped: %q", html)
+	}
+	// Plain body still preferred for text/snippet.
+	body, _ := parseMailContent(raw, "")
+	if body != "plain version" {
+		t.Errorf("plain body = %q", body)
+	}
+}
+
+func TestParseMailHTMLAbsent(t *testing.T) {
+	raw := "From: a@b.c\r\nContent-Type: text/plain\r\n\r\njust text"
+	if got := parseMailHTML(raw); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+	if got := parseMailHTML("not a message at all"); got != "" {
+		t.Errorf("expected empty for garbage, got %q", got)
+	}
+}

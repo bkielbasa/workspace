@@ -1980,6 +1980,33 @@ button {
   color: var(--text);
 }
 
+/* Sanitized HTML bodies render like other mail clients: constrained
+   to the reading column, remote images capped, tables scrollable. */
+.mail-body-html {
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--text);
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.mail-body-html img {
+  max-width: 100%;
+  height: auto;
+}
+
+.mail-body-html table {
+  max-width: 100%;
+}
+
+.mail-body-html pre {
+  white-space: pre-wrap;
+}
+
+.mail-body-html a {
+  color: #0066cc;
+}
+
 .mail-detail-footer {
   border-top: 1px solid var(--border);
   padding-top: 1.5rem;

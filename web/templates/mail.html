@@ -120,7 +120,11 @@
         </div>
       </header>
       <div class="mail-detail-body">
+        {{if .Message.BodyHTML}}
+        <div class="mail-body-html">{{.Message.BodyHTML}}</div>
+        {{else}}
         <pre class="mail-body-pre">{{.Message.BodyText}}</pre>
+        {{end}}
       </div>
       {{if .Message.Invite}}
       <div class="mail-invite">

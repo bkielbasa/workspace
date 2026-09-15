@@ -799,6 +799,7 @@ func (v *views) mailDetailPage(w http.ResponseWriter, r *http.Request, user *ide
 		Recipients:  msg.Recipients,
 		Subject:     decodeHeader(msg.Subject),
 		BodyText:    bodyText,
+		BodyHTML:    template.HTML(parseMailHTML(msg.RawMessage)),
 		Seen:        msg.Seen,
 		Flagged:     msg.Flagged,
 		ReceivedAt:  msg.ReceivedAt,
