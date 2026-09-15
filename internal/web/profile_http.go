@@ -113,14 +113,14 @@ func (s *Server) renderProfile(w http.ResponseWriter, r *http.Request, user *ide
 		}
 	}
 	renderView(w, r, s.views.profileT, "layout", viewData{
-		Title:         "Profile",
-		Section:       "profile",
-		User:          user,
-		CSRFToken:     csrfTokenFromRequest(r),
-		Error:         errMsg,
-		Success:       successMsg,
-		AppPasswords:  passwords,
-		DevicesReady:  s.appPasswords != nil,
+		Title:        "Profile",
+		Section:      "profile",
+		User:         user,
+		CSRFToken:    csrfTokenFromRequest(r),
+		Error:        errMsg,
+		Success:      successMsg,
+		AppPasswords: passwords,
+		DevicesReady: s.appPasswords != nil,
 	})
 }
 
