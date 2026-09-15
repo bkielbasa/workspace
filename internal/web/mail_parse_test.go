@@ -210,7 +210,7 @@ func TestParseMailHTMLNestedSanitized(t *testing.T) {
 		"--m1--",
 		"",
 	}, "\r\n")
-	html := parseMailHTML(raw)
+	html, _ := parseMailHTML(raw)
 	if !strings.Contains(html, "rich") || !strings.Contains(html, "https://example.com") {
 		t.Errorf("html lost content: %q", html)
 	}
@@ -226,11 +226,11 @@ func TestParseMailHTMLNestedSanitized(t *testing.T) {
 
 func TestParseMailHTMLAbsent(t *testing.T) {
 	raw := "From: a@b.c\r\nContent-Type: text/plain\r\n\r\njust text"
-	if got := parseMailHTML(raw); got != "" {
-		t.Errorf("expected empty, got %q", got)
+	if got, css := parseMailHTML(raw); got != "" || css != "" {
+		t.Errorf("expected empty, got %q / %q", got, css)
 	}
-	if got := parseMailHTML("not a message at all"); got != "" {
-		t.Errorf("expected empty for garbage, got %q", got)
+	if got, css := parseMailHTML("not a message at all"); got != "" || css != "" {
+		t.Errorf("expected empty for garbage, got %q / %q", got, css)
 	}
 }
 
@@ -239,17 +239,35 @@ func TestSanitizeKeepsSafeStyling(t *testing.T) {
 		`<p style="color: #1d1d1f; font-size: 36px;">Big title</p>` +
 		`<div style="background-image: url(https://evil.example/pixel.png)">x</div>` +
 		`<script>alert(1)</script>`
-	html := parseMailHTML(raw)
+	html, css := parseMailHTML(raw)
 	if !strings.Contains(html, "Big title") {
 		t.Errorf("content lost: %q", html)
 	}
-	if !strings.Contains(html, "color:") {
-		t.Errorf("safe styling stripped: %q", html)
+	if !strings.Contains(css, "color: #1d1d1f") || !strings.Contains(css, "font-size: 36px") {
+		t.Errorf("safe styling missing from css: %q", css)
+	}
+	if !strings.Contains(css, ".mail-body-html .em") {
+		t.Errorf("css not scoped: %q", css)
 	}
 	if strings.Contains(html, "<script") {
 		t.Errorf("script survived: %q", html)
 	}
-	if strings.Contains(html, "url(https://evil.example") {
-		t.Errorf("style url() survived: %q", html)
+	if strings.Contains(html+css, "url(https://evil.example") {
+		t.Errorf("style url() survived: %q / %q", html, css)
+	}
+}
+
+func TestScopeEmailCSS(t *testing.T) {
+	html, css := parseMailHTML(
+		"From: a@b.c\r\nContent-Type: text/html\r\n\r\n" +
+			`<p style="color: #1d1d1f; font-size: 36px;" class="title-text">Big</p>`)
+	if !strings.Contains(html, `class="em1"`) {
+		t.Errorf("style not rewritten to class: %q", html)
+	}
+	if strings.Contains(html, "title-text") {
+		t.Errorf("email class not dropped: %q", html)
+	}
+	if !strings.Contains(css, ".mail-body-html .em1") || !strings.Contains(css, "font-size: 36px") {
+		t.Errorf("scoped css wrong: %q", css)
 	}
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/bklimczak/workspace/internal/mail"
 	"github.com/microcosm-cc/bluemonday"
+	"golang.org/x/net/html"
 )
 
 type mailViewItem struct {
@@ -39,6 +40,7 @@ type mailViewDetail struct {
 	Subject     string
 	BodyText    string
 	BodyHTML    template.HTML
+	BodyCSS     template.CSS
 	Seen        bool
 	Flagged     bool
 	ReceivedAt  time.Time
@@ -250,25 +252,26 @@ func sanitizeHTMLBody(html string) string {
 	return styleURL.ReplaceAllString(clean, "${1}x-url(")
 }
 
-// parseMailHTML returns the sanitized HTML body for rich rendering, or ""
-// when the message has no HTML part. Callers render it only via
-// template.HTML after this sanitization.
-func parseMailHTML(raw string) string {
+// parseMailHTML returns the sanitized HTML body for rich rendering plus a
+// scoped stylesheet carrying its inline styles, or "" when the message has
+// no HTML part. Callers render the HTML only via template.HTML after this
+// sanitization, and the CSS only via template.CSS in a nonced style block.
+func parseMailHTML(raw string) (bodyHTML, bodyCSS string) {
 	if raw == "" {
-		return ""
+		return "", ""
 	}
 	msg, err := netmail.ReadMessage(strings.NewReader(raw))
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	contentType := msg.Header.Get("Content-Type")
 	bodyBytes, err := io.ReadAll(msg.Body)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	var html string
 	if strings.HasPrefix(mediaType, "multipart/") {
@@ -278,9 +281,83 @@ func parseMailHTML(raw string) string {
 		html = string(data)
 	}
 	if strings.TrimSpace(html) == "" {
-		return ""
+		return "", ""
 	}
-	return sanitizeHTMLBody(html)
+	clean := sanitizeHTMLBody(html)
+	scoped, css := scopeEmailCSS(clean)
+	return scoped, css
+}
+
+// scopeEmailCSS rewrites inline style attributes into classes scoped under
+// .mail-body-html, returning the rewritten fragment plus its stylesheet.
+// Some clients, filters and proxies drop inline styles while letting
+// stylesheet rules through (or vice versa); emitting both keeps the mail
+// readable either way. Pre-existing class attributes are dropped so mail
+// can never hijack the app's own classes.
+func scopeEmailCSS(fragment string) (htmlOut, cssOut string) {
+	doc, err := html.Parse(strings.NewReader("<div>" + fragment + "</div>"))
+	if err != nil {
+		return fragment, ""
+	}
+	// Descend to the wrapper div; its children are the fragment nodes.
+	wrapper := doc
+	var find func(*html.Node)
+	find = func(n *html.Node) {
+		if wrapper != doc {
+			return
+		}
+		if n.Type == html.ElementNode && n.Data == "div" && n.Parent != nil && n.Parent.Data == "body" {
+			wrapper = n
+			return
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			find(c)
+		}
+	}
+	find(doc)
+	if wrapper == doc {
+		return fragment, ""
+	}
+	var css strings.Builder
+	counter := 0
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			var style string
+			kept := n.Attr[:0]
+			for _, a := range n.Attr {
+				switch strings.ToLower(a.Key) {
+				case "style":
+					style = a.Val
+				case "class":
+					// dropped: rewritten below
+				default:
+					kept = append(kept, a)
+				}
+			}
+			if strings.TrimSpace(style) != "" {
+				counter++
+				class := fmt.Sprintf("em%d", counter)
+				kept = append(kept, html.Attribute{Key: "class", Val: class})
+				fmt.Fprintf(&css, ".mail-body-html .%s{%s}\n", class, strings.TrimRight(strings.TrimSpace(style), ";"))
+			}
+			n.Attr = kept
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	for c := wrapper.FirstChild; c != nil; c = c.NextSibling {
+		walk(c)
+	}
+	if css.Len() == 0 {
+		return fragment, ""
+	}
+	var out strings.Builder
+	for c := wrapper.FirstChild; c != nil; c = c.NextSibling {
+		_ = html.Render(&out, c)
+	}
+	return out.String(), css.String()
 }
 
 func parseSender(sender string) (name string, addr string) {

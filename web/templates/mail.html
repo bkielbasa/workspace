@@ -145,6 +145,7 @@
       </div>
       {{end}}
       <div class="mail-detail-body{{if .Message.BodyHTML}} is-html{{end}}">
+        {{if .Message.BodyCSS}}<style nonce="{{$.StyleNonce}}">{{.Message.BodyCSS}}</style>{{end}}
         {{if .Message.BodyHTML}}
         <div class="mail-body-html">{{.Message.BodyHTML}}</div>
         {{else}}

@@ -791,6 +791,7 @@ func (v *views) mailDetailPage(w http.ResponseWriter, r *http.Request, user *ide
 	}
 
 	bodyText, _ := parseMailContent(msg.RawMessage, msg.MimeType)
+	bodyHTML, bodyCSS := parseMailHTML(msg.RawMessage)
 	name, addr := parseSender(msg.Sender)
 	invite, _ := findMailInvite(msg.RawMessage)
 	onCalendar := false
@@ -807,8 +808,9 @@ func (v *views) mailDetailPage(w http.ResponseWriter, r *http.Request, user *ide
 		SenderAddr:       addr,
 		Recipients:       msg.Recipients,
 		Subject:          decodeHeader(msg.Subject),
-		BodyText:         bodyText,
-		BodyHTML:         template.HTML(parseMailHTML(msg.RawMessage)),
+		BodyText:    bodyText,
+		BodyHTML:    template.HTML(bodyHTML),
+		BodyCSS:     template.CSS(bodyCSS),
 		Seen:             msg.Seen,
 		Flagged:          msg.Flagged,
 		ReceivedAt:       msg.ReceivedAt,
@@ -823,6 +825,7 @@ func (v *views) mailDetailPage(w http.ResponseWriter, r *http.Request, user *ide
 		Section:           "mail",
 		User:              user,
 		CSRFToken:         csrfTokenFromRequest(r),
+		StyleNonce:        styleNonce(r.Context()),
 		Wide:              true,
 		Mailboxes:         boxes,
 		CurrentBox:        currentBox,
