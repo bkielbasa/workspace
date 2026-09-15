@@ -271,3 +271,14 @@ func TestScopeEmailCSS(t *testing.T) {
 		t.Errorf("scoped css wrong: %q", css)
 	}
 }
+
+func TestBgcolorFoldsIntoScopedCSS(t *testing.T) {
+	html, css := parseMailHTML("From: a@b.c\r\nContent-Type: text/html\r\n\r\n" +
+		`<table bgcolor="#f7f7fa"><tr><td style="color: red">x</td></tr></table>`)
+	if !strings.Contains(css, "background-color: #f7f7fa") {
+		t.Errorf("bgcolor not folded: %q", css)
+	}
+	if strings.Contains(html, "bgcolor") {
+		t.Errorf("bgcolor attr leaked: %q", html)
+	}
+}

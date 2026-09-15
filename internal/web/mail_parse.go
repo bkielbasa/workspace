@@ -219,6 +219,12 @@ func walkTextParts(body []byte, boundary string) string {
 var htmlSanitizer = func() *bluemonday.Policy {
 	p := bluemonday.UGCPolicy()
 	p.AllowStyling()
+	// bgcolor never survives mail filters, but it is only ever a color:
+	// let hex values through so the rewrite pass can fold them into the
+	// scoped stylesheet as background-color.
+	p.AllowAttrs("bgcolor").Matching(regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)).OnElements(
+		"table", "td", "tr", "th", "body",
+	)
 	p.AllowStyles(
 		"color", "background", "background-color",
 		"font", "font-family", "font-size", "font-style", "font-weight",
@@ -246,6 +252,9 @@ var htmlSanitizer = func() *bluemonday.Policy {
 }()
 
 var styleURL = regexp.MustCompile(`(?i)(style\s*=\s*"[^"]*)url\s*\(`)
+
+// hexColor matches safe #rgb/#rrggbb/#rrggbbaa values for bgcolor folding.
+var hexColor = regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)
 
 func sanitizeHTMLBody(html string) string {
 	clean := htmlSanitizer.Sanitize(html)
@@ -331,6 +340,16 @@ func scopeEmailCSS(fragment string) (htmlOut, cssOut string) {
 					style = a.Val
 				case "class":
 					// dropped: rewritten below
+				case "bgcolor":
+					// Presentational color attributes never survive
+					// sanitizers, but they are just colors: fold a valid
+					// hex one into the scoped style.
+					if hexColor.MatchString(strings.TrimSpace(a.Val)) {
+						if style != "" && !strings.HasSuffix(strings.TrimSpace(style), ";") {
+							style += ";"
+						}
+						style += "background-color: " + strings.TrimSpace(a.Val) + ";"
+					}
 				default:
 					kept = append(kept, a)
 				}
