@@ -151,7 +151,8 @@ func prepareOutboundMessage(raw, from, to, hostname string) string {
 	}
 
 	if body != "" {
-		return headers + "\r\n" + body
+		// headers carries no trailing blank line after the split above.
+		return headers + "\r\n\r\n" + body
 	}
 	return headers
 }

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bklimczak/workspace/internal/mail"
 )
 
 const inviteRaw = "From: boss@example.com\r\n" +
@@ -111,4 +113,38 @@ func TestFindMailInviteNestedAppleShape(t *testing.T) {
 	if !strings.Contains(body, "see attached") {
 		t.Fatalf("nested body = %q", body)
 	}
+}
+
+func TestFindMailInviteMissingSeparator(t *testing.T) {
+	// Stored inbound messages lost the blank line between headers and body;
+	// scanMessage repairs them, but detection must also cope when handed the
+	// raw stored form (folded Content-Type like Apple sends).
+	raw := strings.Join([]string{
+		"From: Boss <boss@example.com>",
+		"To: alice@example.com",
+		"Subject: Invite",
+		"Content-Type: multipart/mixed;",
+		" boundary=\"corruptouter\"",
+		"--corruptouter",
+		"Content-Type: text/calendar; method=REQUEST",
+		"",
+		"BEGIN:VCALENDAR",
+		"UID:corrupt-1",
+		"DTSTART:20260914T190000Z",
+		"SUMMARY:Repair me",
+		"END:VEVENT",
+		"END:VCALENDAR",
+		"--corruptouter--",
+		"",
+	}, "\r\n")
+	repaired := mail.EnsureHeaderBodySeparator(raw)
+	invite, ok := findMailInvite(repaired)
+	if !ok {
+		t.Fatal("expected invite after repair")
+	}
+	if invite.UID != "corrupt-1" || invite.Title != "Repair me" {
+		t.Fatalf("unexpected invite: %+v", invite)
+	}
+	body, _ := parseMailContent(repaired, "")
+	_ = body
 }

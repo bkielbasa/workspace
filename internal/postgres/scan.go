@@ -137,5 +137,7 @@ func scanMessage(row scanRow, includeBodyMetadata bool) (mail.Message, error) {
 		return message, err
 	}
 	message.Recipients = parseRecipients(recipients)
+	// Repairs messages stored before the ingest separator fix.
+	message.RawMessage = mail.EnsureHeaderBodySeparator(message.RawMessage)
 	return message, nil
 }

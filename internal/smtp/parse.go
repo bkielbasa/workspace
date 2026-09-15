@@ -176,7 +176,10 @@ func prepareMessage(raw, from, to, hostname string) string {
 		headers = "Content-Type: text/plain; charset=UTF-8\r\n" + headers
 	}
 
-	return headers + "\r\n" + body
+	// headers carries no trailing blank line after the split above, so the
+	// separator must be complete here — a single CRLF merges the last header
+	// with the body and corrupts the stored message.
+	return headers + "\r\n\r\n" + body
 }
 
 func splitHeaderBody(raw string) (string, string) {
