@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 
@@ -44,6 +45,7 @@ func (d *discovery) appleProfile(w http.ResponseWriter, r *http.Request) {
 	accountUUID := uuid.NewSHA1(appleProfileNamespace, []byte("account:"+address))
 	cardDAVUUID := uuid.NewSHA1(appleProfileNamespace, []byte("carddav:"+address))
 	calDAVUUID := uuid.NewSHA1(appleProfileNamespace, []byte("caldav:"+address))
+	webclipUUID := uuid.NewSHA1(appleProfileNamespace, []byte("webclip:"+address))
 
 	profile := applePlist{}
 	profile.dict(func(p *applePlist) {
@@ -95,28 +97,44 @@ func (d *discovery) appleProfile(w http.ResponseWriter, r *http.Request) {
 				p.stringEntry("CardDAVPrincipalURL", "/dav/")
 			})
 
-			p.dict(func(p *applePlist) {
-				p.stringEntry("PayloadType", "com.apple.caldav.account")
-				p.rawEntry("PayloadVersion", "<integer>1</integer>")
-				p.stringEntry("PayloadIdentifier", "run.cloudlift.workspace.caldav."+address)
-				p.stringEntry("PayloadUUID", calDAVUUID.String())
-				p.stringEntry("PayloadDisplayName", "Calendar for "+address)
+		p.dict(func(p *applePlist) {
+			p.stringEntry("PayloadType", "com.apple.caldav.account")
+			p.rawEntry("PayloadVersion", "<integer>1</integer>")
+			p.stringEntry("PayloadIdentifier", "run.cloudlift.workspace.caldav."+address)
+			p.stringEntry("PayloadUUID", calDAVUUID.String())
+			p.stringEntry("PayloadDisplayName", "Calendar for "+address)
 
-				p.stringEntry("CalDAVAccountDescription", address+" calendar")
-				p.stringEntry("CalDAVHostName", d.davHost)
-				p.rawEntry("CalDAVPort", fmt.Sprintf("<integer>%d</integer>", httpsPort))
-				p.rawEntry("CalDAVUseSSL", "<true/>")
-				p.stringEntry("CalDAVUsername", address)
-				p.stringEntry("CalDAVPrincipalURL", "/cal/")
-			})
+			p.stringEntry("CalDAVAccountDescription", address+" calendar")
+			p.stringEntry("CalDAVHostName", d.davHost)
+			p.rawEntry("CalDAVPort", fmt.Sprintf("<integer>%d</integer>", httpsPort))
+			p.rawEntry("CalDAVUseSSL", "<true/>")
+			p.stringEntry("CalDAVUsername", address)
+			p.stringEntry("CalDAVPrincipalURL", "/cal/")
 		})
+
+		// iOS profiles have no native WebDAV account type, so files ride
+		// along as a Web Clip: a home-screen icon opening the file
+		// browser. The host serving this profile also serves the web UI.
+		p.dict(func(p *applePlist) {
+			p.stringEntry("PayloadType", "com.apple.webclip.managed")
+			p.rawEntry("PayloadVersion", "<integer>1</integer>")
+			p.stringEntry("PayloadIdentifier", "run.cloudlift.workspace.webclip."+address)
+			p.stringEntry("PayloadUUID", webclipUUID.String())
+			p.stringEntry("PayloadDisplayName", "Files for "+address)
+
+			p.stringEntry("Label", "Files")
+			p.stringEntry("URL", "https://"+profileHost(r)+"/files")
+			p.rawEntry("IsRemovable", "<true/>")
+			p.rawEntry("Precomposed", "<true/>")
+		})
+	})
 
 		p.stringEntry("PayloadType", "Configuration")
 		p.rawEntry("PayloadVersion", "<integer>1</integer>")
 		p.stringEntry("PayloadIdentifier", "run.cloudlift.workspace."+address)
 		p.stringEntry("PayloadUUID", profileUUID.String())
 		p.stringEntry("PayloadDisplayName", domain+" mail")
-		p.stringEntry("PayloadDescription", "Configures "+address+" for Mail, Contacts and Calendar.")
+		p.stringEntry("PayloadDescription", "Configures "+address+" for Mail, Contacts, Calendar and Files.")
 		p.stringEntry("PayloadOrganization", domain)
 		p.rawEntry("PayloadRemovalDisallowed", "<false/>")
 	})
@@ -126,6 +144,20 @@ func (d *discovery) appleProfile(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(profile.bytes()); err != nil {
 		obs.Log(r.Context(), slog.LevelError, "discovery: writing apple profile failed", "error", err)
 	}
+}
+
+// profileHost returns the host serving the profile (and the web UI),
+// without any port. The profile link on the account page is relative, so
+// the request host is the host the device must keep using.
+func profileHost(r *http.Request) string {
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return "localhost"
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil && h != "" {
+		return h
+	}
+	return host
 }
 
 // applePlist builds the XML property list a configuration profile is made of.

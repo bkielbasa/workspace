@@ -145,3 +145,28 @@ func TestAppleProfileUsesDavHostForCollections(t *testing.T) {
 		}
 	}
 }
+
+// Files ride along as a Web Clip: iOS profiles have no native WebDAV
+// account type, so the profile drops a home-screen icon into the file
+// browser instead.
+func TestAppleProfileIncludesFilesWebClip(t *testing.T) {
+	recorder := serve(t, testDiscovery().appleProfile, http.MethodGet,
+		"/apple/mail.mobileconfig?email=contact@cloudlift.run", "")
+	body := recorder.Body.String()
+
+	for _, want := range []string{
+		"<string>com.apple.webclip.managed</string>",
+		"<key>Label</key>\n\t\t\t<string>Files</string>",
+		"<key>IsRemovable</key>\n\t\t\t<true/>",
+		"Calendar and Files.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	// The clip points at the file browser on the host serving the profile
+	// (httptest uses example.com).
+	if !strings.Contains(body, "<string>https://example.com/files</string>") {
+		t.Errorf("webclip URL wrong:\n%s", body)
+	}
+}
