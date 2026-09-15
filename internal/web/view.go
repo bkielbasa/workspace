@@ -42,6 +42,7 @@ var templateFuncs = template.FuncMap{
 	"formatMailDate":           formatMailDate,
 	"formatDetailDate":         formatDetailDate,
 	"formatBytes":              formatBytes,
+	"fmtDateOpt":               fmtDateOpt,
 }
 
 type viewData struct {
@@ -71,6 +72,10 @@ type viewData struct {
 	ComposeBody    string
 	// ComposeRecipients lists contacts with emails for the To autocomplete.
 	ComposeRecipients []composeRecipient
+	// AppPasswords lists the user's device credentials, if configured.
+	AppPasswords []identity.AppPassword
+	// DevicesReady reports whether device setup (app passwords) is on.
+	DevicesReady bool
 }
 
 type views struct {

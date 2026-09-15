@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/bklimczak/workspace/internal/appleprofile"
 )
 
 func TestAppleProfileSettings(t *testing.T) {
@@ -15,8 +17,8 @@ func TestAppleProfileSettings(t *testing.T) {
 		t.Fatalf("status = %d", recorder.Code)
 	}
 	// iOS only offers to install the profile when it is served as one.
-	if got := recorder.Header().Get("Content-Type"); got != appleProfileContentType {
-		t.Errorf("Content-Type = %q, want %q", got, appleProfileContentType)
+	if got := recorder.Header().Get("Content-Type"); got != appleprofile.ContentType {
+		t.Errorf("Content-Type = %q, want %q", got, appleprofile.ContentType)
 	}
 
 	body := recorder.Body.String()

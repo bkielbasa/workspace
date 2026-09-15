@@ -457,6 +457,14 @@ func formatDetailDate(t time.Time) string {
 	return t.Local().Format("Jan 2, 2006, 15:04")
 }
 
+// fmtDateOpt formats an optional time, rendering "never" for nil.
+func fmtDateOpt(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return "never"
+	}
+	return formatMailDate(*t)
+}
+
 func contactInitialFromSender(sender string) string {
 	name, addr := parseSender(sender)
 	target := name

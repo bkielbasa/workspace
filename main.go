@@ -57,6 +57,10 @@ func main() {
 	aliases := identity.NewAliases(postgres.NewAliasRepository(db), domains)
 	sessions := identity.NewSessions(postgres.NewSessionRepository(db))
 	users := identity.NewUsers(postgres.NewUserRepository(db), sessions)
+	appPasswords := identity.NewAppPasswords(postgres.NewAppPasswordRepository(db), users)
+	// Device protocols accept master passwords and per-device app passwords.
+	// The web UI keeps master-only login (see web.New below).
+	deviceAuth := identity.NewDeviceAuth(users, appPasswords)
 	messages := mail.NewMail(postgres.NewMessageRepository(db))
 	threads := mail.NewThreads(postgres.NewThreadRepository(db))
 	outbox := mail.NewOutbox(postgres.NewOutboxRepository(db))
@@ -106,15 +110,15 @@ func main() {
 	}
 
 	// Each server logs its own listening address once the socket is bound.
-	go mustListen(smtp.NewServer(":2525", mailHostname, delivery, users, mailboxes, messages, tlsCfg))
-	go mustListen(smtp.NewServer(":2587", mailHostname, delivery, users, mailboxes, messages, tlsCfg))
+	go mustListen(smtp.NewServer(":2525", mailHostname, delivery, deviceAuth, mailboxes, messages, tlsCfg))
+	go mustListen(smtp.NewServer(":2587", mailHostname, delivery, deviceAuth, mailboxes, messages, tlsCfg))
 	if tlsCfg != nil {
-		go mustListen(smtp.NewTLSServer(":2465", mailHostname, delivery, users, mailboxes, messages, tlsCfg))
+		go mustListen(smtp.NewTLSServer(":2465", mailHostname, delivery, deviceAuth, mailboxes, messages, tlsCfg))
 	}
 
-	go mustListen(imap.NewServer(":1143", users, messages, mailboxes))
+	go mustListen(imap.NewServer(":1143", deviceAuth, messages, mailboxes))
 	if tlsCfg != nil {
-		go mustListen(imap.NewTLSServer(":1993", users, messages, mailboxes, tlsCfg))
+		go mustListen(imap.NewTLSServer(":1993", deviceAuth, messages, mailboxes, tlsCfg))
 	}
 
 	webUI, err := web.New(webFS, contactSvc, calendarSvc, mailSvc, sessions, users, cfg.cookieSecure)
@@ -135,6 +139,7 @@ func main() {
 	if davHost == "" {
 		davHost = mailHostname
 	}
+	webUI.SetDeviceSetup(appPasswords, mailHostname, davHost)
 	(&discovery{mailHost: mailHostname, davHost: davHost, domains: domains}).register(mux)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -158,9 +163,9 @@ func main() {
 	mux.HandleFunc("POST /users/{id}/password", webUI.RequireAuth(webUI.RequireCSRF(api.Users.ChangePasswordHandler)))
 	mux.HandleFunc("GET /threads", webUI.RequireAuth(api.Threads.ListHandler))
 
-	mux.Handle("/dav/", carddav.New(contactSvc, users))
-	mux.Handle("/cal/", caldav.New(calendarSvc, users))
-	mux.Handle("/files/", files.New(fileStore, users))
+	mux.Handle("/dav/", carddav.New(contactSvc, deviceAuth))
+	mux.Handle("/cal/", caldav.New(calendarSvc, deviceAuth))
+	mux.Handle("/files/", files.New(fileStore, deviceAuth))
 
 	// Prometheus scrape endpoint for the prometheus.io/scrape
 	// ServiceMonitor (same OTel counters as the OTLP pipeline).

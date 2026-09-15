@@ -51,6 +51,12 @@ type sessionsService interface {
 	Delete(context.Context, string) error
 }
 
+type appPasswordsService interface {
+	Rotate(ctx context.Context, userID uuid.UUID, name string) (string, *identity.AppPassword, error)
+	List(ctx context.Context, userID uuid.UUID) ([]identity.AppPassword, error)
+	Revoke(ctx context.Context, userID, id uuid.UUID) error
+}
+
 type usersService interface {
 	Authenticate(context.Context, string, string) (*identity.User, error)
 	Get(context.Context, uuid.UUID) (*identity.User, error)
@@ -69,6 +75,19 @@ type Server struct {
 	secure   bool
 	limiter  *loginLimiter
 	views    *views
+	// appPasswords and DAV hosts wire the device setup (iPhone profile).
+	// They are optional: without them the profile page hides that card.
+	appPasswords appPasswordsService
+	mailHost     string
+	davHost      string
+}
+
+// SetDeviceSetup enables the iPhone profile flow with embedded per-device
+// app passwords. Call once after New; handlers tolerate it being unset.
+func (s *Server) SetDeviceSetup(apps appPasswordsService, mailHost, davHost string) {
+	s.appPasswords = apps
+	s.mailHost = mailHost
+	s.davHost = davHost
 }
 
 // New constructs the web server from the root embedded filesystem and services.
@@ -112,6 +131,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /profile", s.page(s.profilePage))
 	mux.HandleFunc("POST /profile", s.RequireAuth(s.RequireCSRF(s.profileUpdate)))
 	mux.HandleFunc("POST /profile/password", s.RequireAuth(s.RequireCSRF(s.profileChangePassword)))
+	mux.HandleFunc("POST /profile/iphone-profile", s.RequireAuth(s.RequireCSRF(s.iphoneProfile)))
+	mux.HandleFunc("POST /profile/app-passwords/revoke", s.RequireAuth(s.RequireCSRF(s.appPasswordRevoke)))
 
 	mux.HandleFunc("GET /mail", s.page(s.views.mailPage))
 	mux.HandleFunc("GET /mail/message/{id}", s.page(s.views.mailDetailPage))

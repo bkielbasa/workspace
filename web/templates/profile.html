@@ -80,15 +80,54 @@
     <section class="card profile-card">
       <div class="card-head">
         <h2>iPhone Setup</h2>
-        <p class="subtitle">Mail, contacts and calendar on Apple devices</p>
+        <p class="subtitle">Mail, contacts, calendar and files on Apple devices</p>
       </div>
       <div class="card-body">
         <p>Open this link in Safari on your iPhone to install a configuration profile for <strong>{{.User.Email}}</strong>. iOS does not auto-discover these settings, so the profile writes the Mail, Contacts and Calendar accounts for you.</p>
-        <div class="form-actions">
-          <a class="btn" href="/apple/mail.mobileconfig?email={{.User.Email | urlquery}}">Download iPhone profile</a>
-        </div>
+        <form method="post" action="/profile/iphone-profile" class="profile-form">
+          <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+          <label for="device-name">Device name
+            <input id="device-name" name="name" type="text" value="iPhone" maxlength="50" autocomplete="off">
+            <span class="field-hint">Generates a dedicated app password and embeds it, so the iPhone asks for nothing</span>
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="btn">Generate iPhone profile</button>
+          </div>
+        </form>
+        <p><a href="/apple/mail.mobileconfig?email={{.User.Email | urlquery}}">Download basic profile instead</a> (asks for passwords on install).</p>
       </div>
     </section>
+
+    {{if .DevicesReady}}
+    <section class="card profile-card">
+      <div class="card-head">
+        <h2>App Passwords</h2>
+        <p class="subtitle">Per-device credentials for mail apps and DAV clients</p>
+      </div>
+      <div class="card-body">
+        <p>App passwords unlock Mail, Contacts, Calendar, Files and sending — never this web page. Losing one is harmless: revoke it here.</p>
+        {{if .AppPasswords}}
+        <ul class="app-passwords-list">
+          {{range .AppPasswords}}
+          <li class="app-password-item">
+            <div>
+              <strong>{{.Name}}</strong>
+              <span class="field-hint">created {{fmtDate .CreatedAt}}, last used {{fmtDateOpt .LastUsedAt}}</span>
+            </div>
+            <form class="inline-form" method="post" action="/profile/app-passwords/revoke">
+              <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button type="submit" class="btn btn-ghost btn-sm">Revoke</button>
+            </form>
+          </li>
+          {{end}}
+        </ul>
+        {{else}}
+        <p>No app passwords yet — generate one with the iPhone profile above.</p>
+        {{end}}
+      </div>
+    </section>
+    {{end}}
   </div>
 </div>
 {{end}}

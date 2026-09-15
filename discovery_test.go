@@ -10,7 +10,7 @@ import (
 )
 
 func testDiscovery() *discovery {
-	return &discovery{mailHost: "mail.cloudlift.run"}
+	return &discovery{mailHost: "mail.cloudlift.run", davHost: "dav.cloudlift.run"}
 }
 
 func serve(t *testing.T, handler http.HandlerFunc, method, target string, body string) *httptest.ResponseRecorder {

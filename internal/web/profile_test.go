@@ -357,3 +357,134 @@ func TestProfileChangePasswordSuccess(t *testing.T) {
 		t.Fatalf("expected session cookie to have a non-empty token")
 	}
 }
+
+type stubAppPasswords struct {
+	recs []identity.AppPassword
+}
+
+func (s *stubAppPasswords) Rotate(_ context.Context, userID uuid.UUID, name string) (string, *identity.AppPassword, error) {
+	if name == "" {
+		name = "iPhone"
+	}
+	kept := s.recs[:0]
+	for _, r := range s.recs {
+		if r.Name != name || r.UserID != userID {
+			kept = append(kept, r)
+		}
+	}
+	s.recs = kept
+	rec := identity.AppPassword{ID: uuid.New(), UserID: userID, Name: name, CreatedAt: time.Now()}
+	s.recs = append(s.recs, rec)
+	return "test-device-secret", &rec, nil
+}
+
+func (s *stubAppPasswords) List(_ context.Context, userID uuid.UUID) ([]identity.AppPassword, error) {
+	var out []identity.AppPassword
+	for _, r := range s.recs {
+		if r.UserID == userID {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (s *stubAppPasswords) Revoke(_ context.Context, userID, id uuid.UUID) error {
+	kept := s.recs[:0]
+	for _, r := range s.recs {
+		if r.ID != id || r.UserID != userID {
+			kept = append(kept, r)
+		}
+	}
+	s.recs = kept
+	return nil
+}
+
+func TestIPhoneProfileEmbedsAppPassword(t *testing.T) {
+	files := os.DirFS("../..")
+	userID := uuid.New()
+	user := &identity.User{ID: userID, Email: "testuser@example.com", DisplayName: "Test User", Enabled: true}
+	userSvc := &profileMockUserService{user: user}
+	sessSvc := newProfileMockSessionService()
+	sess, _ := sessSvc.Create(context.Background(), userID, time.Hour)
+	apps := &stubAppPasswords{}
+
+	server, err := web.New(files, contactService{}, calendarService{}, &mailServiceStub{}, sessSvc, userSvc, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.SetDeviceSetup(apps, "mail.cloudlift.run", "dav.cloudlift.run")
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux)
+
+	form := url.Values{"_csrf": {"test-csrf-token"}, "name": {"iPhone"}}
+	req := httptest.NewRequest(http.MethodPost, "/profile/iphone-profile", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Host = "cloudlift.run"
+	req.AddCookie(&http.Cookie{Name: "session", Value: sess.Token})
+	req.AddCookie(&http.Cookie{Name: "csrf", Value: "test-csrf-token"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"<string>test-device-secret</string>",
+		"<key>IncomingPassword</key>",
+		"<key>CalDAVPassword</key>",
+		"<key>CardDAVPassword</key>",
+		"<string>https://cloudlift.run/files</string>",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("profile missing %q", want)
+		}
+	}
+	if len(apps.recs) != 1 || apps.recs[0].Name != "iPhone" {
+		t.Errorf("app password not stored: %+v", apps.recs)
+	}
+}
+
+func TestAppPasswordRevokeFlow(t *testing.T) {
+	files := os.DirFS("../..")
+	userID := uuid.New()
+	user := &identity.User{ID: userID, Email: "testuser@example.com", DisplayName: "Test User", Enabled: true}
+	userSvc := &profileMockUserService{user: user}
+	sessSvc := newProfileMockSessionService()
+	sess, _ := sessSvc.Create(context.Background(), userID, time.Hour)
+	apps := &stubAppPasswords{recs: []identity.AppPassword{
+		{ID: uuid.New(), UserID: userID, Name: "iPhone"},
+	}}
+
+	server, err := web.New(files, contactService{}, calendarService{}, &mailServiceStub{}, sessSvc, userSvc, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.SetDeviceSetup(apps, "mail.cloudlift.run", "dav.cloudlift.run")
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux)
+
+	// List shows the credential.
+	req := httptest.NewRequest(http.MethodGet, "/profile", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: sess.Token})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if body := rec.Body.String(); !strings.Contains(body, "iPhone") || !strings.Contains(body, "Revoke") {
+		t.Errorf("profile missing password list")
+	}
+
+	// Revoke removes it.
+	form := url.Values{"_csrf": {"test-csrf-token"}, "id": {apps.recs[0].ID.String()}}
+	req = httptest.NewRequest(http.MethodPost, "/profile/app-passwords/revoke", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "session", Value: sess.Token})
+	req.AddCookie(&http.Cookie{Name: "csrf", Value: "test-csrf-token"})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("revoke status = %d", rec.Code)
+	}
+	if len(apps.recs) != 0 {
+		t.Errorf("revoke left %+v", apps.recs)
+	}
+}
