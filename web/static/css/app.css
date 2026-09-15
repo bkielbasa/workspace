@@ -2046,6 +2046,55 @@ button {
   font-size: 0.8rem;
 }
 
+/* Invitation RSVP card, mirroring the Outlook invite header. */
+.mail-rsvp {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+  margin-top: 1rem;
+  background: var(--surface);
+}
+
+.mail-rsvp-icon {
+  font-size: 1.4rem;
+}
+
+.mail-rsvp-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1 1 12rem;
+}
+
+.mail-rsvp-meta {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.mail-rsvp-added {
+  color: #4caf7d;
+  font-size: 0.85rem;
+}
+
+.mail-rsvp-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.mail-rsvp-add {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.2rem 0;
+  text-decoration: underline;
+}
+
 .btn-reply-dock {
   border: 1px solid var(--border-strong);
   border-radius: 9999px;

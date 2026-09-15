@@ -76,6 +76,28 @@ func ParsePayload(raw string) (calendar.Payload, error) {
 	}, nil
 }
 
+// BuildReply renders an iTIP reply (accept/decline/tentative) to the
+// organizer of the event with the given UID.
+func BuildReply(uid string, sequence int, organizer, attendee, partstat string, stamp time.Time) string {
+	if stamp.IsZero() {
+		stamp = time.Now().UTC()
+	}
+	var b strings.Builder
+	b.WriteString("BEGIN:VCALENDAR\r\n")
+	b.WriteString("VERSION:2.0\r\n")
+	b.WriteString("PRODID:-//Workspace//Workspace//EN\r\n")
+	b.WriteString("METHOD:REPLY\r\n")
+	b.WriteString("BEGIN:VEVENT\r\n")
+	b.WriteString("UID:" + strings.TrimSpace(uid) + "\r\n")
+	b.WriteString("DTSTAMP:" + stamp.Format("20060102T150405Z") + "\r\n")
+	fmt.Fprintf(&b, "SEQUENCE:%d\r\n", sequence)
+	b.WriteString("ORGANIZER:mailto:" + strings.TrimSpace(organizer) + "\r\n")
+	b.WriteString("ATTENDEE;PARTSTAT=" + strings.ToUpper(strings.TrimSpace(partstat)) + ":mailto:" + strings.TrimSpace(attendee) + "\r\n")
+	b.WriteString("END:VEVENT\r\n")
+	b.WriteString("END:VCALENDAR\r\n")
+	return b.String()
+}
+
 // mailTo strips the mailto: scheme from ORGANIZER/ATTENDEE values.
 func mailTo(value string) string {
 	value = strings.TrimSpace(value)

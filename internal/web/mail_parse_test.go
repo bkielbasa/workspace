@@ -233,3 +233,23 @@ func TestParseMailHTMLAbsent(t *testing.T) {
 		t.Errorf("expected empty for garbage, got %q", got)
 	}
 }
+
+func TestSanitizeKeepsSafeStyling(t *testing.T) {
+	raw := "From: a@b.c\r\nContent-Type: text/html\r\n\r\n" +
+		`<p style="color: #1d1d1f; font-size: 36px;">Big title</p>` +
+		`<div style="background-image: url(https://evil.example/pixel.png)">x</div>` +
+		`<script>alert(1)</script>`
+	html := parseMailHTML(raw)
+	if !strings.Contains(html, "Big title") {
+		t.Errorf("content lost: %q", html)
+	}
+	if !strings.Contains(html, "color:") {
+		t.Errorf("safe styling stripped: %q", html)
+	}
+	if strings.Contains(html, "<script") {
+		t.Errorf("script survived: %q", html)
+	}
+	if strings.Contains(html, "url(https://evil.example") {
+		t.Errorf("style url() survived: %q", html)
+	}
+}

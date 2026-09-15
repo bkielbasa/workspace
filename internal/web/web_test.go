@@ -792,8 +792,8 @@ func TestMailInviteAddToCalendar(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET detail status = %d", rec.Code)
 	}
-	if body := rec.Body.String(); !strings.Contains(body, "Add to calendar") || !strings.Contains(body, "Web Planning") {
-		t.Errorf("detail missing invite box")
+	if body := rec.Body.String(); !strings.Contains(body, "mail-rsvp") || !strings.Contains(body, "Web Planning") {
+		t.Errorf("detail missing RSVP card")
 	}
 
 	// Import creates the event and redirects to its week.
@@ -903,5 +903,72 @@ func TestCalendarInviteSendUpdateCancel(t *testing.T) {
 	}
 	if len(calSvc.events) != 0 {
 		t.Errorf("expected event deleted, %d remain", len(calSvc.events))
+	}
+}
+
+func TestMailRSVPFlow(t *testing.T) {
+	userID := uuid.New()
+	msgID := uuid.New()
+	raw := "From: boss@example.com\r\nTo: alice@example.com\r\nSubject: RSVP test\r\n" +
+		"Content-Type: text/calendar\r\n\r\n" +
+		"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n" +
+		"UID:rsvp-1\r\nDTSTART:20260922T100000Z\r\nDTEND:20260922T110000Z\r\n" +
+		"SUMMARY:RSVP Meeting\r\nSEQUENCE:0\r\nORGANIZER:mailto:boss@example.com\r\n" +
+		"END:VEVENT\r\nEND:VCALENDAR\r\n"
+	mailSvc := &mailServiceStub{
+		messages: []mail.Message{
+			{ID: msgID, Sender: "Boss <boss@example.com>", Recipients: []string{"alice@example.com"},
+				Subject: "RSVP test", RawMessage: raw, MimeType: "text/calendar", ReceivedAt: time.Now()},
+		},
+	}
+	calSvc := newCalendarStore()
+	mux := inviteTestServer(t, userID, mailSvc, calSvc)
+
+	rsvp := func(response string) *httptest.ResponseRecorder {
+		form := url.Values{"_csrf": {"test-csrf-token"}, "box": {"INBOX"}, "response": {response}}
+		req := httptest.NewRequest(http.MethodPost, "/mail/message/"+msgID.String()+"/rsvp", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+		req.AddCookie(&http.Cookie{Name: "csrf", Value: "test-csrf-token"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Accept: reply sent, event imported, detail shows on-calendar state.
+	if rec := rsvp("accept"); rec.Code != http.StatusSeeOther {
+		t.Fatalf("accept status = %d", rec.Code)
+	}
+	if len(mailSvc.sentInvites) != 1 || mailSvc.sentInvites[0] != "REPLY:boss@example.com" {
+		t.Fatalf("replies = %v", mailSvc.sentInvites)
+	}
+	if len(calSvc.events) != 1 {
+		t.Fatalf("expected imported event, got %d", len(calSvc.events))
+	}
+	req := httptest.NewRequest(http.MethodGet, "/mail/message/"+msgID.String(), nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if body := rec.Body.String(); !strings.Contains(body, "On your calendar") {
+		t.Errorf("detail missing on-calendar state")
+	}
+
+	// Decline: reply sent, event removed.
+	if rec := rsvp("decline"); rec.Code != http.StatusSeeOther {
+		t.Fatalf("decline status = %d", rec.Code)
+	}
+	if len(mailSvc.sentInvites) != 2 || mailSvc.sentInvites[1] != "REPLY:boss@example.com" {
+		t.Fatalf("replies = %v", mailSvc.sentInvites)
+	}
+	if len(calSvc.events) != 0 {
+		t.Errorf("expected event removed, %d remain", len(calSvc.events))
+	}
+
+	// Unknown response is ignored without sending.
+	if rec := rsvp("maybe-later"); rec.Code != http.StatusSeeOther {
+		t.Fatalf("bad response status = %d", rec.Code)
+	}
+	if len(mailSvc.sentInvites) != 2 {
+		t.Errorf("unexpected reply sent: %v", mailSvc.sentInvites)
 	}
 }

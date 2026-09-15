@@ -46,6 +46,8 @@ type mailViewDetail struct {
 	Attachments []mail.AttachmentInfo
 	// Invite is set when the message carries a meeting invitation.
 	Invite *mailInvite
+	// InviteOnCalendar reports whether the invite was already imported.
+	InviteOnCalendar bool
 }
 
 // composeRecipient is one selectable address for the compose To field:
@@ -206,11 +208,47 @@ func walkTextParts(body []byte, boundary string) string {
 	return stripHTML(html)
 }
 
-// htmlSanitizer is the allowlist applied to HTML mail bodies: scripts,
-// forms, frames, event handlers and remote oddities are dropped, while
-// text formatting, tables and links survive. This mirrors what mainstream
-// clients render, minus their image proxying.
-var htmlSanitizer = bluemonday.UGCPolicy()
+// htmlSanitizer is the allowlist applied to HTML mail bodies. Scripts,
+// forms, frames and event handlers are dropped; text formatting, tables,
+// links and safe inline styling survive, which is what mainstream clients
+// render. Style url() values are stripped separately: they are only ever
+// decorative backgrounds (content images stay as <img>), and they would
+// let senders track opens.
+var htmlSanitizer = func() *bluemonday.Policy {
+	p := bluemonday.UGCPolicy()
+	p.AllowStyling()
+	p.AllowStyles(
+		"color", "background", "background-color",
+		"font", "font-family", "font-size", "font-style", "font-weight",
+		"text-align", "text-decoration", "line-height", "letter-spacing",
+		"margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+		"padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+		"border", "border-top", "border-right", "border-bottom", "border-left",
+		"border-collapse", "border-color", "border-radius", "border-spacing",
+		"border-style", "border-width",
+		"width", "height", "max-width", "min-width",
+		"display", "vertical-align", "white-space", "float", "clear",
+	).MatchingHandler(func(value string) bool {
+		lowered := strings.ToLower(value)
+		for _, banned := range []string{
+			"url(", "expression", "behavior", "binding",
+			"javascript:", "vbscript:", "@import",
+		} {
+			if strings.Contains(lowered, banned) {
+				return false
+			}
+		}
+		return true
+	}).Globally()
+	return p
+}()
+
+var styleURL = regexp.MustCompile(`(?i)(style\s*=\s*"[^"]*)url\s*\(`)
+
+func sanitizeHTMLBody(html string) string {
+	clean := htmlSanitizer.Sanitize(html)
+	return styleURL.ReplaceAllString(clean, "${1}x-url(")
+}
 
 // parseMailHTML returns the sanitized HTML body for rich rendering, or ""
 // when the message has no HTML part. Callers render it only via
@@ -242,7 +280,7 @@ func parseMailHTML(raw string) string {
 	if strings.TrimSpace(html) == "" {
 		return ""
 	}
-	return htmlSanitizer.Sanitize(html)
+	return sanitizeHTMLBody(html)
 }
 
 func parseSender(sender string) (name string, addr string) {

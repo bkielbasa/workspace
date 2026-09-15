@@ -790,22 +790,29 @@ func (v *views) mailDetailPage(w http.ResponseWriter, r *http.Request, user *ide
 	bodyText, _ := parseMailContent(msg.RawMessage, msg.MimeType)
 	name, addr := parseSender(msg.Sender)
 	invite, _ := findMailInvite(msg.RawMessage)
+	onCalendar := false
+	if invite != nil {
+		if existing, err := v.calendar.GetByUID(r.Context(), user.ID, invite.UID); err == nil && existing != nil {
+			onCalendar = true
+		}
+	}
 
 	detail := &mailViewDetail{
-		ID:          msg.ID.String(),
-		Sender:      msg.Sender,
-		SenderName:  name,
-		SenderAddr:  addr,
-		Recipients:  msg.Recipients,
-		Subject:     decodeHeader(msg.Subject),
-		BodyText:    bodyText,
-		BodyHTML:    template.HTML(parseMailHTML(msg.RawMessage)),
-		Seen:        msg.Seen,
-		Flagged:     msg.Flagged,
-		ReceivedAt:  msg.ReceivedAt,
-		BoxName:     currentBox,
-		Attachments: mail.ParseAttachments(msg.RawMessage),
-		Invite:      invite,
+		ID:               msg.ID.String(),
+		Sender:           msg.Sender,
+		SenderName:       name,
+		SenderAddr:       addr,
+		Recipients:       msg.Recipients,
+		Subject:          decodeHeader(msg.Subject),
+		BodyText:         bodyText,
+		BodyHTML:         template.HTML(parseMailHTML(msg.RawMessage)),
+		Seen:             msg.Seen,
+		Flagged:          msg.Flagged,
+		ReceivedAt:       msg.ReceivedAt,
+		BoxName:          currentBox,
+		Attachments:      mail.ParseAttachments(msg.RawMessage),
+		Invite:           invite,
+		InviteOnCalendar: onCalendar,
 	}
 
 	renderView(w, r, v.mailT, "layout", viewData{
@@ -980,10 +987,15 @@ func (v *views) mailAddToCalendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if existing, err := v.calendar.GetByUID(r.Context(), user.ID, invite.UID); err == nil && existing != nil {
+	http.Redirect(w, r, v.upsertInviteEvent(r.Context(), user, invite), http.StatusSeeOther)
+}
+
+// upsertInviteEvent imports a new invitation or applies a newer SEQUENCE
+// update to the matching event. It returns the redirect target.
+func (v *views) upsertInviteEvent(ctx context.Context, user *identity.User, invite *mailInvite) string {
+	if existing, err := v.calendar.GetByUID(ctx, user.ID, invite.UID); err == nil && existing != nil {
 		if invite.Sequence < existing.Sequence {
-			http.Redirect(w, r, inviteWeekPath(existing.StartsAt), http.StatusSeeOther)
-			return
+			return inviteWeekPath(existing.StartsAt)
 		}
 		existing.Title = invite.Title
 		existing.Location = invite.Location
@@ -997,28 +1009,90 @@ func (v *views) mailAddToCalendar(w http.ResponseWriter, r *http.Request) {
 		existing.Sequence = invite.Sequence
 		existing.ICS = invite.ICS
 		existing.ETag = uuid.NewString()
-		if saved, err := v.calendar.Put(r.Context(), *existing); err == nil && saved != nil {
-			http.Redirect(w, r, inviteWeekPath(saved.StartsAt), http.StatusSeeOther)
-			return
+		if saved, err := v.calendar.Put(ctx, *existing); err == nil && saved != nil {
+			return inviteWeekPath(saved.StartsAt)
 		}
-		http.Redirect(w, r, inviteWeekPath(existing.StartsAt), http.StatusSeeOther)
-		return
+		return inviteWeekPath(existing.StartsAt)
 	}
 
 	event, err := ics.Parse(invite.ICS, user.ID, inviteResource(invite.UID))
 	if err != nil {
-		obs.Log(r.Context(), slog.LevelError, "import invite failed", "error", err)
-		http.Redirect(w, r, "/mail/message/"+id.String(), http.StatusSeeOther)
-		return
+		obs.Log(ctx, slog.LevelError, "import invite failed", "error", err)
+		return "/calendars"
 	}
 	event.ETag = uuid.NewString()
-	if saved, err := v.calendar.Put(r.Context(), event); err != nil {
-		obs.Log(r.Context(), slog.LevelError, "import invite failed", "error", err)
-		http.Redirect(w, r, "/mail/message/"+id.String(), http.StatusSeeOther)
-		return
+	if saved, err := v.calendar.Put(ctx, event); err != nil {
+		obs.Log(ctx, slog.LevelError, "import invite failed", "error", err)
+		return "/calendars"
 	} else {
-		http.Redirect(w, r, inviteWeekPath(saved.StartsAt), http.StatusSeeOther)
+		return inviteWeekPath(saved.StartsAt)
 	}
+}
+
+// mailRSVP answers an invitation like Outlook's Accept/Maybe/Decline: it
+// emails a METHOD:REPLY to the organizer and, unless declining, imports the
+// event (a decline removes an already-imported one).
+func (v *views) mailRSVP(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	back := "/mail"
+	id, err := parseUUIDPath(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	msg, _, err := v.mail.GetMessage(r.Context(), user.ID, id)
+	if err != nil || msg == nil {
+		http.NotFound(w, r)
+		return
+	}
+	back = "/mail/message/" + id.String()
+	invite, ok := findMailInvite(msg.RawMessage)
+	if !ok || invite.Organizer == "" {
+		http.Redirect(w, r, back, http.StatusSeeOther)
+		return
+	}
+
+	partstat, verb := "", ""
+	switch strings.ToLower(strings.TrimSpace(r.FormValue("response"))) {
+	case "accept":
+		partstat, verb = "ACCEPTED", "accepted"
+	case "tentative":
+		partstat, verb = "TENTATIVE", "tentatively accepted"
+	case "decline":
+		partstat, verb = "DECLINED", "declined"
+	default:
+		http.Redirect(w, r, back, http.StatusSeeOther)
+		return
+	}
+
+	title := firstNonEmpty(msg.Subject, invite.Title, "the invitation")
+	name := strings.TrimSpace(user.DisplayName)
+	if name == "" {
+		name = user.Email
+	}
+	icsData := ics.BuildReply(invite.UID, invite.Sequence, invite.Organizer, user.Email, partstat, time.Now())
+	body := name + " has " + verb + " '" + title + "'."
+	if _, err := v.mail.SendInvite(r.Context(), user, invite.Organizer, "Re: "+title, body, icsData, "REPLY"); err != nil {
+		obs.Log(r.Context(), slog.LevelError, "send reply failed", "error", err)
+	}
+
+	if partstat == "DECLINED" {
+		if existing, err := v.calendar.GetByUID(r.Context(), user.ID, invite.UID); err == nil && existing != nil {
+			_ = v.calendar.Delete(r.Context(), user.ID, existing.ID)
+		}
+	} else {
+		v.upsertInviteEvent(r.Context(), user, invite)
+	}
+	http.Redirect(w, r, back, http.StatusSeeOther)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 // inviteResource derives a URL-safe CalDAV resource name from an iTIP UID.

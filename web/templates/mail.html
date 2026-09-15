@@ -127,19 +127,27 @@
         {{end}}
       </div>
       {{if .Message.Invite}}
-      <div class="mail-invite">
-        <div class="mail-invite-icon" aria-hidden="true">📅</div>
-        <div class="mail-invite-details">
-          <strong class="mail-invite-title">{{if .Message.Invite.Title}}{{.Message.Invite.Title}}{{else}}(no title){{end}}</strong>
-          <span class="mail-invite-meta">
-            {{if .Message.Invite.Organizer}}from {{.Message.Invite.Organizer}} &middot; {{end}}
+      <div class="mail-rsvp">
+        <div class="mail-rsvp-icon" aria-hidden="true">📅</div>
+        <div class="mail-rsvp-details">
+          <strong class="mail-rsvp-title">{{if .Message.Invite.Title}}{{.Message.Invite.Title}}{{else}}(no title){{end}}</strong>
+          <span class="mail-rsvp-meta">
             {{if not .Message.Invite.StartsAt.IsZero}}{{formatDetailDate .Message.Invite.StartsAt}}{{end}}
+            {{if .Message.Invite.Organizer}} &middot; organized by {{.Message.Invite.Organizer}}{{end}}
           </span>
+          {{if .Message.InviteOnCalendar}}<span class="mail-rsvp-added">✓ On your calendar</span>{{end}}
         </div>
+        <form class="mail-rsvp-actions" method="post" action="/mail/message/{{.Message.ID}}/rsvp">
+          <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+          <input type="hidden" name="box" value="{{$.CurrentBox}}">
+          <button type="submit" name="response" value="accept" class="btn btn-sm">Accept</button>
+          <button type="submit" name="response" value="tentative" class="btn btn-sm btn-ghost">Maybe</button>
+          <button type="submit" name="response" value="decline" class="btn btn-sm btn-ghost">Decline</button>
+        </form>
         <form class="inline-form" method="post" action="/mail/message/{{.Message.ID}}/add-to-calendar">
           <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
           <input type="hidden" name="box" value="{{$.CurrentBox}}">
-          <button type="submit" class="btn btn-sm">{{.Message.Invite.ActionLabel}}</button>
+          <button type="submit" class="mail-rsvp-add" title="Add to calendar without replying">+ Add without reply</button>
         </form>
       </div>
       {{end}}

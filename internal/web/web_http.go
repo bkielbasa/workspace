@@ -117,6 +117,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /mail/message/{id}", s.page(s.views.mailDetailPage))
 	mux.HandleFunc("GET /mail/message/{id}/attachment/{idx}", s.page(s.views.mailAttachmentDownload))
 	mux.HandleFunc("POST /mail/message/{id}/add-to-calendar", s.RequireAuth(s.RequireCSRF(s.views.mailAddToCalendar)))
+	mux.HandleFunc("POST /mail/message/{id}/rsvp", s.RequireAuth(s.RequireCSRF(s.views.mailRSVP)))
 	mux.HandleFunc("POST /mail/send", s.RequireAuth(s.RequireCSRF(s.views.mailSend)))
 	mux.HandleFunc("POST /mail/message/{id}/toggle-star", s.RequireAuth(s.RequireCSRF(s.views.mailToggleStar)))
 	mux.HandleFunc("POST /mail/message/{id}/toggle-read", s.RequireAuth(s.RequireCSRF(s.views.mailToggleRead)))

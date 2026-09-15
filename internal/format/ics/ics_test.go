@@ -114,3 +114,15 @@ func TestBuildInviteRoundtrip(t *testing.T) {
 		t.Errorf("cancel malformed:\n%s", cancel)
 	}
 }
+
+func TestBuildReply(t *testing.T) {
+	raw := ics.BuildReply("evt-7", 2, "boss@example.com", "me@example.com", "ACCEPTED", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC))
+	for _, want := range []string{"METHOD:REPLY", "UID:evt-7", "SEQUENCE:2", "ORGANIZER:mailto:boss@example.com", "ATTENDEE;PARTSTAT=ACCEPTED:mailto:me@example.com"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("reply missing %q:\n%s", want, raw)
+		}
+	}
+	if strings.Contains(raw, "STATUS:") {
+		t.Errorf("reply must not carry STATUS:\n%s", raw)
+	}
+}
