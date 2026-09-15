@@ -139,6 +139,9 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 
 func renderView(w http.ResponseWriter, r *http.Request, t *template.Template, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Authenticated pages are personal and change often; keep browsers
+	// (and any cache between us and them) from serving stale copies.
+	w.Header().Set("Cache-Control", "no-store")
 	if err := t.ExecuteTemplate(w, name, data); err != nil {
 		obs.Log(r.Context(), slog.LevelError, "render template failed", "template", name, "error", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
