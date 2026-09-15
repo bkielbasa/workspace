@@ -337,7 +337,12 @@ func scopeEmailCSS(fragment string) (htmlOut, cssOut string) {
 			for _, a := range n.Attr {
 				switch strings.ToLower(a.Key) {
 				case "style":
-					style = a.Val
+					// Append, never overwrite: a folded bgcolor value may
+					// already be in style when bgcolor precedes style.
+					if style != "" && !strings.HasSuffix(strings.TrimSpace(style), ";") {
+						style += ";"
+					}
+					style += a.Val
 				case "class":
 					// dropped: rewritten below
 				case "bgcolor":

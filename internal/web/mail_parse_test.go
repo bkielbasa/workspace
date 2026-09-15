@@ -281,4 +281,11 @@ func TestBgcolorFoldsIntoScopedCSS(t *testing.T) {
 	if strings.Contains(html, "bgcolor") {
 		t.Errorf("bgcolor attr leaked: %q", html)
 	}
+	// Apple emits bgcolor BEFORE style: the fold must survive, not be
+	// overwritten by the style attribute.
+	html, css = parseMailHTML("From: a@b.c\r\nContent-Type: text/html\r\n\r\n" +
+		`<table bgcolor="#f7f7fa" style="border: 1px solid #f7f7fa;"><tr><td>y</td></tr></table>`)
+	if !strings.Contains(css, "background-color: #f7f7fa") || !strings.Contains(css, "border: 1px solid #f7f7fa") {
+		t.Errorf("merge failed: html=%q css=%q", html, css)
+	}
 }
