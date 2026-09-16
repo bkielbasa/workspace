@@ -3,12 +3,12 @@
 # from the smbpasswd file the app maintains on the shared data volume.
 FROM alpine:3.20
 
-RUN apk add --no-cache samba-server samba-common-tools
+RUN apk add --no-cache samba-server samba-common-tools shadow
 
 COPY helm/workspace/samba/smb.conf /etc/samba/smb.conf
-COPY samba/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY samba/entrypoint.sh samba/ensure-user.sh /scripts/
+RUN chmod +x /scripts/entrypoint.sh /scripts/ensure-user.sh
 
 EXPOSE 445
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/scripts/entrypoint.sh"]

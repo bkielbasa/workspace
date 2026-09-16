@@ -7,7 +7,6 @@ package smb
 
 import (
 	"fmt"
-	"hash/fnv"
 	"io"
 	"os"
 	"path/filepath"
@@ -37,7 +36,10 @@ func NewManager(path string) (*Manager, error) {
 	return &Manager{path: path}, nil
 }
 
-// uidFor derives a stable smbpasswd uid from the login name.
+// uidFor derives a stable smbpasswd uid from the login name. Samba also
+// needs a matching UNIX account (see samba/ensure-user.sh, run at boot and
+// on every tree connect); determinism keeps the file and the OS in sync
+// without any coordination channel.
 func uidFor(name string) uint32 {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(strings.ToLower(name)))
