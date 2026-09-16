@@ -3,8 +3,8 @@
 # entries against the system user database even with a file backend, so
 # every login needs a (locked-down, shell-less) system account.
 #
-# Called at boot for all smbpasswd rows and as root preexec on every tree
-# connect, so users created at runtime work with no restarts and no reloads.
+# Called at boot for every smbpasswd row and every 30s by the entrypoint
+# loop, so runtime-added logins work with no restarts and no reloads.
 # Only lowercase emails/dots/dashes/plus/underscore/at are accepted; anything
 # else is rejected before it can reach useradd.
 set -eu
