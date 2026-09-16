@@ -91,8 +91,21 @@ func (v *views) requireFiles(w http.ResponseWriter) bool {
 	return true
 }
 
+// ensureDriveRoot creates the user's tree on first use so empty states
+// render instead of 404ing.
+func (v *views) ensureDriveRoot(w http.ResponseWriter, user *identity.User) bool {
+	if err := v.files.EnsureUserRoot(user.ID); err != nil {
+		http.Error(w, "file storage unavailable", http.StatusInternalServerError)
+		return false
+	}
+	return true
+}
+
 func (v *views) drivePage(w http.ResponseWriter, r *http.Request, user *identity.User) {
 	if !v.requireFiles(w) {
+		return
+	}
+	if !v.ensureDriveRoot(w, user) {
 		return
 	}
 	current := cleanDrivePath(r.URL.Query().Get("path"))
@@ -219,6 +232,9 @@ func (v *views) driveUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	current := cleanDrivePath(r.FormValue("path"))
+	if !v.ensureDriveRoot(w, user) {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxDriveUploadBytes)
 	if err := r.ParseMultipartForm(maxDriveUploadBytes); err != nil {
 		obs.Log(r.Context(), slog.LevelWarn, "drive upload too large", "error", err)
@@ -265,6 +281,9 @@ func (v *views) driveUpload(w http.ResponseWriter, r *http.Request) {
 func (v *views) driveMkdir(w http.ResponseWriter, r *http.Request) {
 	user := UserFromContext(r.Context())
 	if !v.requireFiles(w) {
+		return
+	}
+	if !v.ensureDriveRoot(w, user) {
 		return
 	}
 	current := cleanDrivePath(r.FormValue("path"))

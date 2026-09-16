@@ -201,7 +201,7 @@ func TestPathEscapeRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := uuid.New()
-	if err := store.ensureUserRoot(id); err != nil {
+	if err := store.EnsureUserRoot(id); err != nil {
 		t.Fatal(err)
 	}
 	// Lexical cleaning folds ".." back into the tree; the resolved path

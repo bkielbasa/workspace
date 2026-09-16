@@ -32,6 +32,8 @@ func newMemFiles() *memFiles {
 	return &memFiles{files: map[string]*memFile{"": {isDir: true, mod: time.Now()}}}
 }
 
+func (m *memFiles) EnsureUserRoot(_ uuid.UUID) error { return nil }
+
 func (m *memFiles) Stat(_ uuid.UUID, name string) (files.File, error) {
 	f, ok := m.files[name]
 	if !ok {

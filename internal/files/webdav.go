@@ -58,7 +58,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// The user's tree springs into existence on first authenticated use,
 	// so fresh accounts answer PROPFIND on / instead of 404.
-	if err := h.store.ensureUserRoot(user.ID); err != nil {
+	if err := h.store.EnsureUserRoot(user.ID); err != nil {
 		writeErr(w, err)
 		return
 	}

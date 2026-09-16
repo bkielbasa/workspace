@@ -91,8 +91,8 @@ func (s *Store) userRoot(userID uuid.UUID) string {
 	return filepath.Join(s.root, userID.String())
 }
 
-// ensureUserRoot creates the user's tree on first authenticated use.
-func (s *Store) ensureUserRoot(userID uuid.UUID) error {
+// EnsureUserRoot creates the user's tree on first authenticated use.
+func (s *Store) EnsureUserRoot(userID uuid.UUID) error {
 	if err := os.MkdirAll(s.userRoot(userID), 0o755); err != nil {
 		return fmt.Errorf("files: user root: %w", err)
 	}

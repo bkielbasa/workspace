@@ -62,6 +62,7 @@ type appPasswordsService interface {
 // filesService backs the Drive file browser. It mirrors files.Store so the
 // live store plugs in directly; virtual paths are slash-separated.
 type filesService interface {
+	EnsureUserRoot(userID uuid.UUID) error
 	Stat(userID uuid.UUID, name string) (files.File, error)
 	ListDir(userID uuid.UUID, name string) ([]files.File, error)
 	Open(userID uuid.UUID, name string) (io.ReadSeekCloser, files.File, error)
