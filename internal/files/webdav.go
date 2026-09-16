@@ -184,6 +184,12 @@ func (h *handler) propfind(w http.ResponseWriter, r *http.Request, userID uuid.U
 
 	f, err := h.store.Stat(userID, name)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			// Bare 404: some clients try to XML-parse any PROPFIND body,
+			// and a text error here surfaces as a confusing client error.
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		writeErr(w, err)
 		return
 	}
