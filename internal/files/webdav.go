@@ -1,6 +1,7 @@
 package files
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -166,12 +167,12 @@ func writeErr(w http.ResponseWriter, err error) {
 func (h *handler) propfind(w http.ResponseWriter, r *http.Request, userID uuid.UUID, name string) {
 	// The body only names requested properties (never credentials); logging
 	// it shows exactly what a picky client validates.
-	if body, err := io.ReadAll(io.LimitReader(r.Body, 2048)); err == nil {
-		obs.Log(r.Context(), slog.LevelInfo, "files propfind body",
-			"path", r.URL.Path,
-			"body", strings.TrimSpace(string(body)),
-		)
-	}
+	rawBody, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
+	obs.Log(r.Context(), slog.LevelInfo, "files propfind body",
+		"path", r.URL.Path,
+		"body", strings.TrimSpace(string(rawBody)),
+	)
+	req := parsePropfind(rawBody)
 	depth := strings.TrimSpace(r.Header.Get("Depth"))
 	if depth == "" {
 		depth = "infinity"
@@ -191,7 +192,7 @@ func (h *handler) propfind(w http.ResponseWriter, r *http.Request, userID uuid.U
 	w.WriteHeader(http.StatusMultiStatus)
 	fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?>`+"\n"+`<d:multistatus xmlns:d="DAV:">`)
 	used, total, limited, _ := h.store.Quota(userID)
-	writeResponse(w, href(dirName(name, f.IsDir)), f, used, total, limited)
+	writeResponse(w, href(dirName(name, f.IsDir)), f, req, used, total, limited)
 
 	if (depth == "1" || depth == "infinity") && f.IsDir {
 		children, err := h.store.ListDir(userID, name)
@@ -200,7 +201,7 @@ func (h *handler) propfind(w http.ResponseWriter, r *http.Request, userID uuid.U
 			return
 		}
 		for _, child := range children {
-			writeResponse(w, href(joinName(name, child.Name, child.IsDir)), child, used, total, limited)
+			writeResponse(w, href(joinName(name, child.Name, child.IsDir)), child, req, used, total, limited)
 		}
 	}
 	fmt.Fprint(w, "\n</d:multistatus>")
@@ -221,50 +222,163 @@ func joinName(parent, child string, isDir bool) string {
 	return dirName(path.Join(parent, child), isDir)
 }
 
-func writeResponse(w io.Writer, href string, f File, used, total int64, limited bool) {
-	resType := "<d:resourcetype/>"
-	if f.IsDir {
-		resType = "<d:resourcetype><d:collection/></d:resourcetype>"
+// propRequest is the parsed PROPFIND body: either "everything" (empty,
+// unparseable, allprop, or propname bodies) or an explicit property list.
+type propRequest struct {
+	all   bool
+	names []string
+}
+
+type propfindChild struct {
+	XMLName xml.Name
+}
+
+type propfindBody struct {
+	XMLName xml.Name
+	Allprop *struct{} `xml:"allprop"`
+	Prop    *struct {
+		Children []propfindChild `xml:",any"`
+	} `xml:"prop"`
+	Include *struct {
+		Children []propfindChild `xml:",any"`
+	} `xml:"include"`
+	PropName *struct{} `xml:"propname"`
+}
+
+func parsePropfind(body []byte) propRequest {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return propRequest{all: true}
 	}
-	length := ""
-	quota := ""
-	if !f.IsDir {
-		length = fmt.Sprintf("<d:getcontentlength>%d</d:getcontentlength>", f.Size)
-	} else if limited {
-		avail := total - used
-		if avail < 0 {
-			avail = 0
+	var req propfindBody
+	if err := xml.Unmarshal(body, &req); err != nil {
+		return propRequest{all: true}
+	}
+	if req.Allprop != nil || req.PropName != nil {
+		return propRequest{all: true}
+	}
+	var names []string
+	seen := map[string]bool{}
+	add := func(children []propfindChild) {
+		for _, c := range children {
+			local := c.XMLName.Local
+			if local == "" || seen[local] {
+				continue
+			}
+			seen[local] = true
+			names = append(names, local)
 		}
-		quota = fmt.Sprintf("<d:quota-used-bytes>%d</d:quota-used-bytes><d:quota-available-bytes>%d</d:quota-available-bytes>", used, avail)
+	}
+	if req.Prop != nil {
+		add(req.Prop.Children)
+	}
+	if req.Include != nil {
+		add(req.Include.Children)
+	}
+	if len(names) == 0 {
+		return propRequest{all: true}
+	}
+	return propRequest{names: names}
+}
+
+func writeResponse(w io.Writer, href string, f File, req propRequest, used, total int64, limited bool) {
+	names := req.names
+	if req.all {
+		names = []string{
+			"displayname", "resourcetype", "getcontenttype", "getcontentlength",
+			"getetag", "getlastmodified", "creationdate", "supportedlock",
+			"quota-used-bytes", "quota-available-bytes",
+		}
+	}
+	var ok, missing []string
+	for _, name := range names {
+		if _, found := propValue(href, f, name, used, total, limited); found {
+			ok = append(ok, name)
+		} else {
+			missing = append(missing, name)
+		}
 	}
 	fmt.Fprintf(w, `
   <d:response>
     <d:href>%s</d:href>
     <d:propstat>
-      <d:prop>
-        <d:displayname>%s</d:displayname>
-        %s
-        <d:getcontenttype>%s</d:getcontenttype>
-        %s
-        %s
-        <d:getetag>%s</d:getetag>
-        <d:getlastmodified>%s</d:getlastmodified>
-        <d:creationdate>%s</d:creationdate>
-        <d:supportedlock/>
+      <d:prop>`, escapeXML(href))
+	for _, name := range ok {
+		value, _ := propValue(href, f, name, used, total, limited)
+		fmt.Fprintf(w, `
+        <%s>%s</%s>`, davTag(name), value, davTag(name))
+	}
+	fmt.Fprint(w, `
       </d:prop>
       <d:status>HTTP/1.1 200 OK</d:status>
-    </d:propstat>
-  </d:response>`,
-		escapeXML(href),
-		escapeXML(displayName(href, f)),
-		resType,
-		escapeXML(f.ContentType()),
-		length,
-		quota,
-		escapeXML(f.ETag()),
-		f.ModTime.UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"),
-		f.ModTime.UTC().Format("2006-01-02T15:04:05Z"),
-	)
+    </d:propstat>`)
+	if len(missing) > 0 {
+		fmt.Fprint(w, `
+    <d:propstat>
+      <d:prop>`)
+		for _, name := range missing {
+			fmt.Fprintf(w, `
+        <%s/>`, davTag(name))
+		}
+		fmt.Fprint(w, `
+      </d:prop>
+      <d:status>HTTP/1.1 404 Not Found</d:status>
+    </d:propstat>`)
+	}
+	fmt.Fprint(w, `
+  </d:response>`)
+}
+
+// davTag renders a property name with the DAV: prefix. Well-known CardDAV/
+// CalDAV properties keep their own prefixes when requested.
+func davTag(name string) string {
+	if strings.Contains(name, ":") {
+		return name
+	}
+	return "d:" + name
+}
+
+// propValue renders one property. A collection has no content length, so
+// getcontentlength reports missing there per RFC 4918.
+func propValue(href string, f File, name string, used, total int64, limited bool) (string, bool) {
+	switch name {
+	case "displayname":
+		return escapeXML(displayName(href, f)), true
+	case "resourcetype":
+		if f.IsDir {
+			return "<d:collection/>", true
+		}
+		return "", true
+	case "getcontenttype":
+		return escapeXML(f.ContentType()), true
+	case "getcontentlength":
+		if f.IsDir {
+			return "", false
+		}
+		return fmt.Sprintf("%d", f.Size), true
+	case "getetag":
+		return escapeXML(f.ETag()), true
+	case "getlastmodified":
+		return f.ModTime.UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"), true
+	case "creationdate":
+		return f.ModTime.UTC().Format("2006-01-02T15:04:05Z"), true
+	case "supportedlock":
+		return "", true
+	case "quota-used-bytes":
+		if !f.IsDir {
+			return "", false
+		}
+		return fmt.Sprintf("%d", used), true
+	case "quota-available-bytes":
+		if !f.IsDir || !limited {
+			return "", false
+		}
+		avail := total - used
+		if avail < 0 {
+			avail = 0
+		}
+		return fmt.Sprintf("%d", avail), true
+	}
+	return "", false
 }
 
 func displayName(href string, f File) string {

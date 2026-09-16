@@ -246,3 +246,59 @@ func TestHeadAndMissing(t *testing.T) {
 		t.Errorf("Content-Length = %q", rec.Header().Get("Content-Length"))
 	}
 }
+
+const applePropfindBody = `<?xml version="1.0" encoding="utf-8"?>
+<D:propfind xmlns:D="DAV:">
+<D:prop>
+<D:getlastmodified/>
+<D:getcontentlength/>
+<D:creationdate/>
+<D:resourcetype/>
+</D:prop>
+</D:propfind>`
+
+func TestPropfindHonorsRequestedSet(t *testing.T) {
+	h, _, _ := testSetup(t)
+	doReq(t, h, http.MethodPut, "/files/f.txt", "12345")
+
+	// Collection: getcontentlength is inapplicable -> 404 propstat,
+	// everything else 200.
+	rec := doReq(t, h, "PROPFIND", "/files/", applePropfindBody, map[string]string{"Depth": "0"})
+	if rec.Code != 207 {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "404 Not Found") || !strings.Contains(body, "<d:getcontentlength/>") {
+		t.Errorf("collection must 404 getcontentlength:\n%s", body)
+	}
+	for _, want := range []string{"<d:getlastmodified>", "<d:creationdate>", "<d:resourcetype>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("collection missing 200 %s:\n%s", want, body)
+		}
+	}
+
+	// File: the same body yields getcontentlength with 200.
+	rec = doReq(t, h, "PROPFIND", "/files/f.txt", applePropfindBody, map[string]string{"Depth": "0"})
+	body = rec.Body.String()
+	if !strings.Contains(body, "<d:getcontentlength>5</d:getcontentlength>") {
+		t.Errorf("file missing 200 getcontentlength:\n%s", body)
+	}
+	if strings.Contains(body, "404 Not Found") {
+		t.Errorf("file must not 404 anything:\n%s", body)
+	}
+
+	// Unknown properties 404 without breaking the rest.
+	rec = doReq(t, h, "PROPFIND", "/files/f.txt",
+		`<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:getcontentlength/><d:nosuchprop/></d:prop></d:propfind>`,
+		map[string]string{"Depth": "0"})
+	body = rec.Body.String()
+	if !strings.Contains(body, "<d:getcontentlength>5</d:getcontentlength>") || !strings.Contains(body, "<d:nosuchprop/>") {
+		t.Errorf("mixed 200/404 wrong:\n%s", body)
+	}
+
+	// Empty body still means all properties.
+	rec = doReq(t, h, "PROPFIND", "/files/f.txt", "", map[string]string{"Depth": "0"})
+	if body := rec.Body.String(); !strings.Contains(body, "quota-used-bytes") && strings.Contains(body, "404") {
+		t.Errorf("allprop regressed:\n%s", body)
+	}
+}
