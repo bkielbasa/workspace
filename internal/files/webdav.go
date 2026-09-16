@@ -18,7 +18,7 @@ import (
 	"github.com/bklimczak/workspace/internal/obs"
 )
 
-// prefix is the mount point; it must match the mux registration in main.go.
+// prefix is the default mount point; it must match the mux registration.
 const prefix = "/files/"
 
 type authenticator interface {
@@ -28,11 +28,26 @@ type authenticator interface {
 type handler struct {
 	store *Store
 	users authenticator
+	// mount is the served subtree ("/files/" or "/"). Hrefs are generated
+	// relative to it so each mount is self-consistent.
+	mount string
 }
 
-// New returns a WebDAV (RFC 4918, class 1) handler over the store.
+// New returns a WebDAV (RFC 4918, class 1) handler over the store,
+// mounted at /files/.
 func New(store *Store, users authenticator) http.Handler {
-	return &handler{store: store, users: users}
+	return NewMounted(store, users, prefix)
+}
+
+// NewMounted serves the same tree at another mount point (e.g. "/").
+func NewMounted(store *Store, users authenticator, mount string) http.Handler {
+	if !strings.HasPrefix(mount, "/") {
+		mount = "/" + mount
+	}
+	if !strings.HasSuffix(mount, "/") {
+		mount += "/"
+	}
+	return &handler{store: store, users: users, mount: mount}
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -79,11 +94,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := strings.TrimPrefix(r.URL.Path, prefix)
-	// Also serve without trailing slash on the root: "/files" -> "".
-	if r.URL.Path == "/files" {
-		name = ""
+	base := strings.TrimSuffix(h.mount, "/")
+	name := r.URL.Path
+	if base != "" {
+		name = strings.TrimPrefix(name, base)
 	}
+	name = strings.TrimPrefix(name, "/")
 
 	switch r.Method {
 	case "PROPFIND":
@@ -130,13 +146,16 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
-// href builds the absolute server path for a virtual path.
-func href(name string) string {
+// href builds the absolute server path for a virtual path, relative to
+// this handler's mount point.
+func (h *handler) href(name string) string {
 	clean := path.Clean("/" + name)
+	base := strings.TrimSuffix(h.mount, "/")
+	full := base + clean
 	if clean == "/" {
-		return prefix
+		full = base + "/"
 	}
-	u := url.URL{Path: prefix + strings.TrimPrefix(clean, "/")}
+	u := url.URL{Path: full}
 	escaped := u.EscapedPath()
 	if strings.HasSuffix(name, "/") && !strings.HasSuffix(escaped, "/") {
 		escaped += "/"
@@ -197,7 +216,7 @@ func (h *handler) propfind(w http.ResponseWriter, r *http.Request, home string, 
 	w.WriteHeader(http.StatusMultiStatus)
 	fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?>`+"\n"+`<d:multistatus xmlns:d="DAV:">`)
 	used, total, limited, _ := h.store.Quota(home)
-	writeResponse(w, href(dirName(name, f.IsDir)), f, req, used, total, limited)
+	writeResponse(w, h.href(dirName(name, f.IsDir)), f, req, used, total, limited)
 
 	if (depth == "1" || depth == "infinity") && f.IsDir {
 		children, err := h.store.ListDir(home, name)
@@ -206,7 +225,7 @@ func (h *handler) propfind(w http.ResponseWriter, r *http.Request, home string, 
 			return
 		}
 		for _, child := range children {
-			writeResponse(w, href(joinName(name, child.Name, child.IsDir)), child, req, used, total, limited)
+			writeResponse(w, h.href(joinName(name, child.Name, child.IsDir)), child, req, used, total, limited)
 		}
 	}
 	fmt.Fprint(w, "\n</d:multistatus>")
@@ -551,13 +570,22 @@ func (h *handler) destination(r *http.Request) (string, bool) {
 	if p == "" {
 		p = raw
 	}
-	if !strings.HasPrefix(p, prefix) && p != "/files" {
+	base := strings.TrimSuffix(h.mount, "/")
+	if base == "" {
+		// Root mount accepts every absolute destination on this host.
+		if !strings.HasPrefix(p, "/") {
+			return "", false
+		}
+		dst := strings.TrimPrefix(p, "/")
+		if dst == "" {
+			return "", false
+		}
+		return dst, true
+	}
+	if !strings.HasPrefix(p, base+"/") && p != base {
 		return "", false
 	}
-	dst := strings.TrimPrefix(p, prefix)
-	if p == "/files" {
-		dst = ""
-	}
+	dst := strings.TrimPrefix(strings.TrimPrefix(p, base), "/")
 	if dst == "" {
 		return "", false
 	}

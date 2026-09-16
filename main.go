@@ -183,6 +183,12 @@ func main() {
 	filesHandler := files.New(fileStore, deviceAuth)
 	mux.Handle("/files/", filesHandler)
 	mux.Handle("/files", filesHandler)
+	// The DAV hostname doubles as a files endpoint: clients pointed at the
+	// bare host land on their tree root instead of a 404.
+	filesRoot := files.NewMounted(fileStore, deviceAuth, "/")
+	for _, method := range []string{"PROPFIND", "OPTIONS", "MKCOL", "PUT", "DELETE", "MOVE", "COPY", "HEAD", "LOCK", "UNLOCK", "PROPPATCH"} {
+		mux.Handle(method+" /{$}", filesRoot)
+	}
 
 	// Prometheus scrape endpoint for the prometheus.io/scrape
 	// ServiceMonitor (same OTel counters as the OTLP pipeline).

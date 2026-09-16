@@ -308,3 +308,49 @@ func TestPropfindHonorsRequestedSet(t *testing.T) {
 		t.Errorf("allprop regressed:\n%s", body)
 	}
 }
+
+func TestRootMountHrefs(t *testing.T) {
+	store, err := NewStore(t.TempDir(), 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := uuid.New()
+	email := "u@example.com"
+	h := NewMounted(store, stubAuth{id: id, email: email}, "/")
+	home := HomeDir(email)
+	if err := store.EnsureUserRoot(home); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Write(home, "note.txt", strings.NewReader("hi"), 2); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := doReq(t, h, "PROPFIND", "/", applePropfind(t), map[string]string{"Depth": "1"})
+	if rec.Code != 207 {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"<d:href>/</d:href>", "<d:href>/note.txt</d:href>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("root mount missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "/files/") {
+		t.Errorf("root mount leaked /files/ hrefs:\n%s", body)
+	}
+
+	// MOVE across the root mount resolves destinations there too.
+	rec = doReq(t, h, "MOVE", "/note.txt", "",
+		map[string]string{"Destination": "/renamed.txt"})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("root MOVE = %d", rec.Code)
+	}
+}
+
+func applePropfind(t *testing.T) string {
+	t.Helper()
+	return `<?xml version="1.0" encoding="utf-8"?>` +
+		`<D:propfind xmlns:D="DAV:"><D:prop><D:getlastmodified/>` +
+		`<D:getcontentlength/><D:creationdate/><D:resourcetype/>` +
+		`</D:prop></D:propfind>`
+}

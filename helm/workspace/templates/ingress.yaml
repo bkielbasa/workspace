@@ -54,6 +54,27 @@ spec:
                   name: http
           {{- end }}
     {{- end }}
+    {{- /*
+      The DAV hostname doubles as a files endpoint: clients pointed at the
+      bare host land on their tree root. Longest-prefix matching keeps the
+      specific paths above ahead of this fallback. Skipped when the DAV host
+      is already covered by the main rules (same host serves / there).
+    */}}
+    {{- $dav := (.Values.davHost | default .Values.mailHost) }}
+    {{- $covered := list .Values.ingress.host }}
+    {{- range .Values.ingress.appHosts }}{{ $covered = append $covered . }}{{ end }}
+    {{- if not (has $dav $covered) }}
+    - host: {{ $dav }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "workspace.fullname" $ }}
+                port:
+                  name: http
+    {{- end }}
   tls:
     - hosts:
         - {{ .Values.ingress.host }}

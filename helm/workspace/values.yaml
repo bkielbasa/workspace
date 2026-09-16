@@ -96,8 +96,9 @@ persistence:
 
 # Standalone Samba file server for native clients (iOS Files, Finder).
 # Credentials come from the smbpasswd file the app maintains.
+# Disabled: file sharing is served over WebDAV instead.
 samba:
-  enabled: true
+  enabled: false
   serviceType: LoadBalancer
   annotations: {}
   image:
