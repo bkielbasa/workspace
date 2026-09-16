@@ -4,6 +4,7 @@ package web
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/bklimczak/workspace/internal/calendar"
 	"github.com/bklimczak/workspace/internal/contacts"
+	"github.com/bklimczak/workspace/internal/files"
 	"github.com/bklimczak/workspace/internal/identity"
 	"github.com/bklimczak/workspace/internal/mail"
 	"github.com/google/uuid"
@@ -57,6 +59,18 @@ type appPasswordsService interface {
 	Revoke(ctx context.Context, userID, id uuid.UUID) error
 }
 
+// filesService backs the Drive file browser. It mirrors files.Store so the
+// live store plugs in directly; virtual paths are slash-separated.
+type filesService interface {
+	Stat(userID uuid.UUID, name string) (files.File, error)
+	ListDir(userID uuid.UUID, name string) ([]files.File, error)
+	Open(userID uuid.UUID, name string) (io.ReadSeekCloser, files.File, error)
+	Write(userID uuid.UUID, name string, data io.Reader, size int64) error
+	Mkdir(userID uuid.UUID, name string) error
+	Move(userID uuid.UUID, from, to string, overwrite bool) error
+	Remove(userID uuid.UUID, name string) error
+}
+
 type usersService interface {
 	Authenticate(context.Context, string, string) (*identity.User, error)
 	Get(context.Context, uuid.UUID) (*identity.User, error)
@@ -88,6 +102,11 @@ func (s *Server) SetDeviceSetup(apps appPasswordsService, mailHost, davHost stri
 	s.appPasswords = apps
 	s.mailHost = mailHost
 	s.davHost = davHost
+}
+
+// SetFiles enables the Drive file browser backed by the file store.
+func (s *Server) SetFiles(svc filesService) {
+	s.views.files = svc
 }
 
 // New constructs the web server from the root embedded filesystem and services.
@@ -133,6 +152,13 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /profile/password", s.RequireAuth(s.RequireCSRF(s.profileChangePassword)))
 	mux.HandleFunc("POST /profile/iphone-profile", s.RequireAuth(s.RequireCSRF(s.iphoneProfile)))
 	mux.HandleFunc("POST /profile/app-passwords/revoke", s.RequireAuth(s.RequireCSRF(s.appPasswordRevoke)))
+
+	mux.HandleFunc("GET /drive", s.page(s.views.drivePage))
+	mux.HandleFunc("GET /drive/download", s.RequireAuth(s.views.driveDownload))
+	mux.HandleFunc("POST /drive/upload", s.RequireAuth(s.RequireCSRF(s.views.driveUpload)))
+	mux.HandleFunc("POST /drive/mkdir", s.RequireAuth(s.RequireCSRF(s.views.driveMkdir)))
+	mux.HandleFunc("POST /drive/delete", s.RequireAuth(s.RequireCSRF(s.views.driveDelete)))
+	mux.HandleFunc("POST /drive/rename", s.RequireAuth(s.RequireCSRF(s.views.driveRename)))
 
 	mux.HandleFunc("GET /mail", s.page(s.views.mailPage))
 	mux.HandleFunc("GET /mail/message/{id}", s.page(s.views.mailDetailPage))

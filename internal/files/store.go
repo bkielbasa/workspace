@@ -151,7 +151,7 @@ func (s *Store) ListDir(userID uuid.UUID, name string) ([]File, error) {
 }
 
 // Open returns a file for reading.
-func (s *Store) Open(userID uuid.UUID, name string) (*os.File, File, error) {
+func (s *Store) Open(userID uuid.UUID, name string) (io.ReadSeekCloser, File, error) {
 	full, err := s.resolve(userID, name)
 	if err != nil {
 		return nil, File{}, err

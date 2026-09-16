@@ -76,12 +76,17 @@ type viewData struct {
 	AppPasswords []identity.AppPassword
 	// DevicesReady reports whether device setup (app passwords) is on.
 	DevicesReady bool
+	// Drive browser state.
+	DrivePath   string
+	DriveCrumbs []driveCrumb
+	DriveFiles  []driveFileItem
 }
 
 type views struct {
 	contacts contactsService
 	calendar calendarService
 	mail     mailService
+	files    filesService
 
 	home         *template.Template
 	contactsT    *template.Template
@@ -89,6 +94,7 @@ type views struct {
 	calendarT    *template.Template
 	mailT        *template.Template
 	profileT     *template.Template
+	driveT       *template.Template
 	login        *template.Template
 }
 
@@ -130,6 +136,10 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	if err != nil {
 		return nil, err
 	}
+	driveT, err := page("web/templates/drive.html")
+	if err != nil {
+		return nil, err
+	}
 	login, err := template.New("").Funcs(templateFuncs).ParseFS(files, "web/templates/login.html")
 	if err != nil {
 		return nil, fmt.Errorf("web: parse login template: %w", err)
@@ -138,7 +148,7 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	return &views{
 		contacts: contactService, calendar: calendarService, mail: mailService,
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
-		calendarT: calendarT, mailT: mailT, profileT: profileT, login: login,
+		calendarT: calendarT, mailT: mailT, profileT: profileT, driveT: driveT, login: login,
 	}, nil
 }
 

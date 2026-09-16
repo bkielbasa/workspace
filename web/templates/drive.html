@@ -1,0 +1,73 @@
+{{define "content"}}<section class="drive-page">
+  <div class="drive-head card">
+    <nav class="drive-crumbs" aria-label="Location">
+      {{range $i, $c := .DriveCrumbs}}{{if $i}}<span class="drive-crumb-sep">/</span>{{end}}<a href="/drive{{if $c.Path}}?path={{$c.Path}}{{end}}" class="drive-crumb">{{$c.Name}}</a>{{end}}
+    </nav>
+    <div class="drive-actions">
+      <form class="inline-form" action="/drive/upload" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+        <input type="hidden" name="path" value="{{.DrivePath}}">
+        <label class="btn btn-sm" for="drive-upload">Upload</label>
+        <input type="file" id="drive-upload" name="files" multiple hidden data-autosubmit>
+      </form>
+      <form class="inline-form drive-mkdir" action="/drive/mkdir" method="post">
+        <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+        <input type="hidden" name="path" value="{{.DrivePath}}">
+        <input type="text" name="name" placeholder="New folder" required autocomplete="off" maxlength="100">
+        <button type="submit" class="btn btn-sm btn-ghost">Create</button>
+      </form>
+    </div>
+  </div>
+
+  {{if .Error}}<div class="compose-error drive-error" role="alert">{{.Error}}</div>{{end}}
+
+  <div class="drive-list card">
+    {{if .DriveFiles}}
+    <div class="drive-row drive-row-head">
+      <span class="drive-cell drive-cell-name">Name</span>
+      <span class="drive-cell drive-cell-size">Size</span>
+      <span class="drive-cell drive-cell-date">Modified</span>
+      <span class="drive-cell drive-cell-ops"><span class="visually-hidden">Actions</span></span>
+    </div>
+    {{range .DriveFiles}}
+    <div class="drive-row">
+      <span class="drive-cell drive-cell-name">
+        <span aria-hidden="true">{{.Icon}}</span>
+        {{if .IsDir}}
+        <a href="/drive?path={{.Path}}">{{.Name}}</a>
+        {{else}}
+        <a href="/drive/download?path={{.Path}}">{{.Name}}</a>
+        {{end}}
+      </span>
+      <span class="drive-cell drive-cell-size">{{if .HasSize}}{{formatBytes .Size}}{{else}}&mdash;{{end}}</span>
+      <span class="drive-cell drive-cell-date">{{.Modified}}</span>
+      <span class="drive-cell drive-cell-ops">
+        {{if not .IsDir}}
+        <a class="drive-op" href="/drive/download?path={{.Path}}" download title="Download">&#8681;</a>
+        {{end}}
+        <button type="button" class="drive-op" title="Rename" data-rename-btn data-path="{{.Path}}" data-name="{{.Name}}">&#9998;</button>
+        <form class="inline-form" action="/drive/delete" method="post" data-confirm="Delete {{.Name}}?">
+          <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+          <input type="hidden" name="path" value="{{.Path}}">
+          <button type="submit" class="drive-op" title="Delete">&times;</button>
+        </form>
+      </span>
+    </div>
+    {{end}}
+    {{else}}
+    <div class="mail-empty-state">
+      <div class="mail-empty-icon">📁</div>
+      <h3 class="mail-empty-title">This folder is empty</h3>
+      <p class="mail-empty-subtext">Upload files or connect any WebDAV client to <code>https://dav.cloudlift.run/files/</code>.</p>
+    </div>
+    {{end}}
+  </div>
+
+  <form id="drive-rename-form" action="/drive/rename" method="post" hidden>
+    <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+    <input type="hidden" name="path" id="drive-rename-path">
+    <input type="hidden" name="new_name" id="drive-rename-name">
+  </form>
+</section>
+<script src="/static/js/drive.js"></script>
+{{end}}

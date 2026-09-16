@@ -140,6 +140,7 @@ func main() {
 		davHost = mailHostname
 	}
 	webUI.SetDeviceSetup(appPasswords, mailHostname, davHost)
+	webUI.SetFiles(fileStore)
 	(&discovery{mailHost: mailHostname, davHost: davHost, domains: domains}).register(mux)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
