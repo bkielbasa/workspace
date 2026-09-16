@@ -7,6 +7,7 @@ package smb
 
 import (
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"path/filepath"
