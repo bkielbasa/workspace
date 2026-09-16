@@ -16,7 +16,7 @@ import (
 	"github.com/bklimczak/workspace/internal/files"
 	"github.com/bklimczak/workspace/internal/web"
 	"github.com/google/uuid"
-)
+	)
 
 type memFile struct {
 	isDir bool
@@ -32,9 +32,9 @@ func newMemFiles() *memFiles {
 	return &memFiles{files: map[string]*memFile{"": {isDir: true, mod: time.Now()}}}
 }
 
-func (m *memFiles) EnsureUserRoot(_ uuid.UUID) error { return nil }
+func (m *memFiles) EnsureUserRoot(_ string) error { return nil }
 
-func (m *memFiles) Stat(_ uuid.UUID, name string) (files.File, error) {
+func (m *memFiles) Stat(_ string, name string) (files.File, error) {
 	f, ok := m.files[name]
 	if !ok {
 		// Implicit parents exist when anything lives beneath them.
@@ -55,7 +55,7 @@ func baseName(name string) string {
 	return name
 }
 
-func (m *memFiles) ListDir(_ uuid.UUID, name string) ([]files.File, error) {
+func (m *memFiles) ListDir(_ string, name string) ([]files.File, error) {
 	if dir, ok := m.files[name]; ok && !dir.isDir {
 		return nil, files.ErrNotFound
 	}
@@ -112,7 +112,7 @@ type memReadCloser struct {
 
 func (m memReadCloser) Close() error { return nil }
 
-func (m *memFiles) Open(_ uuid.UUID, name string) (io.ReadSeekCloser, files.File, error) {
+func (m *memFiles) Open(_ string, name string) (io.ReadSeekCloser, files.File, error) {
 	f, ok := m.files[name]
 	if !ok {
 		return nil, files.File{}, files.ErrNotFound
@@ -120,11 +120,11 @@ func (m *memFiles) Open(_ uuid.UUID, name string) (io.ReadSeekCloser, files.File
 	if f.isDir {
 		return nil, files.File{}, files.ErrIsDir
 	}
-	info, _ := m.Stat(uuid.Nil, name)
+	info, _ := m.Stat("", name)
 	return memReadCloser{bytes.NewReader(f.data)}, info, nil
 }
 
-func (m *memFiles) Write(_ uuid.UUID, name string, data io.Reader, _ int64) error {
+func (m *memFiles) Write(_ string, name string, data io.Reader, _ int64) error {
 	b, err := io.ReadAll(data)
 	if err != nil {
 		return err
@@ -133,7 +133,7 @@ func (m *memFiles) Write(_ uuid.UUID, name string, data io.Reader, _ int64) erro
 	return nil
 }
 
-func (m *memFiles) Mkdir(_ uuid.UUID, name string) error {
+func (m *memFiles) Mkdir(_ string, name string) error {
 	if _, ok := m.files[name]; ok {
 		return files.ErrExists
 	}
@@ -150,7 +150,7 @@ func (m *memFiles) Mkdir(_ uuid.UUID, name string) error {
 	return nil
 }
 
-func (m *memFiles) Move(_ uuid.UUID, from, to string, overwrite bool) error {
+func (m *memFiles) Move(_ string, from, to string, overwrite bool) error {
 	f, ok := m.files[from]
 	if !ok {
 		return files.ErrNotFound
@@ -169,7 +169,7 @@ func (m *memFiles) Move(_ uuid.UUID, from, to string, overwrite bool) error {
 	return nil
 }
 
-func (m *memFiles) Remove(_ uuid.UUID, name string) error {
+func (m *memFiles) Remove(_ string, name string) error {
 	if _, ok := m.files[name]; !ok {
 		return files.ErrNotFound
 	}

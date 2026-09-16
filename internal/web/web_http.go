@@ -62,14 +62,14 @@ type appPasswordsService interface {
 // filesService backs the Drive file browser. It mirrors files.Store so the
 // live store plugs in directly; virtual paths are slash-separated.
 type filesService interface {
-	EnsureUserRoot(userID uuid.UUID) error
-	Stat(userID uuid.UUID, name string) (files.File, error)
-	ListDir(userID uuid.UUID, name string) ([]files.File, error)
-	Open(userID uuid.UUID, name string) (io.ReadSeekCloser, files.File, error)
-	Write(userID uuid.UUID, name string, data io.Reader, size int64) error
-	Mkdir(userID uuid.UUID, name string) error
-	Move(userID uuid.UUID, from, to string, overwrite bool) error
-	Remove(userID uuid.UUID, name string) error
+	EnsureUserRoot(home string) error
+	Stat(home string, name string) (files.File, error)
+	ListDir(home string, name string) ([]files.File, error)
+	Open(home string, name string) (io.ReadSeekCloser, files.File, error)
+	Write(home string, name string, data io.Reader, size int64) error
+	Mkdir(home string, name string) error
+	Move(home string, from, to string, overwrite bool) error
+	Remove(home string, name string) error
 }
 
 type usersService interface {

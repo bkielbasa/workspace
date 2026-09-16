@@ -88,7 +88,19 @@ files:
 
 # Persistent volume for user files. NFS-backed so files survive node
 # changes; Retain policy keeps data if the claim is ever deleted.
+# ReadWriteMany: the app and Samba mount it together.
 persistence:
   storageClass: "qnap-nfs"
-  accessMode: ReadWriteOnce
+  accessMode: ReadWriteMany
   size: 20Gi
+
+# Standalone Samba file server for native clients (iOS Files, Finder).
+# Credentials come from the smbpasswd file the app maintains.
+samba:
+  enabled: true
+  serviceType: LoadBalancer
+  annotations: {}
+  image:
+    repository: bartlomiejklimczak/workspace-samba
+    tag: latest
+    pullPolicy: IfNotPresent

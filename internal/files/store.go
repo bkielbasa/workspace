@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 )
 
 var (
@@ -31,6 +30,32 @@ const (
 	DefaultQuotaBytes   = 10 << 30
 	DefaultMaxFileBytes = 1 << 30
 )
+
+// HomeDir maps a login email to its on-disk home directory name.
+// Lowercase alphanumeric plus ._%@+- survive; everything else becomes _.
+// The names double as Samba usernames and share paths, so they must stay
+// stable and portable across WebDAV, the web UI, and SMB.
+func HomeDir(email string) string {
+	email = strings.ToLower(strings.TrimSpace(email))
+	var b strings.Builder
+	for _, r := range email {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9',
+			r == '.', r == '_', r == '%', r == '@', r == '+', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	name := strings.Trim(b.String(), "._")
+	if len(name) > 64 {
+		name = name[:64]
+	}
+	if name == "" {
+		name = "user"
+	}
+	return name
+}
 
 // File describes one entry for PROPFIND responses.
 type File struct {
@@ -76,24 +101,24 @@ func NewStore(root string, quotaBytes, maxFileBytes int64) (*Store, error) {
 
 // resolve maps a virtual path to the filesystem, rejecting escapes.
 // Virtual paths are slash-separated, absolute or relative; "" means root.
-func (s *Store) resolve(userID uuid.UUID, name string) (string, error) {
+func (s *Store) resolve(home string, name string) (string, error) {
 	clean := path.Clean("/" + strings.TrimSpace(name))
 	rel := strings.TrimPrefix(clean, "/")
-	full := filepath.Join(s.root, userID.String(), filepath.FromSlash(rel))
-	base := filepath.Join(s.root, userID.String())
+	full := filepath.Join(s.root, home, filepath.FromSlash(rel))
+	base := filepath.Join(s.root, home)
 	if full != base && !strings.HasPrefix(full, base+string(filepath.Separator)) {
 		return "", ErrOutsideRoot
 	}
 	return full, nil
 }
 
-func (s *Store) userRoot(userID uuid.UUID) string {
-	return filepath.Join(s.root, userID.String())
+func (s *Store) userRoot(home string) string {
+	return filepath.Join(s.root, home)
 }
 
 // EnsureUserRoot creates the user's tree on first authenticated use.
-func (s *Store) EnsureUserRoot(userID uuid.UUID) error {
-	if err := os.MkdirAll(s.userRoot(userID), 0o755); err != nil {
+func (s *Store) EnsureUserRoot(home string) error {
+	if err := os.MkdirAll(s.userRoot(home), 0o755); err != nil {
 		return fmt.Errorf("files: user root: %w", err)
 	}
 	return nil
@@ -104,8 +129,8 @@ func statFile(full, name string, info fs.FileInfo) File {
 }
 
 // Stat returns one entry, following the WebDAV notion that "" is the root.
-func (s *Store) Stat(userID uuid.UUID, name string) (File, error) {
-	full, err := s.resolve(userID, name)
+func (s *Store) Stat(home string, name string) (File, error) {
+	full, err := s.resolve(home, name)
 	if err != nil {
 		return File{}, err
 	}
@@ -124,8 +149,8 @@ func (s *Store) Stat(userID uuid.UUID, name string) (File, error) {
 }
 
 // ListDir lists a collection's children sorted by name.
-func (s *Store) ListDir(userID uuid.UUID, name string) ([]File, error) {
-	full, err := s.resolve(userID, name)
+func (s *Store) ListDir(home string, name string) ([]File, error) {
+	full, err := s.resolve(home, name)
 	if err != nil {
 		return nil, err
 	}
@@ -151,8 +176,8 @@ func (s *Store) ListDir(userID uuid.UUID, name string) ([]File, error) {
 }
 
 // Open returns a file for reading.
-func (s *Store) Open(userID uuid.UUID, name string) (io.ReadSeekCloser, File, error) {
-	full, err := s.resolve(userID, name)
+func (s *Store) Open(home string, name string) (io.ReadSeekCloser, File, error) {
+	full, err := s.resolve(home, name)
 	if err != nil {
 		return nil, File{}, err
 	}
@@ -176,8 +201,8 @@ func (s *Store) Open(userID uuid.UUID, name string) (io.ReadSeekCloser, File, er
 }
 
 // usage sums bytes under the user's root.
-func (s *Store) usage(userID uuid.UUID) (int64, error) {	var total int64
-	root := s.userRoot(userID)
+func (s *Store) usage(home string) (int64, error) {	var total int64
+	root := s.userRoot(home)
 	err := filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -197,23 +222,23 @@ func (s *Store) usage(userID uuid.UUID) (int64, error) {	var total int64
 
 // Quota reports bytes used and the configured limit (limited=false means
 // unlimited, in which case callers should omit quota properties).
-func (s *Store) Quota(userID uuid.UUID) (used, total int64, limited bool, err error) {
+func (s *Store) Quota(home string) (used, total int64, limited bool, err error) {
 	if s.quotaBytes <= 0 {
-		used, err = s.usage(userID)
+		used, err = s.usage(home)
 		return used, 0, false, err
 	}
-	used, err = s.usage(userID)
+	used, err = s.usage(home)
 	return used, s.quotaBytes, true, err
 }
 
 // Write stores data atomically (temp file + rename), creating parents.
 // A negative size means unknown length (chunked uploads): limits still
 // apply, and quota is enforced after the write.
-func (s *Store) Write(userID uuid.UUID, name string, data io.Reader, size int64) error {
+func (s *Store) Write(home string, name string, data io.Reader, size int64) error {
 	if s.maxFileSize > 0 && size > s.maxFileSize {
 		return ErrTooLarge
 	}
-	full, err := s.resolve(userID, name)
+	full, err := s.resolve(home, name)
 	if err != nil {
 		return err
 	}
@@ -221,7 +246,7 @@ func (s *Store) Write(userID uuid.UUID, name string, data io.Reader, size int64)
 		return err
 	}
 	if s.quotaBytes > 0 && size >= 0 {
-		used, err := s.usage(userID)
+		used, err := s.usage(home)
 		if err != nil {
 			return err
 		}
@@ -258,7 +283,7 @@ func (s *Store) Write(userID uuid.UUID, name string, data io.Reader, size int64)
 		return err
 	}
 	if s.quotaBytes > 0 && size < 0 {
-		if used, err := s.usage(userID); err != nil {
+		if used, err := s.usage(home); err != nil {
 			return err
 		} else if used > s.quotaBytes {
 			_ = os.Remove(full)
@@ -269,8 +294,8 @@ func (s *Store) Write(userID uuid.UUID, name string, data io.Reader, size int64)
 }
 
 // Mkdir creates one collection level; missing parents are a conflict.
-func (s *Store) Mkdir(userID uuid.UUID, name string) error {
-	full, err := s.resolve(userID, name)
+func (s *Store) Mkdir(home string, name string) error {
+	full, err := s.resolve(home, name)
 	if err != nil {
 		return err
 	}
@@ -287,8 +312,8 @@ func (s *Store) Mkdir(userID uuid.UUID, name string) error {
 }
 
 // Remove deletes a file or a whole collection tree.
-func (s *Store) Remove(userID uuid.UUID, name string) error {
-	full, err := s.resolve(userID, name)
+func (s *Store) Remove(home string, name string) error {
+	full, err := s.resolve(home, name)
 	if err != nil {
 		return err
 	}
@@ -302,12 +327,12 @@ func (s *Store) Remove(userID uuid.UUID, name string) error {
 }
 
 // Move renames within the user's root.
-func (s *Store) Move(userID uuid.UUID, from, to string, overwrite bool) error {
-	src, err := s.resolve(userID, from)
+func (s *Store) Move(home string, from, to string, overwrite bool) error {
+	src, err := s.resolve(home, from)
 	if err != nil {
 		return err
 	}
-	dst, err := s.resolve(userID, to)
+	dst, err := s.resolve(home, to)
 	if err != nil {
 		return err
 	}
@@ -337,12 +362,12 @@ func (s *Store) Move(userID uuid.UUID, from, to string, overwrite bool) error {
 }
 
 // Copy duplicates a file or tree within the user's root.
-func (s *Store) Copy(userID uuid.UUID, from, to string, overwrite bool) error {
-	src, err := s.resolve(userID, from)
+func (s *Store) Copy(home string, from, to string, overwrite bool) error {
+	src, err := s.resolve(home, from)
 	if err != nil {
 		return err
 	}
-	dst, err := s.resolve(userID, to)
+	dst, err := s.resolve(home, to)
 	if err != nil {
 		return err
 	}

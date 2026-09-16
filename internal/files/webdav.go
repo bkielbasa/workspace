@@ -16,7 +16,6 @@ import (
 
 	"github.com/bklimczak/workspace/internal/identity"
 	"github.com/bklimczak/workspace/internal/obs"
-	"github.com/google/uuid"
 )
 
 // prefix is the mount point; it must match the mux registration in main.go.
@@ -75,7 +74,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// The user's tree springs into existence on first authenticated use,
 	// so fresh accounts answer PROPFIND on / instead of 404.
-	if err := h.store.EnsureUserRoot(user.ID); err != nil {
+	if err := h.store.EnsureUserRoot(HomeDir(user.Email)); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -88,21 +87,21 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case "PROPFIND":
-		h.propfind(w, r, user.ID, name)
+		h.propfind(w, r, HomeDir(user.Email), name)
 	case http.MethodGet:
-		h.get(w, r, user.ID, name)
+		h.get(w, r, HomeDir(user.Email), name)
 	case http.MethodHead:
-		h.head(w, r, user.ID, name)
+		h.head(w, r, HomeDir(user.Email), name)
 	case http.MethodPut:
-		h.put(w, r, user.ID, name)
+		h.put(w, r, HomeDir(user.Email), name)
 	case http.MethodDelete:
-		h.delete(w, r, user.ID, name)
+		h.delete(w, r, HomeDir(user.Email), name)
 	case "MKCOL":
-		h.mkcol(w, r, user.ID, name)
+		h.mkcol(w, r, HomeDir(user.Email), name)
 	case "MOVE":
-		h.move(w, r, user.ID, name)
+		h.move(w, r, HomeDir(user.Email), name)
 	case "COPY":
-		h.copy(w, r, user.ID, name)
+		h.copy(w, r, HomeDir(user.Email), name)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -164,7 +163,7 @@ func writeErr(w http.ResponseWriter, err error) {
 	}
 }
 
-func (h *handler) propfind(w http.ResponseWriter, r *http.Request, userID uuid.UUID, name string) {
+func (h *handler) propfind(w http.ResponseWriter, r *http.Request, home string, name string) {
 	// The body only names requested properties (never credentials); logging
 	// it shows exactly what a picky client validates.
 	rawBody, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
@@ -182,7 +181,7 @@ func (h *handler) propfind(w http.ResponseWriter, r *http.Request, userID uuid.U
 		return
 	}
 
-	f, err := h.store.Stat(userID, name)
+	f, err := h.store.Stat(home, name)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			// Bare 404: some clients try to XML-parse any PROPFIND body,
@@ -197,11 +196,11 @@ func (h *handler) propfind(w http.ResponseWriter, r *http.Request, userID uuid.U
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.WriteHeader(http.StatusMultiStatus)
 	fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?>`+"\n"+`<d:multistatus xmlns:d="DAV:">`)
-	used, total, limited, _ := h.store.Quota(userID)
+	used, total, limited, _ := h.store.Quota(home)
 	writeResponse(w, href(dirName(name, f.IsDir)), f, req, used, total, limited)
 
 	if (depth == "1" || depth == "infinity") && f.IsDir {
-		children, err := h.store.ListDir(userID, name)
+		children, err := h.store.ListDir(home, name)
 		if err != nil {
 			fmt.Fprint(w, "\n</d:multistatus>")
 			return
@@ -400,8 +399,8 @@ func escapeXML(s string) string {
 	return out.String()
 }
 
-func (h *handler) get(w http.ResponseWriter, r *http.Request, userID uuid.UUID, name string) {
-	f, info, err := h.store.Open(userID, name)
+func (h *handler) get(w http.ResponseWriter, r *http.Request, home string, name string) {
+	f, info, err := h.store.Open(home, name)
 	if err != nil {
 		if errors.Is(err, ErrIsDir) {
 			http.Error(w, "is a collection", http.StatusNotFound)
@@ -415,8 +414,8 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request, userID uuid.UUID, 
 	http.ServeContent(w, r, info.Name, info.ModTime, f)
 }
 
-func (h *handler) head(w http.ResponseWriter, r *http.Request, userID uuid.UUID, name string) {
-	info, err := h.store.Stat(userID, name)
+func (h *handler) head(w http.ResponseWriter, r *http.Request, home string, name string) {
+	info, err := h.store.Stat(home, name)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -432,7 +431,7 @@ func (h *handler) head(w http.ResponseWriter, r *http.Request, userID uuid.UUID,
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *handler) put(w http.ResponseWriter, r *http.Request, userID uuid.UUID, name string) {
+func (h *handler) put(w http.ResponseWriter, r *http.Request, home string, name string) {
 	if strings.HasSuffix(name, "/") && name != "" {
 		http.Error(w, "cannot write a collection", http.StatusMethodNotAllowed)
 		return
@@ -444,10 +443,10 @@ func (h *handler) put(w http.ResponseWriter, r *http.Request, userID uuid.UUID, 
 	}
 	limited := io.LimitReader(r.Body, limit)
 	existed := true
-	if _, err := h.store.Stat(userID, name); err != nil {
+	if _, err := h.store.Stat(home, name); err != nil {
 		existed = false
 	}
-	if err := h.store.Write(userID, name, limited, r.ContentLength); err != nil {
+	if err := h.store.Write(home, name, limited, r.ContentLength); err != nil {
 		if err == ErrTooLarge {
 			http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
 			return
@@ -462,19 +461,19 @@ func (h *handler) put(w http.ResponseWriter, r *http.Request, userID uuid.UUID, 
 	w.WriteHeader(http.StatusCreated)
 }
 
-func (h *handler) delete(w http.ResponseWriter, r *http.Request, userID uuid.UUID, name string) {
+func (h *handler) delete(w http.ResponseWriter, r *http.Request, home string, name string) {
 	if name == "" {
 		http.Error(w, "cannot delete root", http.StatusForbidden)
 		return
 	}
-	if err := h.store.Remove(userID, name); err != nil {
+	if err := h.store.Remove(home, name); err != nil {
 		writeErr(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *handler) mkcol(w http.ResponseWriter, r *http.Request, userID uuid.UUID, name string) {
+func (h *handler) mkcol(w http.ResponseWriter, r *http.Request, home string, name string) {
 	if name == "" {
 		http.Error(w, "already exists", http.StatusMethodNotAllowed)
 		return
@@ -486,7 +485,7 @@ func (h *handler) mkcol(w http.ResponseWriter, r *http.Request, userID uuid.UUID
 			return
 		}
 	}
-	if err := h.store.Mkdir(userID, name); err != nil {
+	if err := h.store.Mkdir(home, name); err != nil {
 		if err == ErrExists {
 			http.Error(w, "already exists", http.StatusMethodNotAllowed)
 			return
@@ -501,14 +500,14 @@ func bytesTrim(b []byte) []byte {
 	return []byte(strings.TrimSpace(string(b)))
 }
 
-func (h *handler) move(w http.ResponseWriter, r *http.Request, userID uuid.UUID, name string) {
+func (h *handler) move(w http.ResponseWriter, r *http.Request, home string, name string) {
 	dst, ok := h.destination(r)
 	if !ok {
 		http.Error(w, "bad destination", http.StatusBadRequest)
 		return
 	}
 	overwrite := !strings.EqualFold(strings.TrimSpace(r.Header.Get("Overwrite")), "F")
-	if err := h.store.Move(userID, name, dst, overwrite); err != nil {
+	if err := h.store.Move(home, name, dst, overwrite); err != nil {
 		if err == ErrExists {
 			http.Error(w, "destination exists", http.StatusPreconditionFailed)
 			return
@@ -519,14 +518,14 @@ func (h *handler) move(w http.ResponseWriter, r *http.Request, userID uuid.UUID,
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *handler) copy(w http.ResponseWriter, r *http.Request, userID uuid.UUID, name string) {
+func (h *handler) copy(w http.ResponseWriter, r *http.Request, home string, name string) {
 	dst, ok := h.destination(r)
 	if !ok {
 		http.Error(w, "bad destination", http.StatusBadRequest)
 		return
 	}
 	overwrite := !strings.EqualFold(strings.TrimSpace(r.Header.Get("Overwrite")), "F")
-	if err := h.store.Copy(userID, name, dst, overwrite); err != nil {
+	if err := h.store.Copy(home, name, dst, overwrite); err != nil {
 		if err == ErrExists {
 			http.Error(w, "destination exists", http.StatusPreconditionFailed)
 			return

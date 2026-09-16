@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/bklimczak/workspace/internal/caldav"
@@ -21,6 +22,7 @@ import (
 	"github.com/bklimczak/workspace/internal/mail"
 	"github.com/bklimczak/workspace/internal/obs"
 	"github.com/bklimczak/workspace/internal/postgres"
+	"github.com/bklimczak/workspace/internal/smb"
 	"github.com/bklimczak/workspace/internal/smtp"
 	"github.com/bklimczak/workspace/internal/web"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -56,7 +58,17 @@ func main() {
 	domains := identity.NewDomains(postgres.NewDomainRepository(db))
 	aliases := identity.NewAliases(postgres.NewAliasRepository(db), domains)
 	sessions := identity.NewSessions(postgres.NewSessionRepository(db))
-	users := identity.NewUsers(postgres.NewUserRepository(db), sessions)
+	// Samba credentials mirror the account lifecycle so the file server
+	// authenticates the same passwords. Empty path disables the sync.
+	var pwSync []identity.PasswordSync
+	if strings.TrimSpace(cfg.smbPasswdFile) != "" {
+		if mgr, err := smb.NewManager(cfg.smbPasswdFile); err != nil {
+			obs.Fatal(ctx, "samba user database unavailable", "error", err)
+		} else {
+			pwSync = append(pwSync, mgr)
+		}
+	}
+	users := identity.NewUsers(postgres.NewUserRepository(db), sessions, pwSync...)
 	appPasswords := identity.NewAppPasswords(postgres.NewAppPasswordRepository(db), users)
 	// Device protocols accept master passwords and per-device app passwords.
 	// The web UI keeps master-only login (see web.New below).

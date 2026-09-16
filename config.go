@@ -14,6 +14,7 @@ type config struct {
 	filesDataDir  string
 	filesQuota    int64
 	filesMaxFile  int64
+	smbPasswdFile string
 }
 
 // mailHostname is the canonical hostname announced in SMTP banners and EHLO
@@ -33,6 +34,8 @@ func loadConfig() config {
 		filesDataDir: getEnv("FILES_DATA_DIR", "./data/files"),
 		filesQuota:   envBytes("FILES_QUOTA_BYTES", 10<<30),
 		filesMaxFile: envBytes("FILES_MAX_FILE_BYTES", 1<<30),
+		// Empty disables Samba credential sync (dev setups without the volume).
+		smbPasswdFile: getEnv("SMB_PASSWD_FILE", "/data/samba/smbpasswd"),
 	}
 
 	if cfg.mailHost != "" {

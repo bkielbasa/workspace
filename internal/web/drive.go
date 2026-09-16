@@ -94,7 +94,7 @@ func (v *views) requireFiles(w http.ResponseWriter) bool {
 // ensureDriveRoot creates the user's tree on first use so empty states
 // render instead of 404ing.
 func (v *views) ensureDriveRoot(w http.ResponseWriter, user *identity.User) bool {
-	if err := v.files.EnsureUserRoot(user.ID); err != nil {
+	if err := v.files.EnsureUserRoot(files.HomeDir(user.Email)); err != nil {
 		http.Error(w, "file storage unavailable", http.StatusInternalServerError)
 		return false
 	}
@@ -115,7 +115,7 @@ func (v *views) drivePage(w http.ResponseWriter, r *http.Request, user *identity
 		info = files.File{IsDir: true}
 	} else {
 		var err error
-		if info, err = v.files.Stat(user.ID, current); err != nil {
+		if info, err = v.files.Stat(files.HomeDir(user.Email), current); err != nil {
 			http.NotFound(w, r)
 			return
 		}
@@ -125,7 +125,7 @@ func (v *views) drivePage(w http.ResponseWriter, r *http.Request, user *identity
 		}
 	}
 
-	entries, err := v.files.ListDir(user.ID, current)
+	entries, err := v.files.ListDir(files.HomeDir(user.Email), current)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -198,7 +198,7 @@ func driveRedirect(w http.ResponseWriter, r *http.Request, current, errKind stri
 }
 
 func (v *views) serveDriveFile(w http.ResponseWriter, r *http.Request, user *identity.User, name string, info files.File) {
-	f, _, err := v.files.Open(user.ID, name)
+	f, _, err := v.files.Open(files.HomeDir(user.Email), name)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -218,7 +218,7 @@ func (v *views) driveDownload(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	info, err := v.files.Stat(user.ID, name)
+	info, err := v.files.Stat(files.HomeDir(user.Email), name)
 	if err != nil || info.IsDir {
 		http.NotFound(w, r)
 		return
@@ -264,7 +264,7 @@ func (v *views) driveUpload(w http.ResponseWriter, r *http.Request) {
 		if current != "" {
 			target = current + "/" + name
 		}
-		err = v.files.Write(user.ID, target, f, fh.Size)
+		err = v.files.Write(files.HomeDir(user.Email), target, f, fh.Size)
 		_ = f.Close()
 		if err != nil {
 			obs.Log(r.Context(), slog.LevelWarn, "drive upload failed", "file", name, "error", err)
@@ -296,7 +296,7 @@ func (v *views) driveMkdir(w http.ResponseWriter, r *http.Request) {
 	if current != "" {
 		target = current + "/" + name
 	}
-	if err := v.files.Mkdir(user.ID, target); err != nil {
+	if err := v.files.Mkdir(files.HomeDir(user.Email), target); err != nil {
 		driveRedirect(w, r, current, "mkdir")
 		return
 	}
@@ -317,7 +317,7 @@ func (v *views) driveDelete(w http.ResponseWriter, r *http.Request) {
 		driveRedirect(w, r, "", "delete")
 		return
 	}
-	if err := v.files.Remove(user.ID, name); err != nil {
+	if err := v.files.Remove(files.HomeDir(user.Email), name); err != nil {
 		driveRedirect(w, r, parent, "delete")
 		return
 	}
@@ -348,7 +348,7 @@ func (v *views) driveRename(w http.ResponseWriter, r *http.Request) {
 		driveRedirect(w, r, parent, "rename")
 		return
 	}
-	if err := v.files.Move(user.ID, name, target, false); err != nil {
+	if err := v.files.Move(files.HomeDir(user.Email), name, target, false); err != nil {
 		driveRedirect(w, r, parent, "rename")
 		return
 	}

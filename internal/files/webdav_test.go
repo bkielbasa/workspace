@@ -12,20 +12,24 @@ import (
 	"github.com/google/uuid"
 )
 
-type stubAuth struct{ id uuid.UUID }
-
-func (s stubAuth) Authenticate(context.Context, string, string) (*identity.User, error) {
-	return &identity.User{ID: s.id, Email: "u@example.com"}, nil
+type stubAuth struct {
+	id    uuid.UUID
+	email string
 }
 
-func testSetup(t *testing.T) (http.Handler, uuid.UUID, *Store) {
+func (s stubAuth) Authenticate(context.Context, string, string) (*identity.User, error) {
+	return &identity.User{ID: s.id, Email: s.email}, nil
+}
+
+func testSetup(t *testing.T) (http.Handler, string, *Store) {
 	t.Helper()
 	store, err := NewStore(t.TempDir(), 1<<20, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	id := uuid.New()
-	return New(store, stubAuth{id: id}), id, store
+	email := "u@example.com"
+	return New(store, stubAuth{id: id, email: email}), HomeDir(email), store
 }
 
 func doReq(t *testing.T, h http.Handler, method, target, body string, headers ...map[string]string) *httptest.ResponseRecorder {
@@ -181,7 +185,9 @@ func TestQuotaAndSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := uuid.New()
-	h := New(store, stubAuth{id: id})
+	home := HomeDir("u@example.com")
+	_ = home
+	h := New(store, stubAuth{id: id, email: "u@example.com"})
 
 	big := strings.Repeat("x", 200)
 	if rec := doReq(t, h, http.MethodPut, "/files/big.bin", big, nil); rec.Code != http.StatusRequestEntityTooLarge {
@@ -200,14 +206,14 @@ func TestPathEscapeRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := uuid.New()
-	if err := store.EnsureUserRoot(id); err != nil {
+	home := HomeDir("u@example.com")
+	if err := store.EnsureUserRoot(home); err != nil {
 		t.Fatal(err)
 	}
 	// Lexical cleaning folds ".." back into the tree; the resolved path
 	// must always stay inside the user's root.
 	for _, evil := range []string{"../evil", "a/../../evil", "..", ".", "", "a/./b"} {
-		full, err := store.resolve(id, evil)
+		full, err := store.resolve(home, evil)
 		if err != nil {
 			t.Errorf("resolve(%q) error: %v", evil, err)
 			continue
@@ -215,7 +221,7 @@ func TestPathEscapeRejected(t *testing.T) {
 		t.Logf("resolve(%q) -> inside root", evil)
 		_ = full
 	}
-	if _, err := store.Stat(id, ".."); err != nil {
+	if _, err := store.Stat(home, ".."); err != nil {
 		t.Errorf("root stat failed: %v", err)
 	}
 }

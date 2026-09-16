@@ -1,0 +1,12 @@
+{{- if .Values.samba.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "workspace.fullname" . }}-smb
+  labels:
+    {{- include "workspace.labels" . | nindent 4 }}
+    app.kubernetes.io/component: smb
+data:
+  smb.conf: |
+{{ .Files.Get "samba/smb.conf" | nindent 4 }}
+{{- end }}

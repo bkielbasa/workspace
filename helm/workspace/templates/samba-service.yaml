@@ -1,0 +1,25 @@
+{{- if .Values.samba.enabled }}
+# Dedicated address for SMB: phones and desktops connect here, and the
+# hostname files.cloudlift.run points at it (not at the mail balancer).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "workspace.fullname" . }}-smb
+  labels:
+    {{- include "workspace.labels" . | nindent 4 }}
+    app.kubernetes.io/component: smb
+  {{- with .Values.samba.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.samba.serviceType | default "LoadBalancer" | quote }}
+  selector:
+    {{- include "workspace.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: smb
+  ports:
+    - name: smb
+      port: 445
+      targetPort: smb
+      protocol: TCP
+{{- end }}
