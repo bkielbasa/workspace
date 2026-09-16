@@ -166,7 +166,11 @@ func main() {
 
 	mux.Handle("/dav/", carddav.New(contactSvc, deviceAuth))
 	mux.Handle("/cal/", caldav.New(calendarSvc, deviceAuth))
-	mux.Handle("/files/", files.New(fileStore, deviceAuth))
+	// Both the subtree and the exact root: some clients never follow
+	// the mux's trailing-slash redirect on PROPFIND.
+	filesHandler := files.New(fileStore, deviceAuth)
+	mux.Handle("/files/", filesHandler)
+	mux.Handle("/files", filesHandler)
 
 	// Prometheus scrape endpoint for the prometheus.io/scrape
 	// ServiceMonitor (same OTel counters as the OTLP pipeline).

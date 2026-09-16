@@ -36,6 +36,18 @@ func New(store *Store, users authenticator) http.Handler {
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	sw := &statusWriter{ResponseWriter: w}
+	defer func() {
+		obs.Log(r.Context(), slog.LevelInfo, "files request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"depth", strings.TrimSpace(r.Header.Get("Depth")),
+			"status", sw.status,
+			"bytes", sw.bytes,
+		)
+	}()
+	w = sw
+
 	if r.Method == http.MethodOptions {
 		w.Header().Set("DAV", "1, 2")
 		w.Header().Set("Allow", "OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, MOVE, COPY, PROPFIND")
@@ -63,11 +75,6 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	obs.Log(r.Context(), slog.LevelInfo, "files request",
-		"method", r.Method,
-		"path", r.URL.Path,
-	)
-
 	name := strings.TrimPrefix(r.URL.Path, prefix)
 	// Also serve without trailing slash on the root: "/files" -> "".
 	if r.URL.Path == "/files" {
@@ -94,6 +101,29 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+// statusWriter records the response status and byte count for logging.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+	bytes  int64
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	if w.status == 0 {
+		w.status = code
+		w.ResponseWriter.WriteHeader(code)
+	}
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	n, err := w.ResponseWriter.Write(b)
+	w.bytes += int64(n)
+	return n, err
 }
 
 // href builds the absolute server path for a virtual path.
@@ -149,7 +179,8 @@ func (h *handler) propfind(w http.ResponseWriter, r *http.Request, userID uuid.U
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.WriteHeader(http.StatusMultiStatus)
 	fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?>`+"\n"+`<d:multistatus xmlns:d="DAV:">`)
-	writeResponse(w, href(dirName(name, f.IsDir)), f)
+	used, total, limited, _ := h.store.Quota(userID)
+	writeResponse(w, href(dirName(name, f.IsDir)), f, used, total, limited)
 
 	if (depth == "1" || depth == "infinity") && f.IsDir {
 		children, err := h.store.ListDir(userID, name)
@@ -158,7 +189,7 @@ func (h *handler) propfind(w http.ResponseWriter, r *http.Request, userID uuid.U
 			return
 		}
 		for _, child := range children {
-			writeResponse(w, href(joinName(name, child.Name, child.IsDir)), child)
+			writeResponse(w, href(joinName(name, child.Name, child.IsDir)), child, used, total, limited)
 		}
 	}
 	fmt.Fprint(w, "\n</d:multistatus>")
@@ -179,14 +210,21 @@ func joinName(parent, child string, isDir bool) string {
 	return dirName(path.Join(parent, child), isDir)
 }
 
-func writeResponse(w io.Writer, href string, f File) {
+func writeResponse(w io.Writer, href string, f File, used, total int64, limited bool) {
 	resType := "<d:resourcetype/>"
 	if f.IsDir {
 		resType = "<d:resourcetype><d:collection/></d:resourcetype>"
 	}
 	length := ""
+	quota := ""
 	if !f.IsDir {
 		length = fmt.Sprintf("<d:getcontentlength>%d</d:getcontentlength>", f.Size)
+	} else if limited {
+		avail := total - used
+		if avail < 0 {
+			avail = 0
+		}
+		quota = fmt.Sprintf("<d:quota-used-bytes>%d</d:quota-used-bytes><d:quota-available-bytes>%d</d:quota-available-bytes>", used, avail)
 	}
 	fmt.Fprintf(w, `
   <d:response>
@@ -196,6 +234,7 @@ func writeResponse(w io.Writer, href string, f File) {
         <d:displayname>%s</d:displayname>
         %s
         <d:getcontenttype>%s</d:getcontenttype>
+        %s
         %s
         <d:getetag>%s</d:getetag>
         <d:getlastmodified>%s</d:getlastmodified>
@@ -210,6 +249,7 @@ func writeResponse(w io.Writer, href string, f File) {
 		resType,
 		escapeXML(f.ContentType()),
 		length,
+		quota,
 		escapeXML(f.ETag()),
 		f.ModTime.UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"),
 		f.ModTime.UTC().Format("2006-01-02T15:04:05Z"),

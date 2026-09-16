@@ -103,7 +103,7 @@ func TestPropfindDepth1(t *testing.T) {
 		t.Fatalf("status = %d, want 207", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"/files/a.txt", "/files/dir/", "getetag", "resourcetype"} {
+	for _, want := range []string{"/files/a.txt", "/files/dir/", "getetag", "resourcetype", "quota-used-bytes", "quota-available-bytes"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("listing missing %q:\n%s", want, body)
 		}

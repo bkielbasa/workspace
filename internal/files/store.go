@@ -176,8 +176,7 @@ func (s *Store) Open(userID uuid.UUID, name string) (io.ReadSeekCloser, File, er
 }
 
 // usage sums bytes under the user's root.
-func (s *Store) usage(userID uuid.UUID) (int64, error) {
-	var total int64
+func (s *Store) usage(userID uuid.UUID) (int64, error) {	var total int64
 	root := s.userRoot(userID)
 	err := filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -194,6 +193,17 @@ func (s *Store) usage(userID uuid.UUID) (int64, error) {
 		return 0, nil
 	}
 	return total, err
+}
+
+// Quota reports bytes used and the configured limit (limited=false means
+// unlimited, in which case callers should omit quota properties).
+func (s *Store) Quota(userID uuid.UUID) (used, total int64, limited bool, err error) {
+	if s.quotaBytes <= 0 {
+		used, err = s.usage(userID)
+		return used, 0, false, err
+	}
+	used, err = s.usage(userID)
+	return used, s.quotaBytes, true, err
 }
 
 // Write stores data atomically (temp file + rename), creating parents.
