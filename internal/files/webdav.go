@@ -164,11 +164,18 @@ func writeErr(w http.ResponseWriter, err error) {
 }
 
 func (h *handler) propfind(w http.ResponseWriter, r *http.Request, userID uuid.UUID, name string) {
+	// The body only names requested properties (never credentials); logging
+	// it shows exactly what a picky client validates.
+	if body, err := io.ReadAll(io.LimitReader(r.Body, 2048)); err == nil {
+		obs.Log(r.Context(), slog.LevelInfo, "files propfind body",
+			"path", r.URL.Path,
+			"body", strings.TrimSpace(string(body)),
+		)
+	}
 	depth := strings.TrimSpace(r.Header.Get("Depth"))
 	if depth == "" {
 		depth = "infinity"
-	}
-	// Class-1 clients only need 0 and 1; infinity is folded to 1.
+	}	// Class-1 clients only need 0 and 1; infinity is folded to 1.
 	if depth != "0" && depth != "1" && depth != "infinity" {
 		http.Error(w, "bad depth", http.StatusBadRequest)
 		return
