@@ -76,6 +76,13 @@ type viewData struct {
 	AppPasswords []identity.AppPassword
 	// DevicesReady reports whether device setup (app passwords) is on.
 	DevicesReady bool
+	// AdminUsers lists all accounts for admins.
+	AdminUsers []identity.User
+	// Invites lists pending family invites for admins.
+	Invites []identity.Invite
+	// InviteLink carries a freshly minted invite URL (shown once).
+	InviteLink  string
+	InviteEmail string
 	// Drive browser state.
 	DrivePath   string
 	DriveCrumbs []driveCrumb
@@ -95,6 +102,7 @@ type views struct {
 	mailT        *template.Template
 	profileT     *template.Template
 	driveT       *template.Template
+	inviteT      *template.Template
 	login        *template.Template
 }
 
@@ -144,11 +152,16 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	if err != nil {
 		return nil, fmt.Errorf("web: parse login template: %w", err)
 	}
+	inviteT, err := page("web/templates/invite.html")
+	if err != nil {
+		return nil, err
+	}
 
 	return &views{
 		contacts: contactService, calendar: calendarService, mail: mailService,
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
 		calendarT: calendarT, mailT: mailT, profileT: profileT, driveT: driveT, login: login,
+		inviteT: inviteT,
 	}, nil
 }
 

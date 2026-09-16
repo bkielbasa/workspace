@@ -128,6 +128,74 @@
       </div>
     </section>
     {{end}}
+
+    {{if .User.IsAdmin}}
+    <section class="card profile-card">
+      <div class="card-head">
+        <h2>Family</h2>
+        <p class="subtitle">Invite members — they set their own password from the link</p>
+      </div>
+      <div class="card-body">
+        {{if .InviteLink}}
+        <div class="profile-alert success" role="status">
+          Invite for <strong>{{.InviteEmail}}</strong> created and emailed.<br>
+          One-time link (copy it now, it will not be shown again):<br>
+          <code>{{.InviteLink}}</code>
+        </div>
+        {{end}}
+        <form method="post" action="/admin/invites" class="profile-form">
+          <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+          <label for="invite-email">Email address
+            <input id="invite-email" name="email" type="email" required placeholder="member@example.com" autocomplete="off">
+          </label>
+          <label for="invite-name">Display name
+            <input id="invite-name" name="display_name" type="text" maxlength="100" placeholder="e.g. Alice Smith" autocomplete="off">
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="btn">Send invite</button>
+          </div>
+        </form>
+        {{if .Invites}}
+        <h3>Pending invites</h3>
+        <ul class="app-passwords-list">
+          {{range .Invites}}
+          <li class="app-password-item">
+            <div>
+              <strong>{{.Email}}</strong>
+              <span class="field-hint">expires {{formatDetailDate .ExpiresAt}}{{if .UsedAt}} · used{{end}}</span>
+            </div>
+            {{if not .UsedAt}}
+            <form class="inline-form" method="post" action="/admin/invites/revoke">
+              <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button type="submit" class="btn btn-ghost btn-sm">Revoke</button>
+            </form>
+            {{end}}
+          </li>
+          {{end}}
+        </ul>
+        {{end}}
+        {{if .AdminUsers}}
+        <h3>Accounts</h3>
+        <ul class="app-passwords-list">
+          {{range .AdminUsers}}
+          <li class="app-password-item">
+            <div>
+              <strong>{{.Email}}</strong>
+              <span class="field-hint">{{.DisplayName}}{{if .IsAdmin}} · admin{{end}}{{if not .Enabled}} · disabled{{end}}</span>
+            </div>
+            {{if and (ne .ID $.User.ID) (not .IsAdmin)}}
+            <button type="button" class="btn btn-ghost btn-sm"
+              hx-delete="/admin/users/{{.ID}}"
+              hx-confirm="Delete {{.Email}} and all their mail?">Delete</button>
+            {{end}}
+          </li>
+          {{end}}
+        </ul>
+        {{end}}
+      </div>
+    </section>
+    {{end}}
   </div>
 </div>
 {{end}}

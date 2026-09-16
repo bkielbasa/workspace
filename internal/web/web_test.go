@@ -218,6 +218,14 @@ func (u testUserService) ChangePassword(context.Context, uuid.UUID, string) erro
 	return nil
 }
 
+func (u testUserService) List(context.Context) ([]identity.User, error) {
+	return nil, nil
+}
+
+func (u testUserService) Delete(context.Context, uuid.UUID) error {
+	return nil
+}
+
 type contactService struct{}
 
 type contactServiceWithEmails struct {
@@ -342,6 +350,14 @@ func (userService) Update(context.Context, uuid.UUID, string, bool) error {
 }
 
 func (userService) ChangePassword(context.Context, uuid.UUID, string) error {
+	return nil
+}
+
+func (userService) List(context.Context) ([]identity.User, error) {
+	return nil, nil
+}
+
+func (userService) Delete(context.Context, uuid.UUID) error {
 	return nil
 }
 

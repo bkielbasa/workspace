@@ -44,10 +44,10 @@ func (r *userRepository) Create(ctx context.Context, email, passwordHash, displa
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO users (email, password_hash, display_name)
 		VALUES ($1, $2, $3)
-		RETURNING id, email, password_hash, display_name, enabled, created_at, updated_at
+		RETURNING id, email, password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
 	`, email, passwordHash, displayName).Scan(
 		&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName,
-		&user.Enabled, &user.CreatedAt, &user.UpdatedAt,
+		&user.Enabled, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
@@ -72,10 +72,10 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*identit
 func (r *userRepository) get(ctx context.Context, where string, arg any) (*identity.User, error) {
 	user := &identity.User{}
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, email, password_hash, display_name, enabled, created_at, updated_at
+		SELECT id, email, password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
 		FROM users `+where, arg).Scan(
 		&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName,
-		&user.Enabled, &user.CreatedAt, &user.UpdatedAt,
+		&user.Enabled, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, identity.ErrUserNotFound
@@ -88,7 +88,7 @@ func (r *userRepository) get(ctx context.Context, where string, arg any) (*ident
 
 func (r *userRepository) List(ctx context.Context) ([]identity.User, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, email, password_hash, display_name, enabled, created_at, updated_at
+		SELECT id, email, password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
 		FROM users ORDER BY created_at
 	`)
 	if err != nil {
@@ -100,7 +100,7 @@ func (r *userRepository) List(ctx context.Context) ([]identity.User, error) {
 	for rows.Next() {
 		var user identity.User
 		if err := rows.Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName,
-			&user.Enabled, &user.CreatedAt, &user.UpdatedAt); err != nil {
+			&user.Enabled, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 		users = append(users, user)

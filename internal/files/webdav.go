@@ -194,7 +194,7 @@ func (h *handler) propfind(w http.ResponseWriter, r *http.Request, home string, 
 	depth := strings.TrimSpace(r.Header.Get("Depth"))
 	if depth == "" {
 		depth = "infinity"
-	}	// Class-1 clients only need 0 and 1; infinity is folded to 1.
+	} // Class-1 clients only need 0 and 1; infinity is folded to 1.
 	if depth != "0" && depth != "1" && depth != "infinity" {
 		http.Error(w, "bad depth", http.StatusBadRequest)
 		return

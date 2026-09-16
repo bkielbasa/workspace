@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
 )
 
 var (
@@ -201,7 +200,8 @@ func (s *Store) Open(home string, name string) (io.ReadSeekCloser, File, error) 
 }
 
 // usage sums bytes under the user's root.
-func (s *Store) usage(home string) (int64, error) {	var total int64
+func (s *Store) usage(home string) (int64, error) {
+	var total int64
 	root := s.userRoot(home)
 	err := filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil {

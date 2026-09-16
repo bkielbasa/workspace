@@ -17,6 +17,9 @@ var (
 	ErrDomainAlreadyExists = errors.New("domain already exists")
 	ErrAliasNotFound       = errors.New("alias not found")
 	ErrAliasAlreadyExists  = errors.New("alias already exists")
+	ErrInviteNotFound      = errors.New("invite not found")
+	ErrInviteExpired       = errors.New("invite expired")
+	ErrInviteUsed          = errors.New("invite already used")
 )
 
 type User struct {
@@ -25,6 +28,7 @@ type User struct {
 	PasswordHash string
 	DisplayName  string
 	Enabled      bool
+	IsAdmin      bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

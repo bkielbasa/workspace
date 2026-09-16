@@ -16,7 +16,7 @@ import (
 	"github.com/bklimczak/workspace/internal/files"
 	"github.com/bklimczak/workspace/internal/web"
 	"github.com/google/uuid"
-	)
+)
 
 type memFile struct {
 	isDir bool

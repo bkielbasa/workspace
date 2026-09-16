@@ -37,7 +37,7 @@ func (m *memUserStore) Get(_ context.Context, id uuid.UUID) (*User, error) {
 func (m *memUserStore) GetByEmail(_ context.Context, email string) (*User, error) {
 	u, ok := m.byEmail[email]
 	if !ok {
-		return nil, errors.New("not found")
+		return nil, ErrUserNotFound
 	}
 	cp := *u
 	return &cp, nil

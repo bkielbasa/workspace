@@ -153,6 +153,7 @@ func main() {
 	}
 	webUI.SetDeviceSetup(appPasswords, mailHostname, davHost)
 	webUI.SetFiles(fileStore)
+	webUI.SetInvites(identity.NewInvites(postgres.NewInviteRepository(db), users))
 	(&discovery{mailHost: mailHostname, davHost: davHost, domains: domains}).register(mux)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -254,4 +255,3 @@ func initDKIM() *DKIM {
 		Private:  key,
 	}
 }
-

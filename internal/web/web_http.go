@@ -77,6 +77,16 @@ type usersService interface {
 	Get(context.Context, uuid.UUID) (*identity.User, error)
 	Update(context.Context, uuid.UUID, string, bool) error
 	ChangePassword(context.Context, uuid.UUID, string) error
+	List(context.Context) ([]identity.User, error)
+	Delete(context.Context, uuid.UUID) error
+}
+
+type invitesService interface {
+	CreateInvite(ctx context.Context, email, displayName string) (string, *identity.Invite, error)
+	Lookup(ctx context.Context, token string) (*identity.Invite, error)
+	Accept(ctx context.Context, token, displayName, password string) (*identity.User, error)
+	List(ctx context.Context) ([]identity.Invite, error)
+	Revoke(ctx context.Context, id uuid.UUID) error
 }
 
 // Server owns the web templates, assets, and cookie authentication policy.
@@ -95,6 +105,8 @@ type Server struct {
 	appPasswords appPasswordsService
 	mailHost     string
 	davHost      string
+	// invites wires family onboarding. Optional like the above.
+	invites invitesService
 }
 
 // SetDeviceSetup enables the iPhone profile flow with embedded per-device
@@ -103,6 +115,11 @@ func (s *Server) SetDeviceSetup(apps appPasswordsService, mailHost, davHost stri
 	s.appPasswords = apps
 	s.mailHost = mailHost
 	s.davHost = davHost
+}
+
+// SetInvites enables family invite management. Call once after New.
+func (s *Server) SetInvites(invites invitesService) {
+	s.invites = invites
 }
 
 // SetFiles enables the Drive file browser backed by the file store.
@@ -153,6 +170,11 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /profile/password", s.RequireAuth(s.RequireCSRF(s.profileChangePassword)))
 	mux.HandleFunc("POST /profile/iphone-profile", s.RequireAuth(s.RequireCSRF(s.iphoneProfile)))
 	mux.HandleFunc("POST /profile/app-passwords/revoke", s.RequireAuth(s.RequireCSRF(s.appPasswordRevoke)))
+	mux.HandleFunc("POST /admin/invites", s.RequireAuth(s.RequireCSRF(s.inviteCreate)))
+	mux.HandleFunc("POST /admin/invites/revoke", s.RequireAuth(s.RequireCSRF(s.inviteRevoke)))
+	mux.HandleFunc("DELETE /admin/users/{id}", s.RequireAuth(s.RequireCSRF(s.adminUserDelete)))
+	mux.HandleFunc("GET /invite/accept", s.inviteAcceptPage)
+	mux.HandleFunc("POST /invite/accept", s.inviteAccept)
 
 	mux.HandleFunc("GET /drive", s.page(s.views.drivePage))
 	mux.HandleFunc("GET /drive/download", s.RequireAuth(s.views.driveDownload))

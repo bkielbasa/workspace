@@ -1,0 +1,40 @@
+{{define "content"}}<div class="profile-container">
+  <div class="profile-header">
+    <h1>{{if .InviteEmail}}Welcome{{else}}Invite{{end}}</h1>
+    <p class="subtitle">{{if .InviteEmail}}Set a password to activate {{.InviteEmail}}{{else}}Family account invitation{{end}}</p>
+  </div>
+
+  {{if .Error}}
+  <div class="profile-alert error" role="alert">
+    {{.Error}}
+  </div>
+  {{end}}
+
+  {{if .InviteEmail}}
+  <section class="card profile-card">
+    <div class="card-body">
+      <form method="post" action="/invite/accept" class="profile-form">
+        <input type="hidden" name="token" value="{{.InviteLink}}">
+
+        <label for="invite-name">Display name
+          <input id="invite-name" name="display_name" type="text" maxlength="100" placeholder="e.g. Alice Smith" autocomplete="name">
+          <span class="field-hint">How your name appears to others</span>
+        </label>
+
+        <label for="invite-password">Password
+          <input id="invite-password" name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters">
+        </label>
+
+        <label for="invite-confirm">Confirm password
+          <input id="invite-confirm" name="confirm_password" type="password" required minlength="8" autocomplete="new-password" placeholder="Re-enter your password">
+        </label>
+
+        <div class="form-actions">
+          <button type="submit" class="btn">Activate account</button>
+        </div>
+      </form>
+    </div>
+  </section>
+  {{end}}
+</div>
+{{end}}

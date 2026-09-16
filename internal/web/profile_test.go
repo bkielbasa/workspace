@@ -19,6 +19,7 @@ import (
 
 type profileMockUserService struct {
 	user              *identity.User
+	usersList         []identity.User
 	authErr           error
 	updateErr         error
 	changePasswordErr error
@@ -43,6 +44,14 @@ func (m *profileMockUserService) Update(ctx context.Context, id uuid.UUID, displ
 	}
 	m.lastUpdatedName = displayName
 	m.user.DisplayName = displayName
+	return nil
+}
+
+func (m *profileMockUserService) List(context.Context) ([]identity.User, error) {
+	return m.usersList, nil
+}
+
+func (m *profileMockUserService) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
@@ -486,5 +495,173 @@ func TestAppPasswordRevokeFlow(t *testing.T) {
 	}
 	if len(apps.recs) != 0 {
 		t.Errorf("revoke left %+v", apps.recs)
+	}
+}
+
+type stubInvites struct {
+	token   string
+	invite  *identity.Invite
+	created int
+	revoked []uuid.UUID
+	user    *identity.User
+}
+
+func (s *stubInvites) CreateInvite(_ context.Context, email, _ string) (string, *identity.Invite, error) {
+	s.created++
+	inv := &identity.Invite{ID: uuid.New(), Email: email, ExpiresAt: time.Now().Add(time.Hour)}
+	if s.invite != nil {
+		inv.UserID = s.invite.UserID
+	}
+	s.invite = inv
+	return s.token, inv, nil
+}
+
+func (s *stubInvites) Lookup(_ context.Context, token string) (*identity.Invite, error) {
+	if s.invite == nil || token != s.token {
+		return nil, identity.ErrInviteNotFound
+	}
+	return s.invite, nil
+}
+
+func (s *stubInvites) Accept(_ context.Context, token, _, _ string) (*identity.User, error) {
+	if s.invite == nil || token != s.token {
+		return nil, identity.ErrInviteNotFound
+	}
+	return s.user, nil
+}
+
+func (s *stubInvites) List(context.Context) ([]identity.Invite, error) {
+	if s.invite == nil {
+		return nil, nil
+	}
+	return []identity.Invite{*s.invite}, nil
+}
+
+func (s *stubInvites) Revoke(_ context.Context, id uuid.UUID) error {
+	s.revoked = append(s.revoked, id)
+	return nil
+}
+
+func setupInviteTestServer(t *testing.T, admin bool) (*http.ServeMux, *stubInvites, *mailServiceStub, string) {
+	t.Helper()
+	files := os.DirFS("../..")
+	userID := uuid.New()
+	user := &identity.User{ID: userID, Email: "admin@example.com", DisplayName: "Admin", Enabled: true, IsAdmin: admin}
+	userSvc := &profileMockUserService{user: user}
+	sessSvc := newProfileMockSessionService()
+	sess, _ := sessSvc.Create(context.Background(), userID, time.Hour)
+	mailSvc := &mailServiceStub{}
+	apps := &stubInvites{token: "test-token-123", user: user}
+
+	server, err := web.New(files, contactService{}, calendarService{}, mailSvc, sessSvc, userSvc, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.SetInvites(apps)
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux)
+	return mux, apps, mailSvc, sess.Token
+}
+
+func invitePost(t *testing.T, mux *http.ServeMux, target string, form url.Values, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "session", Value: token})
+	req.AddCookie(&http.Cookie{Name: "csrf", Value: "test-csrf-token"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestInviteCreateFlow(t *testing.T) {
+	mux, apps, mailSvc, token := setupInviteTestServer(t, true)
+
+	// Admin sees the Family card.
+	req := httptest.NewRequest(http.MethodGet, "/profile", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: token})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if body := rec.Body.String(); !strings.Contains(body, "Family") {
+		t.Errorf("admin missing Family card")
+	}
+
+	// Create sends the email and shows the one-time link.
+	form := url.Values{"_csrf": {"test-csrf-token"}, "email": {"kid@example.com"}, "display_name": {"Kid"}}
+	rec = invitePost(t, mux, "/admin/invites", form, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "/invite/accept?token=test-token-123") {
+		t.Errorf("one-time link not shown")
+	}
+	if mailSvc.lastSent == nil {
+		t.Errorf("invite email not sent")
+	}
+	if apps.created != 1 {
+		t.Errorf("invite not created")
+	}
+
+	// Non-admin is refused and sees no card.
+	mux2, _, _, token2 := setupInviteTestServer(t, false)
+	rec = invitePost(t, mux2, "/admin/invites", form, token2)
+	if body := rec.Body.String(); !strings.Contains(body, "Admins only") {
+		t.Errorf("non-admin not refused")
+	}
+	req = httptest.NewRequest(http.MethodGet, "/profile", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: token2})
+	rec = httptest.NewRecorder()
+	mux2.ServeHTTP(rec, req)
+	if strings.Contains(rec.Body.String(), "Family") {
+		t.Errorf("non-admin sees Family card")
+	}
+}
+
+func TestInviteAcceptFlow(t *testing.T) {
+	mux, apps, _, token := setupInviteTestServer(t, true)
+	apps.invite = &identity.Invite{ID: uuid.New(), Email: "kid@example.com", ExpiresAt: time.Now().Add(time.Hour)}
+
+	// Bad token explains itself.
+	req := httptest.NewRequest(http.MethodGet, "/invite/accept?token=nope", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "invalid") {
+		t.Fatalf("bad token page = %d", rec.Code)
+	}
+
+	// Good token renders the form with the email.
+	req = httptest.NewRequest(http.MethodGet, "/invite/accept?token=test-token-123", nil)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if body := rec.Body.String(); !strings.Contains(body, "kid@example.com") {
+		t.Errorf("accept page missing email")
+	}
+
+	// Mismatched passwords re-render with an error.
+	form := url.Values{"token": {"test-token-123"}, "display_name": {"Kid"}, "password": {"secret-123"}, "confirm_password": {"other"}}
+	rec = invitePost(t, mux, "/invite/accept", form, token)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "do not match") {
+		t.Fatalf("mismatch = %d", rec.Code)
+	}
+
+	// Accept signs straight in.
+	form.Set("confirm_password", "secret-123")
+	rec = invitePost(t, mux, "/invite/accept", form, token)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("accept = %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/profile?success=invite" {
+		t.Errorf("redirect = %q", loc)
+	}
+	if rec.Header().Get("Set-Cookie") == "" {
+		t.Errorf("no session cookie set")
+	}
+
+	// Revoke burns the token.
+	form = url.Values{"_csrf": {"test-csrf-token"}, "id": {apps.invite.ID.String()}}
+	rec = invitePost(t, mux, "/admin/invites/revoke", form, token)
+	if rec.Code != http.StatusSeeOther || len(apps.revoked) != 1 {
+		t.Errorf("revoke = %d, revoked %v", rec.Code, apps.revoked)
 	}
 }
