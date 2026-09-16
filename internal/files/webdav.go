@@ -42,6 +42,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"method", r.Method,
 			"path", r.URL.Path,
 			"depth", strings.TrimSpace(r.Header.Get("Depth")),
+			"user_agent", r.Header.Get("User-Agent"),
+			"content_type", r.Header.Get("Content-Type"),
 			"status", sw.status,
 			"bytes", sw.bytes,
 		)
