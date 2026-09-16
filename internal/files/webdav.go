@@ -51,7 +51,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w = sw
 
 	if r.Method == http.MethodOptions {
-		w.Header().Set("DAV", "1, 2")
+		// Class 1 only: collections + properties, no locking. Claiming
+		// "2" makes strict clients probe LOCK support that 405s here.
+		w.Header().Set("DAV", "1")
 		w.Header().Set("Allow", "OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, MOVE, COPY, PROPFIND")
 		w.WriteHeader(http.StatusOK)
 		return
