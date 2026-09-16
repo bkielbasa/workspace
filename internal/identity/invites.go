@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // Invite token lifetime: family members are slow, but tokens are bearer
@@ -78,25 +77,17 @@ func (s *Invites) CreateInvite(ctx context.Context, email, displayName string) (
 		if !errors.Is(err, ErrUserNotFound) {
 			return "", nil, err
 		}
-		// Random unknown password: the account cannot be used until accepted.
-		bootstrap, genErr := GeneratePassword()
-		if genErr != nil {
-			return "", nil, genErr
-		}
-		hash, genErr := bcrypt.GenerateFromPassword([]byte(bootstrap), bcrypt.DefaultCost)
-		if genErr != nil {
-			return "", nil, fmt.Errorf("hash password: %w", genErr)
-		}
-		created, err := s.users.repo.Create(ctx, email, string(hash), displayName)
+		created, err := s.users.CreateDisabled(ctx, email, displayName)
 		if err != nil {
 			return "", nil, err
 		}
 		user = created
 	} else if user.Enabled {
 		return "", nil, fmt.Errorf("account %s already active", email)
-	}
-	if err := s.users.repo.Update(ctx, user.ID, displayNameOr(user.DisplayName, displayName), false); err != nil {
-		return "", nil, err
+	} else if strings.TrimSpace(displayName) != "" {
+		if err := s.users.repo.Update(ctx, user.ID, displayName, false); err != nil {
+			return "", nil, err
+		}
 	}
 	_ = s.repo.DeleteForUser(ctx, user.ID)
 
@@ -110,13 +101,6 @@ func (s *Invites) CreateInvite(ctx context.Context, email, displayName string) (
 	}
 	invite.Email = user.Email
 	return plain, invite, nil
-}
-
-func displayNameOr(current, fallback string) string {
-	if strings.TrimSpace(current) != "" {
-		return current
-	}
-	return fallback
 }
 
 // Lookup resolves a presented token without consuming it (for rendering the

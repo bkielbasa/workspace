@@ -25,6 +25,8 @@ type profileMockUserService struct {
 	changePasswordErr error
 	lastUpdatedName   string
 	lastNewPassword   string
+	lastUsername      string
+	setUsernameErr    error
 }
 
 func (m *profileMockUserService) Authenticate(ctx context.Context, email, password string) (*identity.User, error) {
@@ -53,6 +55,11 @@ func (m *profileMockUserService) List(context.Context) ([]identity.User, error) 
 
 func (m *profileMockUserService) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
+}
+
+func (m *profileMockUserService) SetUsername(ctx context.Context, id uuid.UUID, username string) error {
+	m.lastUsername = username
+	return m.setUsernameErr
 }
 
 func (m *profileMockUserService) ChangePassword(ctx context.Context, id uuid.UUID, password string) error {
@@ -663,5 +670,30 @@ func TestInviteAcceptFlow(t *testing.T) {
 	rec = invitePost(t, mux, "/admin/invites/revoke", form, token)
 	if rec.Code != http.StatusSeeOther || len(apps.revoked) != 1 {
 		t.Errorf("revoke = %d, revoked %v", rec.Code, apps.revoked)
+	}
+}
+
+func TestProfileUsernameUpdate(t *testing.T) {
+	mux, userSvc, _, _, token := setupProfileTestServer(t)
+
+	csrfToken := "test-csrf-token"
+	form := url.Values{
+		"_csrf":        {csrfToken},
+		"display_name": {"Test User"},
+		"username":     {"tester"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/profile", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "session", Value: token})
+	req.AddCookie(&http.Cookie{Name: "csrf", Value: csrfToken})
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected redirect 303, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+	if userSvc.lastUsername != "tester" {
+		t.Errorf("username not saved, got %q", userSvc.lastUsername)
 	}
 }

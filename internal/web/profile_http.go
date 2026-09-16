@@ -50,6 +50,14 @@ func (s *Server) profileUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if username := strings.TrimSpace(r.FormValue("username")); username != "" && username != user.Username {
+		if err := s.users.SetUsername(r.Context(), user.ID, username); err != nil {
+			obs.Log(r.Context(), slog.LevelWarn, "invalid username", "user_id", user.ID, "error", err)
+			s.renderProfile(w, r, user, "Could not change username: "+err.Error(), "")
+			return
+		}
+	}
+
 	http.Redirect(w, r, "/profile?success=profile", http.StatusSeeOther)
 }
 

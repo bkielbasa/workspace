@@ -17,8 +17,8 @@ func newMemUserStore() *memUserStore {
 	return &memUserStore{byID: map[uuid.UUID]*User{}, byEmail: map[string]*User{}}
 }
 
-func (m *memUserStore) Create(_ context.Context, email, hash, name string) (*User, error) {
-	u := &User{ID: uuid.New(), Email: email, PasswordHash: hash, DisplayName: name, Enabled: true}
+func (m *memUserStore) Create(_ context.Context, email, username, hash, name string) (*User, error) {
+	u := &User{ID: uuid.New(), Email: email, Username: username, PasswordHash: hash, DisplayName: name, Enabled: true}
 	m.byID[u.ID] = u
 	m.byEmail[email] = u
 	cp := *u
@@ -32,6 +32,25 @@ func (m *memUserStore) Get(_ context.Context, id uuid.UUID) (*User, error) {
 	}
 	cp := *u
 	return &cp, nil
+}
+
+func (m *memUserStore) GetByUsername(_ context.Context, username string) (*User, error) {
+	for _, u := range m.byEmail {
+		if u.Username == username {
+			cp := *u
+			return &cp, nil
+		}
+	}
+	return nil, ErrUserNotFound
+}
+
+func (m *memUserStore) SetUsername(_ context.Context, id uuid.UUID, username string) error {
+	u, ok := m.byID[id]
+	if !ok {
+		return errors.New("not found")
+	}
+	u.Username = username
+	return nil
 }
 
 func (m *memUserStore) GetByEmail(_ context.Context, email string) (*User, error) {

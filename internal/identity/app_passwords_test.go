@@ -85,8 +85,16 @@ type memUserRepo struct {
 	users map[string]*User
 }
 
-func (m memUserRepo) Create(context.Context, string, string, string) (*User, error) {
+func (m memUserRepo) Create(context.Context, string, string, string, string) (*User, error) {
 	return nil, nil
+}
+
+func (m memUserRepo) GetByUsername(context.Context, string) (*User, error) {
+	return nil, errors.New("not found")
+}
+
+func (m memUserRepo) SetUsername(context.Context, uuid.UUID, string) error {
+	return nil
 }
 
 func (m memUserRepo) Get(context.Context, uuid.UUID) (*User, error) { return nil, nil }

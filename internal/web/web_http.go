@@ -79,6 +79,7 @@ type usersService interface {
 	ChangePassword(context.Context, uuid.UUID, string) error
 	List(context.Context) ([]identity.User, error)
 	Delete(context.Context, uuid.UUID) error
+	SetUsername(ctx context.Context, id uuid.UUID, username string) error
 }
 
 type invitesService interface {

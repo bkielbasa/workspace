@@ -31,6 +31,11 @@
             <span class="field-hint">Primary email used for sign in and mail</span>
           </label>
 
+          <label for="profile-username">Username
+            <input id="profile-username" name="username" type="text" value="{{.User.Username}}" maxlength="32" placeholder="username" autocomplete="username">
+            <span class="field-hint">Alternative sign-in name (letters, digits, dot, underscore, plus, dash)</span>
+          </label>
+
           <label for="display-name">Display name
             <input id="display-name" name="display_name" type="text" value="{{.User.DisplayName}}" maxlength="100" placeholder="e.g. Alice Smith" autocomplete="name">
             <span class="field-hint">How your name appears in calendar, mail, and headers</span>
@@ -182,7 +187,7 @@
           <li class="app-password-item">
             <div>
               <strong>{{.Email}}</strong>
-              <span class="field-hint">{{.DisplayName}}{{if .IsAdmin}} · admin{{end}}{{if not .Enabled}} · disabled{{end}}</span>
+              <span class="field-hint">{{.DisplayName}} · login: {{.Username}}{{if .IsAdmin}} · admin{{end}}{{if not .Enabled}} · disabled{{end}}</span>
             </div>
             {{if and (ne .ID $.User.ID) (not .IsAdmin)}}
             <button type="button" class="btn btn-ghost btn-sm"

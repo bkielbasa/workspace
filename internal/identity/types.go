@@ -25,6 +25,7 @@ var (
 type User struct {
 	ID           uuid.UUID
 	Email        string
+	Username     string
 	PasswordHash string
 	DisplayName  string
 	Enabled      bool

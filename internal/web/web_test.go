@@ -226,6 +226,10 @@ func (u testUserService) Delete(context.Context, uuid.UUID) error {
 	return nil
 }
 
+func (u testUserService) SetUsername(context.Context, uuid.UUID, string) error {
+	return nil
+}
+
 type contactService struct{}
 
 type contactServiceWithEmails struct {
@@ -358,6 +362,10 @@ func (userService) List(context.Context) ([]identity.User, error) {
 }
 
 func (userService) Delete(context.Context, uuid.UUID) error {
+	return nil
+}
+
+func (userService) SetUsername(context.Context, uuid.UUID, string) error {
 	return nil
 }
 

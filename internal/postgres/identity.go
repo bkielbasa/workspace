@@ -24,7 +24,7 @@ func NewUserRepository(db *sql.DB) identity.UserRepository {
 	return &userRepository{db: db}
 }
 
-func (r *userRepository) Create(ctx context.Context, email, passwordHash, displayName string) (*identity.User, error) {
+func (r *userRepository) Create(ctx context.Context, email, username, passwordHash, displayName string) (*identity.User, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
@@ -42,11 +42,11 @@ func (r *userRepository) Create(ctx context.Context, email, passwordHash, displa
 
 	user := &identity.User{}
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO users (email, password_hash, display_name)
-		VALUES ($1, $2, $3)
-		RETURNING id, email, password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
-	`, email, passwordHash, displayName).Scan(
-		&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName,
+		INSERT INTO users (email, username, password_hash, display_name)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, email, COALESCE(username, ''), password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
+	`, email, username, passwordHash, displayName).Scan(
+		&user.ID, &user.Email, &user.Username, &user.PasswordHash, &user.DisplayName,
 		&user.Enabled, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
@@ -69,12 +69,21 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*identit
 	return r.get(ctx, `WHERE email = $1`, email)
 }
 
+func (r *userRepository) GetByUsername(ctx context.Context, username string) (*identity.User, error) {
+	return r.get(ctx, `WHERE username = $1`, username)
+}
+
+func (r *userRepository) SetUsername(ctx context.Context, id uuid.UUID, username string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET username = $2 WHERE id = $1`, id, username)
+	return err
+}
+
 func (r *userRepository) get(ctx context.Context, where string, arg any) (*identity.User, error) {
 	user := &identity.User{}
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, email, password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
+		SELECT id, email, COALESCE(username, ''), password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
 		FROM users `+where, arg).Scan(
-		&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName,
+		&user.ID, &user.Email, &user.Username, &user.PasswordHash, &user.DisplayName,
 		&user.Enabled, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -88,7 +97,7 @@ func (r *userRepository) get(ctx context.Context, where string, arg any) (*ident
 
 func (r *userRepository) List(ctx context.Context) ([]identity.User, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, email, password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
+		SELECT id, email, COALESCE(username, ''), password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
 		FROM users ORDER BY created_at
 	`)
 	if err != nil {
@@ -99,7 +108,7 @@ func (r *userRepository) List(ctx context.Context) ([]identity.User, error) {
 	users := make([]identity.User, 0)
 	for rows.Next() {
 		var user identity.User
-		if err := rows.Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName,
+		if err := rows.Scan(&user.ID, &user.Email, &user.Username, &user.PasswordHash, &user.DisplayName,
 			&user.Enabled, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}

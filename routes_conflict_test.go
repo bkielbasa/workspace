@@ -100,6 +100,9 @@ func (dummyUserService) Update(context.Context, uuid.UUID, string, bool) error  
 func (dummyUserService) ChangePassword(context.Context, uuid.UUID, string) error { return nil }
 func (dummyUserService) List(context.Context) ([]identity.User, error) { return nil, nil }
 func (dummyUserService) Delete(context.Context, uuid.UUID) error       { return nil }
+func (dummyUserService) SetUsername(context.Context, uuid.UUID, string) error {
+	return nil
+}
 
 func TestMuxRouteRegistrationNoConflict(t *testing.T) {
 	mux := http.NewServeMux()
