@@ -113,6 +113,7 @@ type views struct {
 	profileT     *template.Template
 	driveT       *template.Template
 	galleryT     *template.Template
+	uploadT      *template.Template
 	inviteT      *template.Template
 	login        *template.Template
 }
@@ -163,6 +164,10 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	if err != nil {
 		return nil, err
 	}
+	uploadT, err := page("web/templates/upload.html")
+	if err != nil {
+		return nil, err
+	}
 	login, err := template.New("").Funcs(templateFuncs).ParseFS(files, "web/templates/login.html")
 	if err != nil {
 		return nil, fmt.Errorf("web: parse login template: %w", err)
@@ -176,7 +181,7 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 		contacts: contactService, calendar: calendarService, mail: mailService,
 		sessions: sessions, users: users,
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
-		calendarT: calendarT, mailT: mailT, profileT: profileT, driveT: driveT, galleryT: galleryT, login: login,
+		calendarT: calendarT, mailT: mailT, profileT: profileT, driveT: driveT, galleryT: galleryT, uploadT: uploadT, login: login,
 		inviteT: inviteT,
 	}, nil
 }

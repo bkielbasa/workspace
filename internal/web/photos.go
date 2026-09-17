@@ -259,6 +259,21 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 	})
 }
 
+// uploadPage is the family-proof uploader: one giant button, nothing else.
+// The form posts to the same endpoint as the gallery; success lands on the
+// gallery so the new photos themselves are the confirmation.
+func (v *views) uploadPage(w http.ResponseWriter, r *http.Request, user *identity.User) {
+	if !v.requirePhotos(w) {
+		return
+	}
+	renderView(w, r, v.uploadT, "layout", viewData{
+		Title:     "Add photos",
+		Section:   "photos",
+		User:      user,
+		CSRFToken: csrfTokenFromRequest(r),
+	})
+}
+
 func (v *views) galleryFile(w http.ResponseWriter, r *http.Request) {
 	user := UserFromContext(r.Context())
 	if !v.requirePhotos(w) {

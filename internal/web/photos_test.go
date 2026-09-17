@@ -70,9 +70,21 @@ func TestGalleryEmptyAndUpload(t *testing.T) {
 	store := newMemFiles()
 	mux := photoTestServer(t, userID, store, memPhotoAuth{})
 
-	req := httptest.NewRequest(http.MethodGet, "/gallery", nil)
+	// The family-proof uploader is one button posting to the same endpoint.
+	req := httptest.NewRequest(http.MethodGet, "/upload", nil)
 	photoCookies(req)
 	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /upload = %d", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "Choose photos") || !strings.Contains(body, `action="/api/upload"`) {
+		t.Errorf("upload page missing the one-button form")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/gallery", nil)
+	photoCookies(req)
+	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /gallery = %d", rec.Code)
