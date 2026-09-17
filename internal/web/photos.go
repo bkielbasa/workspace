@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	_ "image/gif"
 	"image/jpeg"
+	_ "image/png"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -398,6 +401,119 @@ func (v *views) galleryDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+}
+
+// photoDetail carries one library item for the detail page.
+type photoDetail struct {
+	Name        string
+	Path        string
+	Kind        string // image, heic, video, file
+	Size        int64
+	Modified    time.Time
+	Dims        string // "3024 × 4032", best effort, empty when unknown
+	Label       string
+	HasPreview  bool
+	LabelsReady bool
+}
+
+// maxPhotoLabel caps labels at a short caption, not an essay.
+const maxPhotoLabel = 140
+
+// photoDetailPage renders one photo large with its metadata, label form and
+// the future home of sharing settings.
+func (v *views) photoDetailPage(w http.ResponseWriter, r *http.Request, user *identity.User) {
+	if !v.requirePhotos(w) {
+		return
+	}
+	home := files.HomeDir(user.Email)
+	name := cleanDrivePath(r.URL.Query().Get("path"))
+	if name == "" {
+		http.NotFound(w, r)
+		return
+	}
+	info, err := v.photos.Stat(home, name)
+	if err != nil || info.IsDir {
+		http.NotFound(w, r)
+		return
+	}
+	kind := kindOfPhoto(name)
+	item := photoDetail{
+		Name:        info.Name,
+		Path:        name,
+		Kind:        kind,
+		Size:        info.Size,
+		Modified:    info.ModTime,
+		Dims:        photoDimensions(v.photos, home, name),
+		LabelsReady: v.photoLabels != nil,
+	}
+	if kind == "heic" {
+		if _, err := v.photos.Stat(home, previewName(name)); err == nil {
+			item.HasPreview = true
+		}
+	}
+	if v.photoLabels != nil {
+		if label, err := v.photoLabels.Get(r.Context(), user.ID, name); err == nil {
+			item.Label = label
+		}
+	}
+	renderView(w, r, v.photoT, "layout", viewData{
+		Title:       info.Name,
+		Section:     "photos",
+		User:        user,
+		CSRFToken:   csrfTokenFromRequest(r),
+		Wide:        true,
+		Photo:       item,
+		Error:       driveFlash(r),
+	})
+}
+
+// photoLabel saves (or clears, when empty) the label of one photo.
+func (v *views) photoLabel(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	if !v.requirePhotos(w) {
+		return
+	}
+	home := files.HomeDir(user.Email)
+	name := cleanDrivePath(r.FormValue("path"))
+	if name == "" || v.photoLabels == nil {
+		http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+		return
+	}
+	if info, err := v.photos.Stat(home, name); err != nil || info.IsDir {
+		http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+		return
+	}
+	label := strings.TrimSpace(r.FormValue("label"))
+	if runes := []rune(label); len(runes) > maxPhotoLabel {
+		label = string(runes[:maxPhotoLabel])
+	}
+	if err := v.photoLabels.Set(r.Context(), user.ID, name, label); err != nil {
+		obs.Log(r.Context(), slog.LevelError, "save photo label failed", "path", name, "error", err)
+		http.Redirect(w, r, "/gallery/photo?path="+url.QueryEscape(name)+"&error=label", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/gallery/photo?path="+url.QueryEscape(name), http.StatusSeeOther)
+}
+
+// photoDimensions reports pixel dimensions for directly decodable images.
+// HEIC needs the external converter and stays unknown here; the preview
+// pipeline, not this string, is what the gallery depends on.
+func photoDimensions(store filesService, home, name string) string {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".jpg", ".jpeg", ".png", ".gif":
+	default:
+		return ""
+	}
+	f, _, err := store.Open(home, name)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d × %d", cfg.Width, cfg.Height)
 }
 
 type uploadResult struct {

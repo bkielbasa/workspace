@@ -78,6 +78,12 @@ type photoUploadAuth interface {
 	Authenticate(ctx context.Context, login, password string) (*identity.User, error)
 }
 
+// photoLabelStore persists per-photo labels (owner + library path).
+type photoLabelStore interface {
+	Get(ctx context.Context, userID uuid.UUID, path string) (string, error)
+	Set(ctx context.Context, userID uuid.UUID, path, label string) error
+}
+
 type usersService interface {
 	Authenticate(context.Context, string, string) (*identity.User, error)
 	Get(context.Context, uuid.UUID) (*identity.User, error)
@@ -140,6 +146,12 @@ func (s *Server) SetPhotos(svc filesService, auth photoUploadAuth) {
 	s.views.photoAuth = auth
 }
 
+// SetPhotoLabels enables per-photo labels on the detail page.
+// Optional like the other setters; the page hides the form without it.
+func (s *Server) SetPhotoLabels(store photoLabelStore) {
+	s.views.photoLabels = store
+}
+
 // New constructs the web server from the root embedded filesystem and services.
 // files must contain the existing web/templates and web/static directories.
 func New(files fs.FS, contacts contactsService, calendars calendarService, mail mailService, sessions sessionsService, users usersService, secure bool) (*Server, error) {
@@ -199,6 +211,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /drive/rename", s.RequireAuth(s.RequireCSRF(s.views.driveRename)))
 
 	mux.HandleFunc("GET /gallery", s.page(s.views.galleryPage))
+	mux.HandleFunc("GET /gallery/photo", s.page(s.views.photoDetailPage))
+	mux.HandleFunc("POST /gallery/label", s.RequireAuth(s.RequireCSRF(s.views.photoLabel)))
 	mux.HandleFunc("GET /gallery/file", s.RequireAuth(s.views.galleryFile))
 	mux.HandleFunc("GET /gallery/preview", s.RequireAuth(s.views.galleryPreview))
 	mux.HandleFunc("POST /gallery/delete", s.RequireAuth(s.RequireCSRF(s.views.galleryDelete)))

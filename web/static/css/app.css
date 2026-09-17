@@ -430,6 +430,57 @@ textarea::placeholder {
   padding: 1rem 1.25rem;
 }
 
+/* Photo detail: large stage plus a narrow side column. */
+.photo-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.photo-back {
+  text-decoration: none;
+}
+
+.photo-stage {
+  display: flex;
+  justify-content: center;
+  padding: 1rem;
+  background: #111;
+}
+
+.photo-large {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+.photo-side {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+
+.photo-meta dl {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.75rem 0;
+}
+
+.photo-meta dl > div {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.photo-meta dt {
+  font-weight: 600;
+  min-width: 4rem;
+}
+
+.photo-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .gallery-title {
   margin: 0;
   font-size: 1.4rem;

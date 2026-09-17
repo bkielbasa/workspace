@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -53,9 +54,36 @@ func photoTestServer(t *testing.T, userID uuid.UUID, store *memFiles, auth memPh
 		t.Fatal(err)
 	}
 	server.SetPhotos(store, auth)
+	server.SetPhotoLabels(newMemPhotoLabels())
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
 	return mux
+}
+
+type memPhotoLabels struct {
+	mu     sync.Mutex
+	labels map[string]string
+}
+
+func newMemPhotoLabels() *memPhotoLabels {
+	return &memPhotoLabels{labels: map[string]string{}}
+}
+
+func (m *memPhotoLabels) Get(_ context.Context, _ uuid.UUID, path string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.labels[path], nil
+}
+
+func (m *memPhotoLabels) Set(_ context.Context, _ uuid.UUID, path, label string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if label == "" {
+		delete(m.labels, path)
+		return nil
+	}
+	m.labels[path] = label
+	return nil
 }
 
 var errAuthTest = errors.New("bad credentials")
@@ -182,5 +210,77 @@ func TestGalleryDelete(t *testing.T) {
 	}
 	if _, ok := store.files["2026-01/old.jpg"]; ok {
 		t.Errorf("file not deleted")
+	}
+}
+
+func TestPhotoDetailAndLabel(t *testing.T) {
+	userID := uuid.New()
+	store := newMemFiles()
+	mux := photoTestServer(t, userID, store, memPhotoAuth{})
+
+	store.files["2026-09/beach.jpg"] = &memFile{data: []byte("fake-image-bytes"), mod: time.Now()}
+
+	// Detail page renders the large view, metadata and label form.
+	req := httptest.NewRequest(http.MethodGet, "/gallery/photo?path=2026-09%2Fbeach.jpg", nil)
+	photoCookies(req)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET detail = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"Download original", "Sharing", "Save label", "/gallery/file?path=2026-09/beach.jpg"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("detail missing %q", want)
+		}
+	}
+
+	// Missing file is a 404, not a 500.
+	req = httptest.NewRequest(http.MethodGet, "/gallery/photo?path=2026-09%2Fnope.jpg", nil)
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("missing detail = %d, want 404", rec.Code)
+	}
+
+	// Save a label, see it on the detail page, clear it again.
+	form := url.Values{"_csrf": {"test-csrf-token"}, "path": {"2026-09/beach.jpg"}, "label": {"Tatra sunrise"}}
+	req = httptest.NewRequest(http.MethodPost, "/gallery/label", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("label save = %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "/gallery/photo?path=") {
+		t.Errorf("label redirect = %q", loc)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/gallery/photo?path=2026-09%2Fbeach.jpg", nil)
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if body := rec.Body.String(); !strings.Contains(body, "Tatra sunrise") {
+		t.Errorf("saved label not shown")
+	}
+
+	form = url.Values{"_csrf": {"test-csrf-token"}, "path": {"2026-09/beach.jpg"}, "label": {""}}
+	req = httptest.NewRequest(http.MethodPost, "/gallery/label", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("label clear = %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/gallery/photo?path=2026-09%2Fbeach.jpg", nil)
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if body := rec.Body.String(); strings.Contains(body, "Tatra sunrise") {
+		t.Errorf("cleared label still shown")
 	}
 }

@@ -178,6 +178,8 @@ func driveFlash(r *http.Request) string {
 		return "Could not delete."
 	case "rename":
 		return "Could not rename. Names must stay inside the current folder."
+	case "label":
+		return "Could not save that label."
 	}
 	return ""
 }

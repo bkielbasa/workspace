@@ -21,17 +21,17 @@
       {{range .Files}}
       <figure class="gallery-item">
         {{if eq .Kind "image"}}
-        <a href="/gallery/file?path={{.Path}}"><img src="/gallery/file?path={{.Path}}" alt="{{.Name}}" loading="lazy"></a>
+        <a href="/gallery/photo?path={{.Path}}"><img src="/gallery/file?path={{.Path}}" alt="{{.Name}}" loading="lazy"></a>
         {{else if eq .Kind "heic"}}
           {{if .HasPreview}}
-          <a href="/gallery/file?path={{.Path}}"><img src="/gallery/preview?path={{.Path}}" alt="{{.Name}}" loading="lazy"></a>
+          <a href="/gallery/photo?path={{.Path}}"><img src="/gallery/preview?path={{.Path}}" alt="{{.Name}}" loading="lazy"></a>
           {{else}}
-          <a class="gallery-file-link" href="/gallery/file?path={{.Path}}"><span class="gallery-file-icon" aria-hidden="true">🖼</span><span>{{.Name}}</span></a>
+          <a class="gallery-file-link" href="/gallery/photo?path={{.Path}}"><span class="gallery-file-icon" aria-hidden="true">🖼</span><span>{{.Name}}</span></a>
           {{end}}
         {{else if eq .Kind "video"}}
         <video src="/gallery/file?path={{.Path}}" preload="none" controls></video>
         {{else}}
-        <a class="gallery-file-link" href="/gallery/file?path={{.Path}}"><span class="gallery-file-icon" aria-hidden="true">📄</span><span>{{.Name}}</span></a>
+        <a class="gallery-file-link" href="/gallery/photo?path={{.Path}}"><span class="gallery-file-icon" aria-hidden="true">📄</span><span>{{.Name}}</span></a>
         {{end}}
         <figcaption class="gallery-caption" title="{{.Name}}">{{.Name}}</figcaption>
       </figure>
