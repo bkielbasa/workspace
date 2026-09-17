@@ -82,7 +82,7 @@
       {{if .AlbumsReady}}
       <h3>Albums</h3>
       {{range .Albums}}
-      <div class="gallery-nav-row{{if eq .ID $.ActiveAlbumID}} active{{end}}">
+      <div class="gallery-nav-row{{if eq .ID $.ActiveAlbumID}} active{{end}}" data-drop-album="{{.ID}}" data-drop-name="{{.Name}}">
         <a class="gallery-nav-link" href="/gallery?album={{.ID}}" hx-get="/gallery/content?album={{.ID}}" hx-target="#gallery-content" hx-swap="outerHTML" hx-push-url="/gallery?album={{.ID}}">📁 {{.Name}} <span class="gallery-nav-count">{{.Count}}</span></a>
         <form class="inline-form" hx-post="/gallery/albums/delete" hx-target="#gallery-content" hx-swap="outerHTML">
           <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
@@ -100,7 +100,7 @@
       {{if .TagCounts}}
       <h3>Tags</h3>
       {{range .TagCounts}}
-      <div class="gallery-nav-row{{if eq .Tag $.ActiveTag}} active{{end}}">
+      <div class="gallery-nav-row{{if eq .Tag $.ActiveTag}} active{{end}}" data-drop-tag="{{.Tag}}">
         <a class="gallery-nav-link" href="/gallery?tag={{.Tag}}" hx-get="/gallery/content?tag={{.Tag}}" hx-target="#gallery-content" hx-swap="outerHTML" hx-push-url="/gallery?tag={{.Tag}}"># {{.Tag}} <span class="gallery-nav-count">{{.Count}}</span></a>
       </div>
       {{end}}
@@ -115,7 +115,7 @@
         <div class="gallery-grid">
           {{range .Files}}
           <figure class="gallery-item">
-            <button type="button" class="gallery-open" data-path="{{.Path}}" data-name="{{.Name}}" data-kind="{{.Kind}}" data-tags="{{range $i, $t := .Tags}}{{if $i}},{{end}}{{$t}}{{end}}" data-albums="{{range $i, $a := .Albums}}{{if $i}},{{end}}{{$a}}{{end}}" data-size="{{.Size}}" data-modified="{{.Modified}}" data-has-preview="{{.HasPreview}}">
+            <button type="button" class="gallery-open" draggable="true" data-path="{{.Path}}" data-name="{{.Name}}" data-kind="{{.Kind}}" data-tags="{{range $i, $t := .Tags}}{{if $i}},{{end}}{{$t}}{{end}}" data-albums="{{range $i, $a := .Albums}}{{if $i}},{{end}}{{$a}}{{end}}" data-size="{{.Size}}" data-modified="{{.Modified}}" data-has-preview="{{.HasPreview}}">
               {{if eq .Kind "image"}}
               <img src="/gallery/file?path={{.Path}}" alt="{{.Name}}" loading="lazy">
               {{else if eq .Kind "heic"}}

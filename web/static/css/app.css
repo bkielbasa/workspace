@@ -607,6 +607,19 @@ textarea::placeholder {
   min-width: 0;
 }
 
+.gallery-nav-row.drop-hint .gallery-nav-link {
+  background: rgba(10, 132, 255, 0.25);
+  outline: 2px dashed rgba(10, 132, 255, 0.8);
+}
+
+.gallery-open[draggable="true"] {
+  cursor: grab;
+}
+
+.gallery-open[draggable="true"]:active {
+  cursor: grabbing;
+}
+
 .gallery-nav-new {
   display: flex;
   gap: 0.4rem;

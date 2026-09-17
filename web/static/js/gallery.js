@@ -188,6 +188,81 @@
     if (ev.target && ev.target.matches("input[data-album-id]")) toggleAlbum(ev.target);
   });
 
+  // Drag & drop filing (desktop pointers; touch uses the modal instead):
+  // drag a thumbnail onto a sidebar album to file it, onto a tag to tag it.
+  document.addEventListener("dragstart", function (ev) {
+    var btn = ev.target.closest ? ev.target.closest(".gallery-open") : null;
+    if (!btn || !ev.dataTransfer) return;
+    ev.dataTransfer.setData("text/photo-path", btn.getAttribute("data-path"));
+    ev.dataTransfer.effectAllowed = "copy";
+  });
+
+  function dropTarget(el) {
+    return el && el.closest ? el.closest("[data-drop-album],[data-drop-tag]") : null;
+  }
+
+  document.addEventListener("dragover", function (ev) {
+    var row = dropTarget(ev.target);
+    if (!row || !ev.dataTransfer) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "copy";
+    row.classList.add("drop-hint");
+  });
+
+  document.addEventListener("dragleave", function (ev) {
+    var row = dropTarget(ev.target);
+    if (row) row.classList.remove("drop-hint");
+  });
+
+  document.addEventListener("dragend", function () {
+    document.querySelectorAll(".drop-hint").forEach(function (el) {
+      el.classList.remove("drop-hint");
+    });
+  });
+
+  function postForm(url, params) {
+    var body = Object.keys(params).map(function (k) {
+      return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]);
+    }).join("&");
+    return fetch(url + "?format=json", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-CSRF-Token": csrf,
+        "Accept": "application/json",
+      },
+      body: body,
+    }).then(function (resp) {
+      if (!resp.ok) throw new Error("drop failed");
+      return resp.json();
+    });
+  }
+
+  document.addEventListener("drop", function (ev) {
+    var row = dropTarget(ev.target);
+    if (!row || !ev.dataTransfer) return;
+    ev.preventDefault();
+    row.classList.remove("drop-hint");
+    var path = ev.dataTransfer.getData("text/photo-path");
+    if (!path) return;
+    var albumID = row.getAttribute("data-drop-album");
+    var tag = row.getAttribute("data-drop-tag");
+    if (albumID) {
+      postForm("/gallery/albums/toggle", {album_id: albumID, path: path, add: "1"})
+        .then(refreshLayout).catch(function () {});
+      return;
+    }
+    if (tag) {
+      var btn = document.querySelector('.gallery-open[data-path="' + path.replace(/"/g, "") + '"]');
+      var tags = btn ? tagsOf(btn) : [];
+      if (!tags.some(function (t) { return t.toLowerCase() === tag.toLowerCase(); })) {
+        tags.push(tag);
+      }
+      postForm("/gallery/tags", {path: path, tags: tags.join(", ")})
+        .then(refreshLayout).catch(function () {});
+    }
+  });
+
   function saveTags() {
     if (current < 0) return;
     var item = liveItems()[current];
