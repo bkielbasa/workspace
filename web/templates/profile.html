@@ -111,6 +111,22 @@
       </div>
       <div class="card-body">
         <p>App passwords unlock Mail, Contacts, Calendar, Files and sending — never this web page. Losing one is harmless: revoke it here.</p>
+        {{if .NewAppPassword}}
+        <div class="profile-alert success" role="status">
+          App password for <strong>{{.NewAppPasswordName}}</strong> created.<br>
+          Copy it now, it will not be shown again:<br>
+          <code>{{.NewAppPassword}}</code>
+        </div>
+        {{end}}
+        <form method="post" action="/profile/app-passwords" class="profile-form">
+          <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+          <label for="app-password-name">New password for
+            <input id="app-password-name" name="name" type="text" value="Uploader" maxlength="50" autocomplete="off">
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="btn">Create app password</button>
+          </div>
+        </form>
         {{if .AppPasswords}}
         <ul class="app-passwords-list">
           {{range .AppPasswords}}
@@ -128,7 +144,7 @@
           {{end}}
         </ul>
         {{else}}
-        <p>No app passwords yet — generate one with the iPhone profile above.</p>
+        <p>No app passwords yet — create one above or generate the iPhone profile.</p>
         {{end}}
       </div>
     </section>

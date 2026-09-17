@@ -83,6 +83,9 @@ type viewData struct {
 	// InviteLink carries a freshly minted invite URL (shown once).
 	InviteLink  string
 	InviteEmail string
+	// NewAppPassword carries a freshly minted app password (shown once).
+	NewAppPassword     string
+	NewAppPasswordName string
 	// Drive browser state.
 	DrivePath   string
 	DriveCrumbs []driveCrumb

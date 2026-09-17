@@ -521,6 +521,51 @@ func TestAppPasswordRevokeFlow(t *testing.T) {
 	}
 }
 
+func TestAppPasswordCreateShowsPlaintextOnce(t *testing.T) {
+	files := os.DirFS("../..")
+	userID := uuid.New()
+	user := &identity.User{ID: userID, Email: "testuser@example.com", DisplayName: "Test User", Enabled: true}
+	userSvc := &profileMockUserService{user: user}
+	sessSvc := newProfileMockSessionService()
+	sess, _ := sessSvc.Create(context.Background(), userID, time.Hour)
+	apps := &stubAppPasswords{}
+
+	server, err := web.New(files, contactService{}, calendarService{}, &mailServiceStub{}, sessSvc, userSvc, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.SetDeviceSetup(apps, "mail.cloudlift.run", "dav.cloudlift.run")
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux)
+
+	form := url.Values{"_csrf": {"test-csrf-token"}, "name": {"Uploader"}}
+	req := httptest.NewRequest(http.MethodPost, "/profile/app-passwords", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "session", Value: sess.Token})
+	req.AddCookie(&http.Cookie{Name: "csrf", Value: "test-csrf-token"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "test-device-secret") || !strings.Contains(body, "Uploader") {
+		t.Errorf("create response hides the plaintext")
+	}
+	if !strings.Contains(body, "will not be shown again") {
+		t.Errorf("create response missing show-once warning")
+	}
+
+	// A fresh page load must not repeat the secret.
+	req = httptest.NewRequest(http.MethodGet, "/profile", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: sess.Token})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if strings.Contains(rec.Body.String(), "test-device-secret") {
+		t.Errorf("plaintext persisted beyond the creation response")
+	}
+}
+
 type stubInvites struct {
 	token   string
 	invite  *identity.Invite

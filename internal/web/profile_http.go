@@ -124,6 +124,25 @@ func (s *Server) renderProfile(w http.ResponseWriter, r *http.Request, user *ide
 	s.renderProfileWithInvite(w, r, user, errMsg, successMsg, "", "")
 }
 
+func (s *Server) renderProfileWithPassword(w http.ResponseWriter, r *http.Request, user *identity.User, plain, name string) {
+	var passwords []identity.AppPassword
+	if s.appPasswords != nil {
+		if list, err := s.appPasswords.List(r.Context(), user.ID); err == nil {
+			passwords = list
+		}
+	}
+	renderView(w, r, s.views.profileT, "layout", viewData{
+		Title:              "Profile",
+		Section:            "profile",
+		User:               user,
+		CSRFToken:          csrfTokenFromRequest(r),
+		AppPasswords:       passwords,
+		DevicesReady:       s.appPasswords != nil,
+		NewAppPassword:     plain,
+		NewAppPasswordName: name,
+	})
+}
+
 func (s *Server) renderProfileWithInvite(w http.ResponseWriter, r *http.Request, user *identity.User, errMsg, successMsg, inviteLink, inviteEmail string) {
 	var passwords []identity.AppPassword
 	if s.appPasswords != nil {
@@ -257,6 +276,32 @@ func (s *Server) iphoneProfileDownload(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(profile); err != nil {
 		obs.Log(r.Context(), slog.LevelError, "write iphone profile download failed", "error", err)
 	}
+}
+
+// appPasswordCreate mints a standalone app password and shows the plaintext
+// once, for clients the iPhone profile doesn't cover (DAVx5, upload
+// Shortcuts, desktop mail apps). Same show-once pattern as invite links.
+func (s *Server) appPasswordCreate(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	if user == nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if s.appPasswords == nil {
+		s.renderProfile(w, r, user, "Device setup is not configured.", "")
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		name = "Device"
+	}
+	plain, _, err := s.appPasswords.Rotate(r.Context(), user.ID, name)
+	if err != nil {
+		obs.Log(r.Context(), slog.LevelError, "create app password failed", "user_id", user.ID, "error", err)
+		s.renderProfile(w, r, user, "Could not create the app password.", "")
+		return
+	}
+	s.renderProfileWithPassword(w, r, user, plain, name)
 }
 
 // appPasswordRevoke deletes one app password; its devices stop working.
