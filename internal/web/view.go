@@ -96,6 +96,16 @@ type viewData struct {
 	AllPhotoTags []string
 	// TagsReady reports whether the tag store is wired.
 	TagsReady bool
+	// Albums lists the user's albums with photo counts, for the sidebar.
+	Albums []photoAlbumNav
+	// TagCounts lists tags with photo counts, for the sidebar.
+	TagCounts []photoTagCount
+	// ActiveAlbumID/Name and ActiveTag mark the current sidebar filter.
+	ActiveAlbumID   string
+	ActiveAlbumName string
+	ActiveTag       string
+	// AlbumsReady reports whether the album store is wired.
+	AlbumsReady bool
 }
 
 type views struct {
@@ -106,6 +116,7 @@ type views struct {
 	photos   filesService
 	photoAuth photoUploadAuth
 	tagStore photoTagStore
+	albumStore photoAlbumStore
 	previewConv heicConverter
 	sessions sessionsService
 	users    usersService

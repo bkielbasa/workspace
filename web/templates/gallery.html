@@ -13,45 +13,94 @@
 
   {{if .Error}}<div class="compose-error drive-error" role="alert">{{.Error}}</div>{{end}}
 
-  {{if .PhotoMonths}}
-  {{range .PhotoMonths}}
-  <section class="gallery-month">
-    <h2 class="gallery-month-title">{{.Name}}</h2>
-    <div class="gallery-grid">
-      {{range .Files}}
-      <figure class="gallery-item">
-        <button type="button" class="gallery-open" data-path="{{.Path}}" data-name="{{.Name}}" data-kind="{{.Kind}}" data-tags="{{range $i, $t := .Tags}}{{if $i}},{{end}}{{$t}}{{end}}" data-size="{{.Size}}" data-modified="{{.Modified}}" data-has-preview="{{.HasPreview}}">
-          {{if eq .Kind "image"}}
-          <img src="/gallery/file?path={{.Path}}" alt="{{.Name}}" loading="lazy">
-          {{else if eq .Kind "heic"}}
-            {{if .HasPreview}}
-            <img src="/gallery/preview?path={{.Path}}" alt="{{.Name}}" loading="lazy">
-            {{else}}
-            <span class="gallery-file-icon" aria-hidden="true">🖼</span>
-            {{end}}
-          {{else if eq .Kind "video"}}
-          <span class="gallery-file-icon" aria-hidden="true">🎬</span>
-          {{end}}
-        </button>
-        <figcaption class="gallery-caption" title="{{.Name}}">
-          {{if .Tags}}
-            {{range .Tags}}<span class="tag-chip">{{.}}</span>{{end}}
-          {{else}}
-            {{.Name}}
-          {{end}}
-        </figcaption>
-      </figure>
-      {{end}}
-    </div>
-  </section>
-  {{end}}
-  {{else}}
-  <div class="mail-empty-state card">
-    <div class="mail-empty-icon">📷</div>
-    <h3 class="mail-empty-title">No photos yet</h3>
-    <p class="mail-empty-subtext">Upload from this page or point a Shortcut at the upload API — photos land in month folders automatically.</p>
+  {{if or .ActiveAlbumID .ActiveTag}}
+  <div class="gallery-filter card">
+    Showing:
+    {{if .ActiveAlbumID}}<span class="tag-chip">📁 {{.ActiveAlbumName}}</span>{{end}}
+    {{if .ActiveTag}}<span class="tag-chip"># {{.ActiveTag}}</span>{{end}}
+    <a class="btn btn-ghost btn-sm" href="/gallery">Clear</a>
   </div>
   {{end}}
+
+  <div class="gallery-layout">
+    <aside class="gallery-nav card">
+      <a class="gallery-nav-link{{if and (not .ActiveAlbumID) (not .ActiveTag)}} active{{end}}" href="/gallery">All photos</a>
+      {{if .AlbumsReady}}
+      <h3>Albums</h3>
+      {{range .Albums}}
+      <div class="gallery-nav-row{{if eq .ID $.ActiveAlbumID}} active{{end}}">
+        <a class="gallery-nav-link" href="/gallery?album={{.ID}}">📁 {{.Name}} <span class="gallery-nav-count">{{.Count}}</span></a>
+        <form class="inline-form" method="post" action="/gallery/albums/delete">
+          <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <button type="submit" class="btn btn-ghost btn-sm" aria-label="Delete {{.Name}}" title="Delete album (photos stay)">&times;</button>
+        </form>
+      </div>
+      {{end}}
+      <form method="post" action="/gallery/albums" class="gallery-nav-new">
+        <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+        <input name="name" type="text" maxlength="60" autocomplete="off" placeholder="New album…" aria-label="New album name">
+        <button type="submit" class="btn btn-sm">Add</button>
+      </form>
+      {{end}}
+      {{if .TagCounts}}
+      <h3>Tags</h3>
+      {{range .TagCounts}}
+      <div class="gallery-nav-row{{if eq .Tag $.ActiveTag}} active{{end}}">
+        <a class="gallery-nav-link" href="/gallery?tag={{.Tag}}"># {{.Tag}} <span class="gallery-nav-count">{{.Count}}</span></a>
+      </div>
+      {{end}}
+      {{end}}
+    </aside>
+
+    <div class="gallery-main">
+      {{if .PhotoMonths}}
+      {{range .PhotoMonths}}
+      <section class="gallery-month">
+        <h2 class="gallery-month-title">{{.Name}}</h2>
+        <div class="gallery-grid">
+          {{range .Files}}
+          <figure class="gallery-item">
+            <button type="button" class="gallery-open" data-path="{{.Path}}" data-name="{{.Name}}" data-kind="{{.Kind}}" data-tags="{{range $i, $t := .Tags}}{{if $i}},{{end}}{{$t}}{{end}}" data-albums="{{range $i, $a := .Albums}}{{if $i}},{{end}}{{$a}}{{end}}" data-size="{{.Size}}" data-modified="{{.Modified}}" data-has-preview="{{.HasPreview}}">
+              {{if eq .Kind "image"}}
+              <img src="/gallery/file?path={{.Path}}" alt="{{.Name}}" loading="lazy">
+              {{else if eq .Kind "heic"}}
+                {{if .HasPreview}}
+                <img src="/gallery/preview?path={{.Path}}" alt="{{.Name}}" loading="lazy">
+                {{else}}
+                <span class="gallery-file-icon" aria-hidden="true">🖼</span>
+                {{end}}
+              {{else if eq .Kind "video"}}
+              <span class="gallery-file-icon" aria-hidden="true">🎬</span>
+              {{end}}
+            </button>
+            <figcaption class="gallery-caption" title="{{.Name}}">
+              {{if .Tags}}
+                {{range .Tags}}<span class="tag-chip">{{.}}</span>{{end}}
+              {{else}}
+                {{.Name}}
+              {{end}}
+            </figcaption>
+          </figure>
+          {{end}}
+        </div>
+      </section>
+      {{end}}
+      {{else if or .ActiveAlbumID .ActiveTag}}
+      <div class="mail-empty-state card">
+        <div class="mail-empty-icon">🔍</div>
+        <h3 class="mail-empty-title">Nothing matches</h3>
+        <p class="mail-empty-subtext">No photos carry this filter yet — add some from the viewer.</p>
+      </div>
+      {{else}}
+      <div class="mail-empty-state card">
+        <div class="mail-empty-icon">📷</div>
+        <h3 class="mail-empty-title">No photos yet</h3>
+        <p class="mail-empty-subtext">Upload from this page or point a Shortcut at the upload API — photos land in month folders automatically.</p>
+      </div>
+      {{end}}
+    </div>
+  </div>
 
   <div class="photo-modal" id="photo-modal" hidden data-csrf="{{.CSRFToken}}">
     <div class="photo-modal-backdrop" data-close></div>
@@ -82,6 +131,15 @@
             <button type="submit" class="btn btn-sm">Add tag</button>
           </div>
         </form>
+        {{end}}
+        {{if .AlbumsReady}}
+        <h3>Albums</h3>
+        <div class="album-checks" data-album-checks>
+          {{range .Albums}}
+          <label class="album-check"><input type="checkbox" data-album-id="{{.ID}}"> {{.Name}}</label>
+          {{end}}
+        </div>
+        <p class="field-hint">Tick to file this photo — make new albums in the sidebar.</p>
         {{end}}
         <h3>Sharing</h3>
         <p class="field-hint">Link sharing for photos lands here next — this photo has no share links yet.</p>

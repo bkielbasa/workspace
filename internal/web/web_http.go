@@ -85,6 +85,17 @@ type photoTagStore interface {
 	All(ctx context.Context, userID uuid.UUID) ([]string, error)
 }
 
+// photoAlbumStore persists albums; a photo belongs to many at once.
+type photoAlbumStore interface {
+	Create(ctx context.Context, userID uuid.UUID, name string) (*identity.PhotoAlbum, error)
+	List(ctx context.Context, userID uuid.UUID) ([]identity.PhotoAlbum, error)
+	Delete(ctx context.Context, userID, albumID uuid.UUID) error
+	Add(ctx context.Context, userID, albumID uuid.UUID, path string) error
+	Remove(ctx context.Context, userID, albumID uuid.UUID, path string) error
+	Paths(ctx context.Context, userID, albumID uuid.UUID) ([]string, error)
+	Memberships(ctx context.Context, userID uuid.UUID) (map[string][]uuid.UUID, error)
+}
+
 type usersService interface {
 	Authenticate(context.Context, string, string) (*identity.User, error)
 	Get(context.Context, uuid.UUID) (*identity.User, error)
@@ -153,6 +164,12 @@ func (s *Server) SetPhotoTags(store photoTagStore) {
 	s.views.tagStore = store
 }
 
+// SetPhotoAlbums enables albums and the gallery sidebar.
+// Optional like the other setters; nav and modal sections hide without it.
+func (s *Server) SetPhotoAlbums(store photoAlbumStore) {
+	s.views.albumStore = store
+}
+
 // New constructs the web server from the root embedded filesystem and services.
 // files must contain the existing web/templates and web/static directories.
 func New(files fs.FS, contacts contactsService, calendars calendarService, mail mailService, sessions sessionsService, users usersService, secure bool) (*Server, error) {
@@ -213,6 +230,9 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /gallery", s.page(s.views.galleryPage))
 	mux.HandleFunc("POST /gallery/tags", s.RequireAuth(s.RequireCSRF(s.views.photoTags)))
+	mux.HandleFunc("POST /gallery/albums", s.RequireAuth(s.RequireCSRF(s.views.albumCreate)))
+	mux.HandleFunc("POST /gallery/albums/delete", s.RequireAuth(s.RequireCSRF(s.views.albumDelete)))
+	mux.HandleFunc("POST /gallery/albums/toggle", s.RequireAuth(s.RequireCSRF(s.views.albumToggle)))
 	mux.HandleFunc("GET /gallery/file", s.RequireAuth(s.views.galleryFile))
 	mux.HandleFunc("GET /gallery/preview", s.RequireAuth(s.views.galleryPreview))
 	mux.HandleFunc("POST /gallery/delete", s.RequireAuth(s.RequireCSRF(s.views.galleryDelete)))

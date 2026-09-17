@@ -15,6 +15,7 @@
   var tagForm = modal.querySelector("[data-tag-form]");
   var tagInput = modal.querySelector("#photo-modal-tag");
   var tagSuggest = modal.querySelector("[data-tag-suggest]");
+  var albumChecks = modal.querySelector("[data-album-checks]");
   var knownTags = Array.prototype.map.call(
     document.querySelectorAll("#tag-suggestions option"),
     function (o) { return o.value; }
@@ -83,6 +84,51 @@
     });
   }
 
+  function albumsOf(item) {
+    return (item.getAttribute("data-albums") || "").split(",").filter(function (t) { return t !== ""; });
+  }
+
+  function renderAlbumChecks(item) {
+    if (!albumChecks) return;
+    var mine = albumsOf(item);
+    albumChecks.querySelectorAll("input[data-album-id]").forEach(function (box) {
+      box.checked = mine.indexOf(box.getAttribute("data-album-id")) >= 0;
+    });
+  }
+
+  function toggleAlbum(box) {
+    if (current < 0) return;
+    var item = items[current];
+    var path = item.getAttribute("data-path");
+    var albumID = box.getAttribute("data-album-id");
+    var add = box.checked ? "1" : "0";
+    fetch("/gallery/albums/toggle?format=json", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-CSRF-Token": csrf,
+        "Accept": "application/json",
+      },
+      body: "album_id=" + encodeURIComponent(albumID) + "&path=" + encodeURIComponent(path) + "&add=" + add,
+    })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error("toggle failed");
+        return resp.json();
+      })
+      .then(function (data) {
+        var mine = albumsOf(item).filter(function (id) { return id !== albumID; });
+        if (data && data.in_album) mine.push(albumID);
+        item.setAttribute("data-albums", mine.join(","));
+      })
+      .catch(function () {
+        box.checked = !box.checked;
+      });
+  }
+
+  if (albumChecks) albumChecks.addEventListener("change", function (ev) {
+    if (ev.target && ev.target.matches("input[data-album-id]")) toggleAlbum(ev.target);
+  });
+
   function saveTags() {
     if (current < 0) return;
     var item = items[current];
@@ -147,6 +193,7 @@
     renderChips();
     if (tagInput) tagInput.value = "";
     hideSuggest();
+    renderAlbumChecks(item);
   }
 
   function open(idx) {

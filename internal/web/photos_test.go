@@ -56,6 +56,7 @@ func photoTestServer(t *testing.T, userID uuid.UUID, store *memFiles, auth memPh
 	}
 	server.SetPhotos(store, auth)
 	server.SetPhotoTags(newMemPhotoLabels())
+	server.SetPhotoAlbums(newMemAlbums())
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
 	return mux
@@ -330,5 +331,172 @@ func TestGalleryModalAndTags(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 	if body := rec.Body.String(); strings.Contains(body, `data-path="2026-09/beach.jpg" data-name="beach.jpg" data-kind="image" data-tags=""`) == false {
 		t.Errorf("cleared tags still rendered")
+	}
+}
+
+type memAlbum struct {
+	id    uuid.UUID
+	name  string
+	items map[string]bool
+}
+
+type memAlbums struct {
+	mu     sync.Mutex
+	albums map[uuid.UUID]*memAlbum
+}
+
+func newMemAlbums() *memAlbums {
+	return &memAlbums{albums: map[uuid.UUID]*memAlbum{}}
+}
+
+func (m *memAlbums) Create(_ context.Context, _ uuid.UUID, name string) (*identity.PhotoAlbum, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, a := range m.albums {
+		if a.name == name {
+			return &identity.PhotoAlbum{ID: a.id, Name: a.name}, nil
+		}
+	}
+	a := &memAlbum{id: uuid.New(), name: name, items: map[string]bool{}}
+	m.albums[a.id] = a
+	return &identity.PhotoAlbum{ID: a.id, Name: a.name}, nil
+}
+
+func (m *memAlbums) List(_ context.Context, _ uuid.UUID) ([]identity.PhotoAlbum, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []identity.PhotoAlbum
+	for _, a := range m.albums {
+		out = append(out, identity.PhotoAlbum{ID: a.id, Name: a.name, Count: len(a.items)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (m *memAlbums) Delete(_ context.Context, _ uuid.UUID, albumID uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.albums, albumID)
+	return nil
+}
+
+func (m *memAlbums) Add(_ context.Context, _ uuid.UUID, albumID uuid.UUID, path string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if a, ok := m.albums[albumID]; ok {
+		a.items[path] = true
+	}
+	return nil
+}
+
+func (m *memAlbums) Remove(_ context.Context, _ uuid.UUID, albumID uuid.UUID, path string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if a, ok := m.albums[albumID]; ok {
+		delete(a.items, path)
+	}
+	return nil
+}
+
+func (m *memAlbums) Paths(_ context.Context, _ uuid.UUID, albumID uuid.UUID) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []string
+	if a, ok := m.albums[albumID]; ok {
+		for p := range a.items {
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+func (m *memAlbums) Memberships(_ context.Context, _ uuid.UUID) (map[string][]uuid.UUID, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string][]uuid.UUID{}
+	for _, a := range m.albums {
+		for p := range a.items {
+			out[p] = append(out[p], a.id)
+		}
+	}
+	return out, nil
+}
+
+func TestGalleryAlbums(t *testing.T) {
+	userID := uuid.New()
+	store := newMemFiles()
+	mux := photoTestServer(t, userID, store, memPhotoAuth{})
+
+	store.files["2026-09/beach.jpg"] = &memFile{data: []byte("x"), mod: time.Now()}
+	store.files["2026-09/dune.jpg"] = &memFile{data: []byte("x"), mod: time.Now()}
+
+	post := func(target string, form url.Values) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		photoCookies(req)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+	get := func(target string) string {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		photoCookies(req)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d", target, rec.Code)
+		}
+		return rec.Body.String()
+	}
+
+	// Create lands on the new album's filtered view.
+	rec := post("/gallery/albums", url.Values{"_csrf": {"test-csrf-token"}, "name": {"Holidays"}})
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("album create = %d", rec.Code)
+	}
+	loc := rec.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/gallery?album=") {
+		t.Fatalf("album redirect = %q", loc)
+	}
+	albumID := strings.TrimPrefix(loc, "/gallery?album=")
+
+	// Sidebar lists the album; empty album shows the nothing-matches state.
+	body := get("/gallery")
+	for _, want := range []string{"Holidays", `name="name"`, "data-album-checks", "Tags"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("gallery missing %q", want)
+		}
+	}
+	if body := get(loc); !strings.Contains(body, "Nothing matches") {
+		t.Errorf("empty album should show the nothing-matches state")
+	}
+
+	// Toggle the photo in via JSON, like the modal does.
+	rec = post("/gallery/albums/toggle?format=json", url.Values{
+		"_csrf": {"test-csrf-token"}, "album_id": {albumID}, "path": {"2026-09/beach.jpg"}, "add": {"1"},
+	})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"in_album":true`) {
+		t.Fatalf("album toggle = %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Filtered view shows only the member; modal state carries the album.
+	body = get(loc)
+	if !strings.Contains(body, "beach.jpg") || strings.Contains(body, "dune.jpg") {
+		t.Errorf("album filter shows wrong set")
+	}
+	if !strings.Contains(body, "data-albums=\""+albumID+`"`) {
+		t.Errorf("modal album state missing")
+	}
+
+	// Toggle out again empties the album.
+	rec = post("/gallery/albums/toggle?format=json", url.Values{
+		"_csrf": {"test-csrf-token"}, "album_id": {albumID}, "path": {"2026-09/beach.jpg"}, "add": {"0"},
+	})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"in_album":false`) {
+		t.Fatalf("album untoggle = %d %s", rec.Code, rec.Body.String())
+	}
+	if body := get(loc); !strings.Contains(body, "Nothing matches") {
+		t.Errorf("emptied album should show the nothing-matches state")
 	}
 }

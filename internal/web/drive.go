@@ -182,6 +182,8 @@ func driveFlash(r *http.Request) string {
 		return "Could not save that label."
 	case "tags":
 		return "Could not save those tags."
+	case "album":
+		return "Could not manage that album."
 	}
 	return ""
 }

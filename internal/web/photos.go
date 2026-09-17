@@ -24,6 +24,7 @@ import (
 	"github.com/bklimczak/workspace/internal/files"
 	"github.com/bklimczak/workspace/internal/identity"
 	"github.com/bklimczak/workspace/internal/obs"
+	"github.com/google/uuid"
 )
 
 // maxPhotoUploadBytes caps a single upload request. The store enforces its
@@ -45,6 +46,37 @@ type photoFileItem struct {
 	Modified   string
 	HasPreview bool
 	Tags       []string
+	Albums     []string // album IDs, for the modal checklist state
+}
+
+// photoTagCount carries one sidebar tag row.
+type photoTagCount struct {
+	Tag   string
+	Count int
+}
+
+// photoAlbumNav carries one sidebar album row (string ID for templates).
+type photoAlbumNav struct {
+	ID    string
+	Name  string
+	Count int
+}
+
+func hasPhotoTag(tags []string, want string) bool {
+	for _, t := range tags {
+		if t == want {
+			return true
+		}
+	}
+	return false
+}
+
+func albumIDs(ids []uuid.UUID) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, id.String())
+	}
+	return out
 }
 
 // kindOfPhoto classifies by extension for gallery rendering.
@@ -223,6 +255,42 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 		}
 		allTags, _ = v.tagStore.All(r.Context(), user.ID)
 	}
+	var albums []identity.PhotoAlbum
+	members := map[string][]uuid.UUID{}
+	if v.albumStore != nil {
+		if got, err := v.albumStore.List(r.Context(), user.ID); err == nil {
+			albums = got
+		}
+		members, _ = v.albumStore.Memberships(r.Context(), user.ID)
+	}
+
+	// Sidebar filters: one album and/or one tag. Both narrow the same
+	// month-grouped grid; empty months drop out.
+	activeTag := strings.TrimSpace(r.URL.Query().Get("tag"))
+	var inAlbum map[string]bool
+	var activeAlbumID, activeAlbumName string
+	if v.albumStore != nil {
+		if albumID, err := uuid.Parse(strings.TrimSpace(r.URL.Query().Get("album"))); err == nil {
+			if paths, err := v.albumStore.Paths(r.Context(), user.ID, albumID); err == nil {
+				inAlbum = map[string]bool{}
+				for _, p := range paths {
+					inAlbum[p] = true
+				}
+				activeAlbumID = albumID.String()
+				for _, a := range albums {
+					if a.ID == albumID {
+						activeAlbumName = a.Name
+					}
+				}
+			}
+		}
+	}
+	tagCounts := map[string]int{}
+	for _, tags := range tagsByPhoto {
+		for _, t := range tags {
+			tagCounts[t]++
+		}
+	}
 	for _, e := range entries {
 		if !e.IsDir || strings.HasPrefix(e.Name, ".") {
 			continue
@@ -247,6 +315,15 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 				Modified: formatDetailDate(k.ModTime),
 				Tags:     tagsByPhoto[e.Name+"/"+k.Name],
 			}
+			if activeTag != "" && !hasPhotoTag(item.Tags, activeTag) {
+				continue
+			}
+			if inAlbum != nil && !inAlbum[item.Path] {
+				continue
+			}
+			if m, ok := members[item.Path]; ok {
+				item.Albums = albumIDs(m)
+			}
 			if kind == "heic" {
 				if _, err := v.photos.Stat(home, previewName(item.Path)); err == nil {
 					item.HasPreview = true
@@ -260,6 +337,17 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 	}
 	sort.Slice(months, func(i, j int) bool { return months[i].Name > months[j].Name })
 
+	var tagNav []photoTagCount
+	for tag, n := range tagCounts {
+		tagNav = append(tagNav, photoTagCount{Tag: tag, Count: n})
+	}
+	sort.Slice(tagNav, func(i, j int) bool { return tagNav[i].Tag < tagNav[j].Tag })
+
+	var albumNav []photoAlbumNav
+	for _, a := range albums {
+		albumNav = append(albumNav, photoAlbumNav{ID: a.ID.String(), Name: a.Name, Count: a.Count})
+	}
+
 	renderView(w, r, v.galleryT, "layout", viewData{
 		Title:       "Photos",
 		Section:     "photos",
@@ -269,6 +357,12 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 		PhotoMonths: months,
 		AllPhotoTags: allTags,
 		TagsReady: v.tagStore != nil,
+		Albums: albumNav,
+		TagCounts: tagNav,
+		ActiveAlbumID: activeAlbumID,
+		ActiveAlbumName: activeAlbumName,
+		ActiveTag: activeTag,
+		AlbumsReady: v.albumStore != nil,
 		Error:       driveFlash(r),
 	})
 }
@@ -416,6 +510,94 @@ func (v *views) galleryDelete(w http.ResponseWriter, r *http.Request) {
 
 // maxPhotoLabel caps labels at a short caption, not an essay.
 const maxPhotoLabel = 140
+
+// maxAlbumName caps album names at a short title.
+const maxAlbumName = 60
+
+// albumCreate makes an album and lands on its (empty) filtered view.
+func (v *views) albumCreate(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	if !v.requirePhotos(w) || v.albumStore == nil {
+		http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if runes := []rune(name); len(runes) > maxAlbumName {
+		name = string(runes[:maxAlbumName])
+	}
+	if name == "" {
+		http.Redirect(w, r, "/gallery?error=album", http.StatusSeeOther)
+		return
+	}
+	album, err := v.albumStore.Create(r.Context(), user.ID, name)
+	if err != nil {
+		obs.Log(r.Context(), slog.LevelError, "create album failed", "error", err)
+		http.Redirect(w, r, "/gallery?error=album", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/gallery?album="+album.ID.String(), http.StatusSeeOther)
+}
+
+// albumDelete removes an album (photos stay in the library).
+func (v *views) albumDelete(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	if !v.requirePhotos(w) || v.albumStore == nil {
+		http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+		return
+	}
+	if id, err := uuid.Parse(strings.TrimSpace(r.FormValue("id"))); err == nil {
+		_ = v.albumStore.Delete(r.Context(), user.ID, id)
+	}
+	http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+}
+
+// albumToggle adds or removes one photo from one album.
+// The modal posts JSON; plain form posts fall back to the gallery.
+func (v *views) albumToggle(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+	if !v.requirePhotos(w) || v.albumStore == nil {
+		http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+		return
+	}
+	albumID, err := uuid.Parse(strings.TrimSpace(r.FormValue("album_id")))
+	name := cleanDrivePath(r.FormValue("path"))
+	if err != nil || name == "" {
+		http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+		return
+	}
+	home := files.HomeDir(user.Email)
+	if info, err := v.photos.Stat(home, name); err != nil || info.IsDir {
+		http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+		return
+	}
+	if r.FormValue("add") == "1" {
+		err = v.albumStore.Add(r.Context(), user.ID, albumID, name)
+	} else {
+		err = v.albumStore.Remove(r.Context(), user.ID, albumID, name)
+	}
+	if err != nil {
+		obs.Log(r.Context(), slog.LevelError, "toggle album failed", "path", name, "error", err)
+		if wantsJSON(r) {
+			writeJSONError(w, http.StatusInternalServerError, "could not update the album")
+			return
+		}
+		http.Redirect(w, r, "/gallery?error=album", http.StatusSeeOther)
+		return
+	}
+	if wantsJSON(r) {
+		paths, _ := v.albumStore.Paths(r.Context(), user.ID, albumID)
+		in := false
+		for _, p := range paths {
+			if p == name {
+				in = true
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"in_album": in})
+		return
+	}
+	http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+}
 
 // maxPhotoTags caps the tag editor: enough to organize, too few to spam.
 const maxPhotoTags = 10
