@@ -182,6 +182,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /profile", s.RequireAuth(s.RequireCSRF(s.profileUpdate)))
 	mux.HandleFunc("POST /profile/password", s.RequireAuth(s.RequireCSRF(s.profileChangePassword)))
 	mux.HandleFunc("POST /profile/iphone-profile", s.RequireAuth(s.RequireCSRF(s.iphoneProfile)))
+	mux.HandleFunc("GET /profile/iphone-profile/download", s.iphoneProfileDownload)
 	mux.HandleFunc("POST /profile/app-passwords/revoke", s.RequireAuth(s.RequireCSRF(s.appPasswordRevoke)))
 	mux.HandleFunc("POST /admin/invites", s.RequireAuth(s.RequireCSRF(s.inviteCreate)))
 	mux.HandleFunc("POST /admin/invites/revoke", s.RequireAuth(s.RequireCSRF(s.inviteRevoke)))

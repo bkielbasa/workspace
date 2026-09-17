@@ -36,7 +36,10 @@ func (d *discovery) appleProfile(w http.ResponseWriter, r *http.Request) {
 
 	_, domain, _ := strings.Cut(address, "@")
 	w.Header().Set("Content-Type", appleprofile.ContentType)
-	w.Header().Set("Content-Disposition", `attachment; filename="`+domain+`-mail.mobileconfig"`)
+	ua := strings.ToLower(r.UserAgent())
+	if !strings.Contains(ua, "iphone") && !strings.Contains(ua, "ipad") {
+		w.Header().Set("Content-Disposition", `attachment; filename="`+domain+`-mail.mobileconfig"`)
+	}
 	if _, err := w.Write(profile); err != nil {
 		obs.Log(r.Context(), slog.LevelError, "discovery: writing apple profile failed", "error", err)
 	}

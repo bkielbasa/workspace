@@ -441,10 +441,26 @@ func TestIPhoneProfileEmbedsAppPassword(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
 	}
-	body := rec.Body.String()
+	loc := rec.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/profile/iphone-profile/download?token=") {
+		t.Fatalf("unexpected redirect %q", loc)
+	}
+
+	// iOS fetches the download with a plain GET, no session.
+	dlReq := httptest.NewRequest(http.MethodGet, loc, nil)
+	dlReq.Host = "cloudlift.run"
+	dlRec := httptest.NewRecorder()
+	mux.ServeHTTP(dlRec, dlReq)
+	if dlRec.Code != http.StatusOK {
+		t.Fatalf("download status = %d, body %s", dlRec.Code, dlRec.Body.String())
+	}
+	if ct := dlRec.Header().Get("Content-Type"); !strings.Contains(ct, "apple-aspen-config") {
+		t.Errorf("download content-type = %q", ct)
+	}
+	body := dlRec.Body.String()
 	for _, want := range []string{
 		"<string>test-device-secret</string>",
 		"<key>IncomingPassword</key>",

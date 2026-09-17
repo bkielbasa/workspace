@@ -1,11 +1,15 @@
 package web
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/bklimczak/workspace/internal/appleprofile"
 	"github.com/bklimczak/workspace/internal/identity"
@@ -185,10 +189,73 @@ func (s *Server) iphoneProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, domain, _ := strings.Cut(user.Email, "@")
+	token := iphoneDownloadTokens.put(profile, domain)
+	http.Redirect(w, r, "/profile/iphone-profile/download?token="+token, http.StatusSeeOther)
+}
+
+// iphoneDownloadTokens holds freshly generated profiles for a few minutes so
+// iOS can fetch them with a plain GET. The Settings app refetches the profile
+// URL outside the Safari session (no cookies), so the token in the URL is the
+// auth; it is unguessable and short-lived. Single replica only.
+var iphoneDownloadTokens = &iphoneTokenStore{tokens: map[string]iphoneToken{}}
+
+type iphoneToken struct {
+	profile []byte
+	domain  string
+	expires time.Time
+}
+
+type iphoneTokenStore struct {
+	mu     sync.Mutex
+	tokens map[string]iphoneToken
+}
+
+func (st *iphoneTokenStore) put(profile []byte, domain string) string {
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
+	token := hex.EncodeToString(raw[:])
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	now := time.Now()
+	for t, e := range st.tokens {
+		if now.After(e.expires) {
+			delete(st.tokens, t)
+		}
+	}
+	st.tokens[token] = iphoneToken{profile: profile, domain: domain, expires: now.Add(5 * time.Minute)}
+	return token
+}
+
+func (st *iphoneTokenStore) get(token string) ([]byte, string, bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	e, ok := st.tokens[token]
+	if !ok || time.Now().After(e.expires) {
+		delete(st.tokens, token)
+		return nil, "", false
+	}
+	return e.profile, e.domain, true
+}
+
+// iphoneProfileDownload serves a generated profile to a plain GET. iOS routes
+// profile installation through Settings, which refetches the URL without the
+// login session — hence the bearer token instead of RequireAuth, and no
+// Content-Disposition for iOS so Safari hands the file to Settings instead of
+// parking it in Downloads (where reopening it re-GETs a POST-only route).
+func (s *Server) iphoneProfileDownload(w http.ResponseWriter, r *http.Request) {
+	profile, domain, ok := iphoneDownloadTokens.get(strings.TrimSpace(r.URL.Query().Get("token")))
+	if !ok {
+		http.Error(w, "this download link expired — generate the profile again", http.StatusNotFound)
+		return
+	}
 	w.Header().Set("Content-Type", appleprofile.ContentType)
-	w.Header().Set("Content-Disposition", `attachment; filename="`+domain+`-iphone.mobileconfig"`)
+	if !strings.Contains(strings.ToLower(r.UserAgent()), "iphone") && !strings.Contains(strings.ToLower(r.UserAgent()), "ipad") {
+		w.Header().Set("Content-Disposition", `attachment; filename="`+domain+`-iphone.mobileconfig"`)
+	}
 	if _, err := w.Write(profile); err != nil {
-		obs.Log(r.Context(), slog.LevelError, "write iphone profile failed", "user_id", user.ID, "error", err)
+		obs.Log(r.Context(), slog.LevelError, "write iphone profile download failed", "error", err)
 	}
 }
 
