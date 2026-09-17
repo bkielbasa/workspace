@@ -365,3 +365,44 @@ func TestConnectionCapRefusesPolitely(t *testing.T) {
 		t.Errorf("over-cap connection = %q, want a BYE", line)
 	}
 }
+
+// IDLE must answer "+ idling" immediately, keep the connection alive
+// across several wake intervals without polling the database each time,
+// and complete cleanly on DONE. The wake/poll split is easy to get wrong:
+// too eager and it hammers the store, too lazy and DONE hangs.
+func TestIdleWakesWithoutHammeringTheStore(t *testing.T) {
+	store := polishStore()
+	addr, _ := startTestServer(t, store)
+	s := dial(t, addr)
+	s.login()
+	s.do("A2", `SELECT "Sent"`)
+	before := atomic.LoadInt32(&store.sumCalls)
+
+	if _, err := fmt.Fprintf(s.conn, "A3 IDLE\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if line := s.readLine(); !strings.HasPrefix(line, "+ ") {
+		t.Fatalf("IDLE continuation = %q, want a '+' response", line)
+	}
+
+	// Sit idle across several wake intervals. Polling is on a much longer
+	// timer, so the store must stay untouched here.
+	time.Sleep(3 * idleWakeInterval)
+	if got := atomic.LoadInt32(&store.sumCalls) - before; got != 0 {
+		t.Errorf("IDLE made %d store calls in %v, want 0", got, 3*idleWakeInterval)
+	}
+
+	if _, err := fmt.Fprintf(s.conn, "DONE\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	line := s.readLine()
+	if !strings.Contains(line, "A3 OK") {
+		t.Fatalf("DONE reply = %q, want A3 OK", line)
+	}
+
+	// The session must still be usable after idling.
+	resp := s.do("A4", "CAPABILITY")
+	if !strings.Contains(resp[len(resp)-1], "OK") {
+		t.Errorf("session broken after IDLE: %q", resp)
+	}
+}
