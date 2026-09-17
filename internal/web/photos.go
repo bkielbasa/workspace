@@ -1,10 +1,13 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"io"
 	"log/slog"
 	"net/http"
@@ -92,28 +95,90 @@ type execConverter struct {
 
 func (c *execConverter) Available() bool {
 	c.once.Do(func() {
-		if bin, err := exec.LookPath("convert"); err == nil {
+		if bin, err := exec.LookPath("heif-convert"); err == nil {
 			c.bin = bin
 		}
 	})
 	return c.bin != ""
 }
 
-// Convert renders the first frame bounded to 1600px, stripped of metadata
-// (no location leaks in previews).
+// Convert renders the first embedded thumbnail (or full frame) bounded to
+// 1600px as a fresh JPEG (no metadata survives: no location leaks).
+// Decoding is done by heif-convert (libheif); downscale+encode are pure Go
+// so previews don't depend on ImageMagick delegates.
 func (c *execConverter) Convert(src, dst string) error {
 	if !c.Available() {
 		return fmt.Errorf("photos: no HEIC converter installed")
 	}
+	tmp, err := os.CreateTemp("", "heic-*.jpg")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	_ = tmp.Close()
+	defer os.Remove(tmpName)
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, c.bin,
-		src+"[0]", "-auto-orient", "-resize", "1600x1600>",
-		"-strip", "-quality", "82", dst)
+	cmd := exec.CommandContext(ctx, c.bin, "-q", "90", src, tmpName)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("photos: convert: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("photos: heif-convert: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	return nil
+	raw, err := os.ReadFile(tmpName)
+	if err != nil {
+		return err
+	}
+	img, err := jpeg.Decode(bytes.NewReader(raw))
+	if err != nil {
+		// heif-convert may have written PNG (odd colorspace): try generic.
+		img2, _, err2 := image.Decode(bytes.NewReader(raw))
+		if err2 != nil {
+			return fmt.Errorf("photos: decode converted: %w", err)
+		}
+		img = img2
+	}
+	img = boundImage(img, 1600)
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	err = jpeg.Encode(out, img, &jpeg.Options{Quality: 82})
+	cerr := out.Close()
+	if err != nil {
+		return err
+	}
+	return cerr
+}
+
+// boundImage downscales img to fit within maxDim (never upscales).
+func boundImage(img image.Image, maxDim int) image.Image {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= maxDim && h <= maxDim {
+		return img
+	}
+	var nw, nh int
+	if w >= h {
+		nw = maxDim
+		nh = h * maxDim / w
+	} else {
+		nh = maxDim
+		nw = w * maxDim / h
+	}
+	if nw < 1 {
+		nw = 1
+	}
+	if nh < 1 {
+		nh = 1
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, nw, nh))
+	xRatio := float64(w) / float64(nw)
+	yRatio := float64(h) / float64(nh)
+	for y := 0; y < nh; y++ {
+		for x := 0; x < nw; x++ {
+			dst.Set(x, y, img.At(b.Min.X+int(float64(x)*xRatio), b.Min.Y+int(float64(y)*yRatio)))
+		}
+	}
+	return dst
 }
 
 func (v *views) requirePhotos(w http.ResponseWriter) bool {
