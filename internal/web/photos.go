@@ -340,24 +340,18 @@ func (v *views) galleryViewData(w http.ResponseWriter, r *http.Request, user *id
 			continue
 		}
 		month := photoMonth{Name: e.Name, Path: e.Name}
-		kids, err := v.photos.ListDir(home, e.Name)
-		if err != nil {
-			continue
-		}
-		sort.Slice(kids, func(i, j int) bool { return kids[i].Name < kids[j].Name })
+		kids := v.walkPhotos(home, e.Name, 0)
+		sort.Slice(kids, func(i, j int) bool { return kids[i].Path < kids[j].Path })
 		for _, k := range kids {
-			if k.IsDir || strings.HasPrefix(k.Name, ".") {
-				continue
-			}
 			kind := kindOfPhoto(k.Name)
 			if kind == "file" {
 				continue
 			}
 			item := photoFileItem{
-				Name: k.Name, Path: e.Name + "/" + k.Name,
+				Name: k.Name, Path: k.Path,
 				Kind: kind, Size: k.Size,
 				Modified: formatDetailDate(k.ModTime),
-				Tags:     tagsByPhoto[e.Name+"/"+k.Name],
+				Tags:     tagsByPhoto[k.Path],
 			}
 			if activeTag != "" && !hasPhotoTag(item.Tags, activeTag) {
 				continue
@@ -409,6 +403,41 @@ func (v *views) galleryViewData(w http.ResponseWriter, r *http.Request, user *id
 		AlbumsReady: v.albumStore != nil,
 		Error:       errMsg,
 	}, true
+}
+
+// photoWalkItem is one media file found by walkPhotos, with its
+// library-relative path.
+type photoWalkItem struct {
+	Name    string
+	Path    string
+	Size    int64
+	ModTime time.Time
+}
+
+// walkPhotos collects media files under dir recursively (PhotoSync nests
+// uploads several levels deep). Preview caches and dotfiles never surface;
+// depth is capped so a weird tree can't run away.
+func (v *views) walkPhotos(home, dir string, depth int) []photoWalkItem {
+	if depth > 5 {
+		return nil
+	}
+	entries, err := v.photos.ListDir(home, dir)
+	if err != nil {
+		return nil
+	}
+	var out []photoWalkItem
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name, ".") {
+			continue
+		}
+		sub := dir + "/" + e.Name
+		if e.IsDir {
+			out = append(out, v.walkPhotos(home, sub, depth+1)...)
+			continue
+		}
+		out = append(out, photoWalkItem{Name: e.Name, Path: sub, Size: e.Size, ModTime: e.ModTime})
+	}
+	return out
 }
 
 func (v *views) galleryFile(w http.ResponseWriter, r *http.Request) {

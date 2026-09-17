@@ -570,3 +570,28 @@ func TestGalleryFragments(t *testing.T) {
 		t.Errorf("hx upload fragment missing the photo")
 	}
 }
+
+func TestGalleryShowsNestedUploads(t *testing.T) {
+	userID := uuid.New()
+	store := newMemFiles()
+	mux := photoTestServer(t, userID, store, memPhotoAuth{})
+
+	// PhotoSync-style nesting plus a preview cache that must stay hidden.
+	store.files["2026-09/Telefon Bartka/Favorites/IMG_6980.JPG"] = &memFile{data: []byte("x"), mod: time.Now()}
+	store.files["2026-09/2026-09/.previews/IMG_6980.jpg"] = &memFile{data: []byte("x"), mod: time.Now()}
+
+	req := httptest.NewRequest(http.MethodGet, "/gallery", nil)
+	photoCookies(req)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /gallery = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "IMG_6980.JPG") {
+		t.Errorf("nested upload not shown")
+	}
+	if strings.Contains(body, ".previews") {
+		t.Errorf("preview cache leaked into the gallery")
+	}
+}
