@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"mime"
 	"strconv"
 	"strings"
 	"time"
@@ -126,12 +127,83 @@ func imapAddressList(addresses []string) string {
 	return "(" + strings.Join(items, " ") + ")"
 }
 
+// imapNString renders a value as an IMAP quoted string (or NIL when
+// empty).
+//
+// RFC 3501 quoted strings carry 7-bit text only; 8-bit bytes are legal
+// solely inside literals. Emitting a raw UTF-8 subject here wedged Apple
+// Mail: it abandoned the FETCH mid-response and reconnected in a tight
+// loop, which the phone reported as "the server doesn't respond". Headers
+// are supposed to be RFC 2047 encoded anyway, so re-encoding restores the
+// form the client expects and keeps the wire 7-bit clean.
 func imapNString(value string) string {
 	if value == "" {
 		return "NIL"
 	}
+	if !isASCII(value) {
+		value = mime.BEncoding.Encode("utf-8", value)
+	}
 	value = strings.NewReplacer("\\", "\\\\", "\"", "\\\"", "\r", "", "\n", "").Replace(value)
 	return "\"" + value + "\""
+}
+
+// redactCredentials strips secrets out of a raw protocol line before it
+// reaches the logs. AUTHENTICATE/LOGIN arguments were being shipped
+// verbatim to the log backend, which put account passwords in plain view.
+// Anything that isn't a recognised command is treated as a SASL
+// continuation payload and hidden wholesale, since that is where the
+// base64 credentials for AUTHENTICATE arrive.
+func redactCredentials(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return line
+	}
+	fields := strings.Fields(trimmed)
+	// Untagged continuation: a lone token is the client's SASL payload.
+	if len(fields) == 1 {
+		if _, known := safeBareLines[strings.ToUpper(fields[0])]; known {
+			return line
+		}
+		return "[redacted]"
+	}
+	if len(fields) < 2 {
+		return line
+	}
+	switch strings.ToUpper(fields[1]) {
+	case "AUTHENTICATE":
+		// Keep the tag and mechanism, drop the credential blob.
+		if len(fields) >= 3 {
+			return fields[0] + " " + fields[1] + " " + fields[2] + " [redacted]"
+		}
+		return trimmed
+	case "LOGIN":
+		return fields[0] + " " + fields[1] + " [redacted]"
+	}
+	return line
+}
+
+// safeBareLines are single-word client lines that carry no secret, so they
+// stay readable in the logs.
+var safeBareLines = map[string]struct{}{
+	"DONE":       {},
+	"NOOP":       {},
+	"CAPABILITY": {},
+	"LOGOUT":     {},
+	"IDLE":       {},
+	"STARTTLS":   {},
+	"CHECK":      {},
+	"CLOSE":      {},
+	"EXPUNGE":    {},
+	"NAMESPACE":  {},
+}
+
+func isASCII(value string) bool {
+	for i := 0; i < len(value); i++ {
+		if value[i] > 127 {
+			return false
+		}
+	}
+	return true
 }
 
 func parseSeq(seq string, max int) (int, int) {

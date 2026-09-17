@@ -121,7 +121,7 @@ func (s *Server) handle(conn net.Conn) {
 		line = strings.TrimSpace(line)
 
 		obs.Log(ctx, slog.LevelInfo, "imap raw recv",
-			"raw", strings.TrimSpace(rawLine),
+			"raw", redactCredentials(strings.TrimSpace(rawLine)),
 		)
 
 		parts := strings.Fields(line)
@@ -480,7 +480,13 @@ func (s *Server) handle(conn net.Conn) {
 					"result_ids", strings.Join(ids, ","),
 					"messages_count", len(selectedMsgs),
 				)
-				write("* SEARCH " + strings.Join(ids, " "))
+				// No trailing space when empty: "* SEARCH" is the correct
+				// no-results form.
+				if len(ids) == 0 {
+					write("* SEARCH")
+				} else {
+					write("* SEARCH " + strings.Join(ids, " "))
+				}
 				write(tag + " OK UID SEARCH completed")
 				continue
 			}
