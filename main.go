@@ -192,7 +192,7 @@ func main() {
 	mux.Handle("/files/", filesHandler)
 	mux.Handle("/files", filesHandler)
 	// Photos are a separate tree with their own WebDAV mount.
-	photosHandler := files.New(photoStore, deviceAuth)
+	photosHandler := files.NewMounted(photoStore, deviceAuth, "/photos/")
 	mux.Handle("/photos/", photosHandler)
 	mux.Handle("/photos", photosHandler)
 	// The DAV hostname doubles as a files endpoint: clients pointed at the
