@@ -13,7 +13,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -45,6 +44,7 @@ type photoFileItem struct {
 	Size       int64
 	Modified   string
 	HasPreview bool
+	Label      string
 }
 
 // kindOfPhoto classifies by extension for gallery rendering.
@@ -215,6 +215,12 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 		return
 	}
 	var months []photoMonth
+	labels := map[string]string{}
+	if v.photoLabels != nil {
+		if got, err := v.photoLabels.List(r.Context(), user.ID); err == nil {
+			labels = got
+		}
+	}
 	for _, e := range entries {
 		if !e.IsDir || strings.HasPrefix(e.Name, ".") {
 			continue
@@ -237,6 +243,7 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 				Name: k.Name, Path: e.Name + "/" + k.Name,
 				Kind: kind, Size: k.Size,
 				Modified: formatDetailDate(k.ModTime),
+				Label:    labels[e.Name+"/"+k.Name],
 			}
 			if kind == "heic" {
 				if _, err := v.photos.Stat(home, previewName(item.Path)); err == nil {
@@ -403,71 +410,12 @@ func (v *views) galleryDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/gallery", http.StatusSeeOther)
 }
 
-// photoDetail carries one library item for the detail page.
-type photoDetail struct {
-	Name        string
-	Path        string
-	Kind        string // image, heic, video, file
-	Size        int64
-	Modified    time.Time
-	Dims        string // "3024 × 4032", best effort, empty when unknown
-	Label       string
-	HasPreview  bool
-	LabelsReady bool
-}
-
 // maxPhotoLabel caps labels at a short caption, not an essay.
 const maxPhotoLabel = 140
 
-// photoDetailPage renders one photo large with its metadata, label form and
-// the future home of sharing settings.
-func (v *views) photoDetailPage(w http.ResponseWriter, r *http.Request, user *identity.User) {
-	if !v.requirePhotos(w) {
-		return
-	}
-	home := files.HomeDir(user.Email)
-	name := cleanDrivePath(r.URL.Query().Get("path"))
-	if name == "" {
-		http.NotFound(w, r)
-		return
-	}
-	info, err := v.photos.Stat(home, name)
-	if err != nil || info.IsDir {
-		http.NotFound(w, r)
-		return
-	}
-	kind := kindOfPhoto(name)
-	item := photoDetail{
-		Name:        info.Name,
-		Path:        name,
-		Kind:        kind,
-		Size:        info.Size,
-		Modified:    info.ModTime,
-		Dims:        photoDimensions(v.photos, home, name),
-		LabelsReady: v.photoLabels != nil,
-	}
-	if kind == "heic" {
-		if _, err := v.photos.Stat(home, previewName(name)); err == nil {
-			item.HasPreview = true
-		}
-	}
-	if v.photoLabels != nil {
-		if label, err := v.photoLabels.Get(r.Context(), user.ID, name); err == nil {
-			item.Label = label
-		}
-	}
-	renderView(w, r, v.photoT, "layout", viewData{
-		Title:       info.Name,
-		Section:     "photos",
-		User:        user,
-		CSRFToken:   csrfTokenFromRequest(r),
-		Wide:        true,
-		Photo:       item,
-		Error:       driveFlash(r),
-	})
-}
-
 // photoLabel saves (or clears, when empty) the label of one photo.
+// The gallery modal posts with ?format=json; plain form posts fall back to
+// the gallery itself.
 func (v *views) photoLabel(w http.ResponseWriter, r *http.Request) {
 	user := UserFromContext(r.Context())
 	if !v.requirePhotos(w) {
@@ -489,31 +437,19 @@ func (v *views) photoLabel(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := v.photoLabels.Set(r.Context(), user.ID, name, label); err != nil {
 		obs.Log(r.Context(), slog.LevelError, "save photo label failed", "path", name, "error", err)
-		http.Redirect(w, r, "/gallery/photo?path="+url.QueryEscape(name)+"&error=label", http.StatusSeeOther)
+		if wantsJSON(r) {
+			writeJSONError(w, http.StatusInternalServerError, "could not save that label")
+			return
+		}
+		http.Redirect(w, r, "/gallery?error=label", http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/gallery/photo?path="+url.QueryEscape(name), http.StatusSeeOther)
-}
-
-// photoDimensions reports pixel dimensions for directly decodable images.
-// HEIC needs the external converter and stays unknown here; the preview
-// pipeline, not this string, is what the gallery depends on.
-func photoDimensions(store filesService, home, name string) string {
-	switch strings.ToLower(path.Ext(name)) {
-	case ".jpg", ".jpeg", ".png", ".gif":
-	default:
-		return ""
+	if wantsJSON(r) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"label": label})
+		return
 	}
-	f, _, err := store.Open(home, name)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	cfg, _, err := image.DecodeConfig(f)
-	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d × %d", cfg.Width, cfg.Height)
+	http.Redirect(w, r, "/gallery", http.StatusSeeOther)
 }
 
 type uploadResult struct {
@@ -604,7 +540,7 @@ func (v *views) photoUpload(w http.ResponseWriter, r *http.Request) {
 					result.Failed = append(result.Failed, uploadError{Name: name, Error: "not a photo or video"})
 					continue
 				}
-				target := v.uniquePhotoPath(home, month, name)
+				target := v.uniquePhotoPath(home, month, friendlyUploadName(name))
 				if err := v.photos.Write(home, target, f, fh.Size); err != nil {
 					_ = f.Close()
 					result.Failed = append(result.Failed, uploadError{Name: name, Error: "cannot store file"})
@@ -682,7 +618,36 @@ func (v *views) sessionUser(r *http.Request) *identity.User {
 	return user
 }
 
-// sanitizeUploadName keeps a safe basename or returns "".
+// friendlyUploadName replaces bare UUID filenames with timestamped ones.
+// iOS shares converted photos under their asset UUID (c97b1595-…jpeg) and
+// the original IMG_ name never reaches us, so photo-20260917-120530.jpeg is
+// the kindest name we can mint. Real filenames pass through untouched.
+func friendlyUploadName(name string) string {
+	ext := path.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	if !isUUID(stem) {
+		return name
+	}
+	return "photo-" + time.Now().UTC().Format("20060102-150405") + strings.ToLower(ext)
+}
+
+func isUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		switch {
+		case i == 8 || i == 13 || i == 18 || i == 23:
+			if c != '-' {
+				return false
+			}
+		case c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
 func sanitizeUploadName(name string) string {
 	name = path.Base(strings.TrimSpace(name))
 	name = strings.Map(func(r rune) rune {

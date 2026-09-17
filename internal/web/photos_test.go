@@ -86,6 +86,16 @@ func (m *memPhotoLabels) Set(_ context.Context, _ uuid.UUID, path, label string)
 	return nil
 }
 
+func (m *memPhotoLabels) List(_ context.Context, _ uuid.UUID) (map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]string, len(m.labels))
+	for k, v := range m.labels {
+		out[k] = v
+	}
+	return out, nil
+}
+
 var errAuthTest = errors.New("bad credentials")
 
 func photoCookies(req *http.Request) {
@@ -213,74 +223,125 @@ func TestGalleryDelete(t *testing.T) {
 	}
 }
 
-func TestPhotoDetailAndLabel(t *testing.T) {
+func TestGalleryModalAndLabel(t *testing.T) {
 	userID := uuid.New()
 	store := newMemFiles()
 	mux := photoTestServer(t, userID, store, memPhotoAuth{})
 
 	store.files["2026-09/beach.jpg"] = &memFile{data: []byte("fake-image-bytes"), mod: time.Now()}
 
-	// Detail page renders the large view, metadata and label form.
-	req := httptest.NewRequest(http.MethodGet, "/gallery/photo?path=2026-09%2Fbeach.jpg", nil)
+	// Gallery carries the modal triggers with item data plus the modal shell.
+	req := httptest.NewRequest(http.MethodGet, "/gallery", nil)
 	photoCookies(req)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("GET detail = %d", rec.Code)
+		t.Fatalf("GET /gallery = %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Download original", "Sharing", "Save label", "/gallery/file?path=2026-09%2fbeach.jpg"} {
+	for _, want := range []string{
+		`class="gallery-open"`, `data-path="2026-09/beach.jpg"`, `data-kind="image"`,
+		`id="photo-modal"`, `data-label-form`, `/static/js/gallery.js`, "Sharing",
+	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("detail missing %q", want)
+			t.Errorf("gallery missing %q", want)
 		}
 	}
-
-	// Missing file is a 404, not a 500.
-	req = httptest.NewRequest(http.MethodGet, "/gallery/photo?path=2026-09%2Fnope.jpg", nil)
-	photoCookies(req)
-	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("missing detail = %d, want 404", rec.Code)
+	if strings.Contains(body, "/gallery/photo?path=") {
+		t.Errorf("gallery still links to the removed detail page")
 	}
 
-	// Save a label, see it on the detail page, clear it again.
+	// The modal saves labels through the JSON endpoint.
 	form := url.Values{"_csrf": {"test-csrf-token"}, "path": {"2026-09/beach.jpg"}, "label": {"Tatra sunrise"}}
-	req = httptest.NewRequest(http.MethodPost, "/gallery/label", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(http.MethodPost, "/gallery/label?format=json", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	photoCookies(req)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusSeeOther {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("label save = %d", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "/gallery/photo?path=") {
-		t.Errorf("label redirect = %q", loc)
+	if body := rec.Body.String(); !strings.Contains(body, `"label":"Tatra sunrise"`) {
+		t.Errorf("label JSON = %s", body)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/gallery/photo?path=2026-09%2Fbeach.jpg", nil)
+	// Saved labels render as captions with data for the modal.
+	req = httptest.NewRequest(http.MethodGet, "/gallery", nil)
 	photoCookies(req)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
-	if body := rec.Body.String(); !strings.Contains(body, "Tatra sunrise") {
-		t.Errorf("saved label not shown")
+	if body := rec.Body.String(); !strings.Contains(body, `data-label="Tatra sunrise"`) || !strings.Contains(body, ">Tatra sunrise<") {
+		t.Errorf("saved label not rendered")
 	}
 
+	// Clearing removes the caption again.
 	form = url.Values{"_csrf": {"test-csrf-token"}, "path": {"2026-09/beach.jpg"}, "label": {""}}
-	req = httptest.NewRequest(http.MethodPost, "/gallery/label", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(http.MethodPost, "/gallery/label?format=json", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	photoCookies(req)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusSeeOther {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("label clear = %d", rec.Code)
 	}
-
-	req = httptest.NewRequest(http.MethodGet, "/gallery/photo?path=2026-09%2Fbeach.jpg", nil)
+	req = httptest.NewRequest(http.MethodGet, "/gallery", nil)
 	photoCookies(req)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if body := rec.Body.String(); strings.Contains(body, "Tatra sunrise") {
-		t.Errorf("cleared label still shown")
+		t.Errorf("cleared label still rendered")
+	}
+}
+
+func TestUUIDUploadRenamed(t *testing.T) {
+	userID := uuid.New()
+	store := newMemFiles()
+	mux := photoTestServer(t, userID, store, memPhotoAuth{})
+
+	upload := func(filename string) {
+		var buf bytes.Buffer
+		w := multipart.NewWriter(&buf)
+		_ = w.WriteField("_csrf", "test-csrf-token")
+		fw, _ := w.CreateFormFile("files", filename)
+		_, _ = fw.Write([]byte("fake-image-bytes"))
+		_ = w.Close()
+		req := httptest.NewRequest(http.MethodPost, "/api/upload", &buf)
+		req.Header.Set("Content-Type", w.FormDataContentType())
+		photoCookies(req)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("upload %s = %d", filename, rec.Code)
+		}
+	}
+
+	month := time.Now().UTC().Format("2006-01")
+	upload("c97b1595-9f28-4a89-bb60-b731220871e7.jpeg")
+	upload("IMG_1234.HEIC")
+
+	var uuidLeft, renamed, kept bool
+	for name := range store.files {
+		if !strings.HasPrefix(name, month+"/") {
+			continue
+		}
+		base := strings.TrimPrefix(name, month+"/")
+		if strings.HasPrefix(strings.ToLower(base), "c97b1595") {
+			uuidLeft = true
+		}
+		if strings.HasPrefix(base, "photo-") && strings.HasSuffix(strings.ToLower(base), ".jpeg") {
+			renamed = true
+		}
+		if base == "IMG_1234.HEIC" {
+			kept = true
+		}
+	}
+	if uuidLeft {
+		t.Errorf("UUID filename stored as-is")
+	}
+	if !renamed {
+		t.Errorf("UUID upload not renamed to photo-*.jpeg: %v", store.files)
+	}
+	if !kept {
+		t.Errorf("real filename IMG_1234.HEIC not preserved")
 	}
 }

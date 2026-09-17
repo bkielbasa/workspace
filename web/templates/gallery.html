@@ -20,20 +20,20 @@
     <div class="gallery-grid">
       {{range .Files}}
       <figure class="gallery-item">
-        {{if eq .Kind "image"}}
-        <a href="/gallery/photo?path={{.Path}}"><img src="/gallery/file?path={{.Path}}" alt="{{.Name}}" loading="lazy"></a>
-        {{else if eq .Kind "heic"}}
-          {{if .HasPreview}}
-          <a href="/gallery/photo?path={{.Path}}"><img src="/gallery/preview?path={{.Path}}" alt="{{.Name}}" loading="lazy"></a>
-          {{else}}
-          <a class="gallery-file-link" href="/gallery/photo?path={{.Path}}"><span class="gallery-file-icon" aria-hidden="true">🖼</span><span>{{.Name}}</span></a>
+        <button type="button" class="gallery-open" data-path="{{.Path}}" data-name="{{.Name}}" data-kind="{{.Kind}}" data-label="{{.Label}}" data-size="{{.Size}}" data-modified="{{.Modified}}" data-has-preview="{{.HasPreview}}">
+          {{if eq .Kind "image"}}
+          <img src="/gallery/file?path={{.Path}}" alt="{{.Name}}" loading="lazy">
+          {{else if eq .Kind "heic"}}
+            {{if .HasPreview}}
+            <img src="/gallery/preview?path={{.Path}}" alt="{{.Name}}" loading="lazy">
+            {{else}}
+            <span class="gallery-file-icon" aria-hidden="true">🖼</span>
+            {{end}}
+          {{else if eq .Kind "video"}}
+          <span class="gallery-file-icon" aria-hidden="true">🎬</span>
           {{end}}
-        {{else if eq .Kind "video"}}
-        <video src="/gallery/file?path={{.Path}}" preload="none" controls></video>
-        {{else}}
-        <a class="gallery-file-link" href="/gallery/photo?path={{.Path}}"><span class="gallery-file-icon" aria-hidden="true">📄</span><span>{{.Name}}</span></a>
-        {{end}}
-        <figcaption class="gallery-caption" title="{{.Name}}">{{.Name}}</figcaption>
+        </button>
+        <figcaption class="gallery-caption" title="{{.Name}}">{{if .Label}}{{.Label}}{{else}}{{.Name}}{{end}}</figcaption>
       </figure>
       {{end}}
     </div>
@@ -46,6 +46,36 @@
     <p class="mail-empty-subtext">Upload from this page or point a Shortcut at the upload API — photos land in month folders automatically.</p>
   </div>
   {{end}}
+
+  <div class="photo-modal" id="photo-modal" hidden data-csrf="{{.CSRFToken}}">
+    <div class="photo-modal-backdrop" data-close></div>
+    <div class="photo-modal-box card" role="dialog" aria-modal="true" aria-label="Photo">
+      <button type="button" class="photo-modal-x" data-close aria-label="Close">&times;</button>
+      <button type="button" class="photo-modal-nav photo-modal-prev" aria-label="Previous">&#8249;</button>
+      <button type="button" class="photo-modal-nav photo-modal-next" aria-label="Next">&#8250;</button>
+      <div class="photo-modal-stage"></div>
+      <div class="photo-modal-side">
+        <h2 class="photo-name"></h2>
+        <dl class="photo-modal-meta">
+          <div><dt>File</dt><dd data-meta="name"></dd></div>
+          <div><dt>Added</dt><dd data-meta="added"></dd></div>
+        </dl>
+        <p><a class="btn btn-sm" data-meta="download" href="#">Download original</a></p>
+        <h3>Label</h3>
+        <form class="profile-form" data-label-form>
+          <label for="photo-modal-label">Caption
+            <input id="photo-modal-label" name="label" type="text" maxlength="140" autocomplete="off" placeholder="Add a short caption">
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-sm">Save label</button>
+          </div>
+        </form>
+        <h3>Sharing</h3>
+        <p class="field-hint">Link sharing for photos lands here next — this photo has no share links yet.</p>
+      </div>
+    </div>
+  </div>
 </section>
 <script src="/static/js/drive.js"></script>
+<script src="/static/js/gallery.js"></script>
 {{end}}

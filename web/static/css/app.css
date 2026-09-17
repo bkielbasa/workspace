@@ -489,6 +489,124 @@ textarea::placeholder {
   overflow-wrap: anywhere;
 }
 
+/* Gallery lightbox modal. */
+.gallery-open {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: zoom-in;
+  width: 100%;
+}
+
+.gallery-open img {
+  width: 100%;
+  display: block;
+}
+
+.photo-modal[hidden] {
+  display: none;
+}
+
+.photo-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.photo-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.photo-modal-box {
+  position: relative;
+  max-width: 56rem;
+  width: 100%;
+  max-height: 90vh;
+  overflow: auto;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 2fr 1fr;
+}
+
+.photo-modal-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111;
+  border-radius: 0.5rem;
+  min-height: 12rem;
+}
+
+.photo-modal-side {
+  min-width: 0;
+}
+
+.photo-modal-x {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  background: none;
+  border: none;
+  font-size: 1.75rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.photo-modal-nav {
+  position: absolute;
+  top: 40%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 2.25rem;
+  height: 2.25rem;
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.photo-modal-prev {
+  left: 0.5rem;
+}
+
+.photo-modal-next {
+  right: 0.5rem;
+}
+
+.photo-modal-meta {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.75rem 0;
+}
+
+.photo-modal-meta > div {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.photo-modal-meta dt {
+  font-weight: 600;
+  min-width: 3.5rem;
+  flex-shrink: 0;
+}
+
+.photo-modal-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 40rem) {
+  .photo-modal-box {
+    grid-template-columns: 1fr;
+  }
+}
+
 .gallery-title {
   margin: 0;
   font-size: 1.4rem;

@@ -82,6 +82,7 @@ type photoUploadAuth interface {
 type photoLabelStore interface {
 	Get(ctx context.Context, userID uuid.UUID, path string) (string, error)
 	Set(ctx context.Context, userID uuid.UUID, path, label string) error
+	List(ctx context.Context, userID uuid.UUID) (map[string]string, error)
 }
 
 type usersService interface {
@@ -211,7 +212,6 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /drive/rename", s.RequireAuth(s.RequireCSRF(s.views.driveRename)))
 
 	mux.HandleFunc("GET /gallery", s.page(s.views.galleryPage))
-	mux.HandleFunc("GET /gallery/photo", s.page(s.views.photoDetailPage))
 	mux.HandleFunc("POST /gallery/label", s.RequireAuth(s.RequireCSRF(s.views.photoLabel)))
 	mux.HandleFunc("GET /gallery/file", s.RequireAuth(s.views.galleryFile))
 	mux.HandleFunc("GET /gallery/preview", s.RequireAuth(s.views.galleryPreview))
