@@ -89,6 +89,8 @@ spec:
               value: {{ .Values.files.quotaBytes | quote }}
             - name: FILES_MAX_FILE_BYTES
               value: {{ .Values.files.maxFileBytes | quote }}
+            - name: PHOTOS_DATA_DIR
+              value: {{ .Values.photos.dataDir | quote }}
           volumeMounts:
             - name: data
               mountPath: /data

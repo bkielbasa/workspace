@@ -86,6 +86,11 @@ files:
   quotaBytes: "10737418240"
   maxFileBytes: "1073741824"
 
+# Photo library served over WebDAV at /photos/ plus the gallery UI.
+# A separate tree (and PVC path) so libraries never mix with files.
+photos:
+  dataDir: /data/photos
+
 # Persistent volume for user files. NFS-backed so files survive node
 # changes; Retain policy keeps data if the claim is ever deleted.
 # ReadWriteMany: the app and Samba mount it together.
