@@ -87,6 +87,8 @@ type viewData struct {
 	DrivePath   string
 	DriveCrumbs []driveCrumb
 	DriveFiles  []driveFileItem
+	// Gallery state.
+	PhotoMonths []photoMonth
 }
 
 type views struct {
@@ -94,6 +96,11 @@ type views struct {
 	calendar calendarService
 	mail     mailService
 	files    filesService
+	photos   filesService
+	photoAuth photoUploadAuth
+	previewConv heicConverter
+	sessions sessionsService
+	users    usersService
 
 	home         *template.Template
 	contactsT    *template.Template
@@ -102,11 +109,12 @@ type views struct {
 	mailT        *template.Template
 	profileT     *template.Template
 	driveT       *template.Template
+	galleryT     *template.Template
 	inviteT      *template.Template
 	login        *template.Template
 }
 
-func newViews(files fs.FS, contactService contactsService, calendarService calendarService, mailService mailService) (*views, error) {
+func newViews(files fs.FS, contactService contactsService, calendarService calendarService, mailService mailService, sessions sessionsService, users usersService) (*views, error) {
 	base := []string{
 		"web/templates/layout.html",
 		"web/templates/nav.html",
@@ -148,6 +156,10 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	if err != nil {
 		return nil, err
 	}
+	galleryT, err := page("web/templates/gallery.html")
+	if err != nil {
+		return nil, err
+	}
 	login, err := template.New("").Funcs(templateFuncs).ParseFS(files, "web/templates/login.html")
 	if err != nil {
 		return nil, fmt.Errorf("web: parse login template: %w", err)
@@ -159,8 +171,9 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 
 	return &views{
 		contacts: contactService, calendar: calendarService, mail: mailService,
+		sessions: sessions, users: users,
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
-		calendarT: calendarT, mailT: mailT, profileT: profileT, driveT: driveT, login: login,
+		calendarT: calendarT, mailT: mailT, profileT: profileT, driveT: driveT, galleryT: galleryT, login: login,
 		inviteT: inviteT,
 	}, nil
 }

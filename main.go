@@ -82,6 +82,11 @@ func main() {
 	if err != nil {
 		obs.Fatal(ctx, "files store unavailable", "error", err)
 	}
+	// Photos live in a separate tree (same quotas) so libraries never mix.
+	photoStore, err := files.NewStore(cfg.photosDataDir, cfg.filesQuota, cfg.filesMaxFile)
+	if err != nil {
+		obs.Fatal(ctx, "photos store unavailable", "error", err)
+	}
 	delivery := mail.NewDelivery(users, mailboxes, messages, outbox, threads, aliases, mailHostname)
 	searchRepo := postgres.NewSearchRepository(db)
 	mailSvc := mail.NewService(mailboxes, messages, searchRepo, delivery, mailHostname)
@@ -153,6 +158,8 @@ func main() {
 	}
 	webUI.SetDeviceSetup(appPasswords, mailHostname, davHost)
 	webUI.SetFiles(fileStore)
+	webUI.SetPhotos(photoStore, deviceAuth)
+	webUI.SetPhotos(photoStore, deviceAuth)
 	webUI.SetInvites(identity.NewInvites(postgres.NewInviteRepository(db), users))
 	(&discovery{mailHost: mailHostname, davHost: davHost, domains: domains}).register(mux)
 
@@ -184,6 +191,10 @@ func main() {
 	filesHandler := files.New(fileStore, deviceAuth)
 	mux.Handle("/files/", filesHandler)
 	mux.Handle("/files", filesHandler)
+	// Photos are a separate tree with their own WebDAV mount.
+	photosHandler := files.New(photoStore, deviceAuth)
+	mux.Handle("/photos/", photosHandler)
+	mux.Handle("/photos", photosHandler)
 	// The DAV hostname doubles as a files endpoint: clients pointed at the
 	// bare host land on their tree root instead of a 404.
 	filesRoot := files.NewMounted(fileStore, deviceAuth, "/")

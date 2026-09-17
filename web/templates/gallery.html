@@ -1,0 +1,51 @@
+{{define "content"}}<section class="gallery-page">
+  <div class="gallery-head card">
+    <div>
+      <h1 class="gallery-title">Photos</h1>
+      <p class="subtitle">Your library, organized by upload month</p>
+    </div>
+    <form class="inline-form" action="/api/upload" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+      <label class="btn btn-sm" for="gallery-upload">Upload photos</label>
+      <input type="file" id="gallery-upload" name="files" multiple hidden accept="image/*,video/*" data-autosubmit>
+    </form>
+  </div>
+
+  {{if .Error}}<div class="compose-error drive-error" role="alert">{{.Error}}</div>{{end}}
+
+  {{if .PhotoMonths}}
+  {{range .PhotoMonths}}
+  <section class="gallery-month">
+    <h2 class="gallery-month-title">{{.Name}}</h2>
+    <div class="gallery-grid">
+      {{range .Files}}
+      <figure class="gallery-item">
+        {{if eq .Kind "image"}}
+        <a href="/gallery/file?path={{.Path}}"><img src="/gallery/file?path={{.Path}}" alt="{{.Name}}" loading="lazy"></a>
+        {{else if eq .Kind "heic"}}
+          {{if .HasPreview}}
+          <a href="/gallery/file?path={{.Path}}"><img src="/gallery/preview?path={{.Path}}" alt="{{.Name}}" loading="lazy"></a>
+          {{else}}
+          <a class="gallery-file-link" href="/gallery/file?path={{.Path}}"><span class="gallery-file-icon" aria-hidden="true">🖼</span><span>{{.Name}}</span></a>
+          {{end}}
+        {{else if eq .Kind "video"}}
+        <video src="/gallery/file?path={{.Path}}" preload="none" controls></video>
+        {{else}}
+        <a class="gallery-file-link" href="/gallery/file?path={{.Path}}"><span class="gallery-file-icon" aria-hidden="true">📄</span><span>{{.Name}}</span></a>
+        {{end}}
+        <figcaption class="gallery-caption" title="{{.Name}}">{{.Name}}</figcaption>
+      </figure>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+  {{else}}
+  <div class="mail-empty-state card">
+    <div class="mail-empty-icon">📷</div>
+    <h3 class="mail-empty-title">No photos yet</h3>
+    <p class="mail-empty-subtext">Upload from this page or point a Shortcut at the upload API — photos land in month folders automatically.</p>
+  </div>
+  {{end}}
+</section>
+<script src="/static/js/drive.js"></script>
+{{end}}

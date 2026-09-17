@@ -70,6 +70,12 @@ type filesService interface {
 	Mkdir(home string, name string) error
 	Move(home string, from, to string, overwrite bool) error
 	Remove(home string, name string) error
+	LocalPath(home string, name string) (string, error)
+}
+
+// photoUploadAuth verifies upload credentials (master or app password).
+type photoUploadAuth interface {
+	Authenticate(ctx context.Context, login, password string) (*identity.User, error)
 }
 
 type usersService interface {
@@ -128,6 +134,12 @@ func (s *Server) SetFiles(svc filesService) {
 	s.views.files = svc
 }
 
+// SetPhotos enables the gallery and upload API on a separate photo tree.
+func (s *Server) SetPhotos(svc filesService, auth photoUploadAuth) {
+	s.views.photos = svc
+	s.views.photoAuth = auth
+}
+
 // New constructs the web server from the root embedded filesystem and services.
 // files must contain the existing web/templates and web/static directories.
 func New(files fs.FS, contacts contactsService, calendars calendarService, mail mailService, sessions sessionsService, users usersService, secure bool) (*Server, error) {
@@ -146,7 +158,7 @@ func New(files fs.FS, contacts contactsService, calendars calendarService, mail 
 		return nil, fmt.Errorf("web: nil users service")
 	}
 
-	v, err := newViews(files, contacts, calendars, mail)
+	v, err := newViews(files, contacts, calendars, mail, sessions, users)
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +195,12 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /drive/mkdir", s.RequireAuth(s.RequireCSRF(s.views.driveMkdir)))
 	mux.HandleFunc("POST /drive/delete", s.RequireAuth(s.RequireCSRF(s.views.driveDelete)))
 	mux.HandleFunc("POST /drive/rename", s.RequireAuth(s.RequireCSRF(s.views.driveRename)))
+
+	mux.HandleFunc("GET /gallery", s.page(s.views.galleryPage))
+	mux.HandleFunc("GET /gallery/file", s.RequireAuth(s.views.galleryFile))
+	mux.HandleFunc("GET /gallery/preview", s.RequireAuth(s.views.galleryPreview))
+	mux.HandleFunc("POST /gallery/delete", s.RequireAuth(s.RequireCSRF(s.views.galleryDelete)))
+	mux.HandleFunc("POST /api/upload", s.views.photoUpload)
 
 	mux.HandleFunc("GET /mail", s.page(s.views.mailPage))
 	mux.HandleFunc("GET /mail/message/{id}", s.page(s.views.mailDetailPage))

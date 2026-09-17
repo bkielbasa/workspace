@@ -2,6 +2,7 @@ package web_test
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -33,6 +34,12 @@ func newMemFiles() *memFiles {
 }
 
 func (m *memFiles) EnsureUserRoot(_ string) error { return nil }
+
+var errLocalPathStub = errors.New("no local path in stub")
+
+func (m *memFiles) LocalPath(_ string, _ string) (string, error) {
+	return "", errLocalPathStub
+}
 
 func (m *memFiles) Stat(_ string, name string) (files.File, error) {
 	f, ok := m.files[name]

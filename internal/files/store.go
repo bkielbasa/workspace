@@ -199,6 +199,12 @@ func (s *Store) Open(home string, name string) (io.ReadSeekCloser, File, error) 
 	return f, statFile(full, path.Base(name), info), nil
 }
 
+// LocalPath exposes the on-disk path for out-of-band processing (media
+// conversion). The result stays jailed; callers must not escape it.
+func (s *Store) LocalPath(home, name string) (string, error) {
+	return s.resolve(home, name)
+}
+
 // usage sums bytes under the user's root.
 func (s *Store) usage(home string) (int64, error) {
 	var total int64

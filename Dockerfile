@@ -14,7 +14,7 @@ FROM alpine:3.20
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata imagemagick libheif libde265
 
 COPY --from=builder /app/server .
 COPY migrations ./migrations
