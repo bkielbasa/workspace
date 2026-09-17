@@ -229,7 +229,7 @@ func TestPhotoDetailAndLabel(t *testing.T) {
 		t.Fatalf("GET detail = %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Download original", "Sharing", "Save label", "/gallery/file?path=2026-09/beach.jpg"} {
+	for _, want := range []string{"Download original", "Sharing", "Save label", "/gallery/file?path=2026-09%2fbeach.jpg"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail missing %q", want)
 		}
