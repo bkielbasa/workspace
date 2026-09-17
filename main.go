@@ -159,7 +159,7 @@ func main() {
 	webUI.SetDeviceSetup(appPasswords, mailHostname, davHost)
 	webUI.SetFiles(fileStore)
 	webUI.SetPhotos(photoStore, deviceAuth)
-	webUI.SetPhotoLabels(postgres.NewPhotoLabelRepository(db))
+	webUI.SetPhotoTags(postgres.NewPhotoTagRepository(db))
 	webUI.SetInvites(identity.NewInvites(postgres.NewInviteRepository(db), users))
 	(&discovery{mailHost: mailHostname, davHost: davHost, domains: domains}).register(mux)
 

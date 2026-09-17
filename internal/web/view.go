@@ -92,6 +92,10 @@ type viewData struct {
 	DriveFiles  []driveFileItem
 	// Gallery state.
 	PhotoMonths []photoMonth
+	// AllPhotoTags lists every tag the user ever used, for suggestions.
+	AllPhotoTags []string
+	// TagsReady reports whether the tag store is wired.
+	TagsReady bool
 }
 
 type views struct {
@@ -101,7 +105,7 @@ type views struct {
 	files    filesService
 	photos   filesService
 	photoAuth photoUploadAuth
-	photoLabels photoLabelStore
+	tagStore photoTagStore
 	previewConv heicConverter
 	sessions sessionsService
 	users    usersService

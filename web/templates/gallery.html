@@ -20,7 +20,7 @@
     <div class="gallery-grid">
       {{range .Files}}
       <figure class="gallery-item">
-        <button type="button" class="gallery-open" data-path="{{.Path}}" data-name="{{.Name}}" data-kind="{{.Kind}}" data-label="{{.Label}}" data-size="{{.Size}}" data-modified="{{.Modified}}" data-has-preview="{{.HasPreview}}">
+        <button type="button" class="gallery-open" data-path="{{.Path}}" data-name="{{.Name}}" data-kind="{{.Kind}}" data-tags="{{range $i, $t := .Tags}}{{if $i}},{{end}}{{$t}}{{end}}" data-size="{{.Size}}" data-modified="{{.Modified}}" data-has-preview="{{.HasPreview}}">
           {{if eq .Kind "image"}}
           <img src="/gallery/file?path={{.Path}}" alt="{{.Name}}" loading="lazy">
           {{else if eq .Kind "heic"}}
@@ -33,7 +33,13 @@
           <span class="gallery-file-icon" aria-hidden="true">🎬</span>
           {{end}}
         </button>
-        <figcaption class="gallery-caption" title="{{.Name}}">{{if .Label}}{{.Label}}{{else}}{{.Name}}{{end}}</figcaption>
+        <figcaption class="gallery-caption" title="{{.Name}}">
+          {{if .Tags}}
+            {{range .Tags}}<span class="tag-chip">{{.}}</span>{{end}}
+          {{else}}
+            {{.Name}}
+          {{end}}
+        </figcaption>
       </figure>
       {{end}}
     </div>
@@ -61,15 +67,21 @@
           <div><dt>Added</dt><dd data-meta="added"></dd></div>
         </dl>
         <p><a class="btn btn-sm" data-meta="download" href="#">Download original</a></p>
-        <h3>Label</h3>
-        <form class="profile-form" data-label-form>
-          <label for="photo-modal-label">Caption
-            <input id="photo-modal-label" name="label" type="text" maxlength="140" autocomplete="off" placeholder="Add a short caption">
+        {{if .TagsReady}}
+        <h3>Tags</h3>
+        <div class="tag-chips" data-tag-chips></div>
+        <form class="profile-form" data-tag-form>
+          <label for="photo-modal-tag">Add tag
+            <input id="photo-modal-tag" name="tag" type="text" maxlength="40" autocomplete="off" placeholder="Type or pick below" list="tag-suggestions">
           </label>
+          <datalist id="tag-suggestions">
+            {{range .AllPhotoTags}}<option value="{{.}}">{{end}}
+          </datalist>
           <div class="form-actions">
-            <button type="submit" class="btn btn-sm">Save label</button>
+            <button type="submit" class="btn btn-sm">Add tag</button>
           </div>
         </form>
+        {{end}}
         <h3>Sharing</h3>
         <p class="field-hint">Link sharing for photos lands here next — this photo has no share links yet.</p>
       </div>

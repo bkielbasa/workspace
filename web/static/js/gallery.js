@@ -1,4 +1,4 @@
-/* Gallery lightbox: click a thumbnail for the large view with label form.
+/* Gallery lightbox: click a thumbnail for the large view with tag editor.
  * Stays on the page; the old separate detail route is gone. */
 (function () {
   "use strict";
@@ -11,10 +11,12 @@
   var metaName = modal.querySelector('[data-meta="name"]');
   var metaAdded = modal.querySelector('[data-meta="added"]');
   var download = modal.querySelector('[data-meta="download"]');
-  var labelForm = modal.querySelector("[data-label-form]");
-  var labelInput = modal.querySelector("#photo-modal-label");
+  var tagChips = modal.querySelector("[data-tag-chips]");
+  var tagForm = modal.querySelector("[data-tag-form]");
+  var tagInput = modal.querySelector("#photo-modal-tag");
   var items = Array.prototype.slice.call(document.querySelectorAll(".gallery-open"));
   var current = -1;
+  var currentTags = [];
 
   function fmtBytes(n) {
     n = Number(n) || 0;
@@ -28,11 +30,91 @@
     return "/gallery/file?path=" + encodeURIComponent(path);
   }
 
+  function tagsOf(item) {
+    return (item.getAttribute("data-tags") || "").split(",").filter(function (t) { return t !== ""; });
+  }
+
+  function renderChips() {
+    if (!tagChips) return; // tag store unwired: editor hidden, modal still works.
+    tagChips.innerHTML = "";
+    if (currentTags.length === 0) {
+      var none = document.createElement("p");
+      none.className = "field-hint";
+      none.textContent = "No tags yet — add the first below.";
+      tagChips.appendChild(none);
+      return;
+    }
+    currentTags.forEach(function (tag) {
+      var chip = document.createElement("span");
+      chip.className = "tag-chip tag-chip-removable";
+      chip.textContent = tag + " ";
+      var x = document.createElement("button");
+      x.type = "button";
+      x.setAttribute("aria-label", "Remove " + tag);
+      x.textContent = "×";
+      x.addEventListener("click", function () {
+        currentTags = currentTags.filter(function (t) { return t !== tag; });
+        saveTags();
+      });
+      chip.appendChild(x);
+      tagChips.appendChild(chip);
+    });
+  }
+
+  function syncCaption(item) {
+    var caption = item.parentElement.querySelector(".gallery-caption");
+    if (!caption) return;
+    caption.innerHTML = "";
+    var tags = tagsOf(item);
+    if (tags.length === 0) {
+      caption.textContent = item.getAttribute("data-name");
+      return;
+    }
+    tags.forEach(function (tag) {
+      var chip = document.createElement("span");
+      chip.className = "tag-chip";
+      chip.textContent = tag;
+      caption.appendChild(chip);
+    });
+  }
+
+  function saveTags() {
+    if (current < 0) return;
+    var item = items[current];
+    var path = item.getAttribute("data-path");
+    fetch("/gallery/tags?format=json", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-CSRF-Token": csrf,
+        "Accept": "application/json",
+      },
+      body: "path=" + encodeURIComponent(path) + "&tags=" + encodeURIComponent(currentTags.join(", ")),
+    })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error("save failed");
+        return resp.json();
+      })
+      .then(function (data) {
+        currentTags = (data && data.tags) || [];
+        item.setAttribute("data-tags", currentTags.join(","));
+        title.textContent = currentTags.join(", ") || item.getAttribute("data-name");
+        renderChips();
+        syncCaption(item);
+      })
+      .catch(function () {
+        renderChips();
+        var err = document.createElement("p");
+        err.className = "compose-error";
+        err.textContent = "Could not save — retry.";
+        tagChips.appendChild(err);
+      });
+  }
   function render(item) {
     var path = item.getAttribute("data-path");
     var name = item.getAttribute("data-name");
     var kind = item.getAttribute("data-kind");
-    var label = item.getAttribute("data-label") || "";
+    currentTags = tagsOf(item);
     var hasPreview = item.getAttribute("data-has-preview") === "true";
     stage.innerHTML = "";
     if (kind === "video") {
@@ -53,11 +135,12 @@
       empty.textContent = "Preview is still rendering — try the download.";
       stage.appendChild(empty);
     }
-    title.textContent = label || name;
+    title.textContent = currentTags.join(", ") || name;
     metaName.textContent = name;
     metaAdded.textContent = fmtBytes(item.getAttribute("data-size")) + " · " + item.getAttribute("data-modified");
     download.href = fileURL(path);
-    labelInput.value = label;
+    renderChips();
+    if (tagInput) tagInput.value = "";
   }
 
   function open(idx) {
@@ -96,39 +179,18 @@
     if (ev.key === "ArrowRight") step(1);
   });
 
-  labelForm.addEventListener("submit", function (ev) {
+  if (tagForm) tagForm.addEventListener("submit", function (ev) {
     ev.preventDefault();
-    if (current < 0) return;
-    var item = items[current];
-    var path = item.getAttribute("data-path");
-    var label = labelInput.value.trim();
-    var btn = labelForm.querySelector('button[type="submit"]');
-    btn.disabled = true;
-    fetch("/gallery/label?format=json", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "X-CSRF-Token": csrf,
-        "Accept": "application/json",
-      },
-      body: "path=" + encodeURIComponent(path) + "&label=" + encodeURIComponent(label),
-    })
-      .then(function (resp) {
-        if (!resp.ok) throw new Error("save failed");
-        return resp.json();
-      })
-      .then(function (data) {
-        var saved = (data && data.label) || "";
-        item.setAttribute("data-label", saved);
-        title.textContent = saved || item.getAttribute("data-name");
-        var caption = item.parentElement.querySelector(".gallery-caption");
-        if (caption) caption.textContent = saved || item.getAttribute("data-name");
-        btn.textContent = "Saved ✓";
-        setTimeout(function () { btn.textContent = "Save label"; }, 1500);
-      })
-      .catch(function () {
-        btn.textContent = "Retry save";
-      })
-      .then(function () { btn.disabled = false; });
+    if (current < 0 || !tagInput) return;
+    var value = tagInput.value.trim();
+    if (!value) return;
+    var exists = currentTags.some(function (t) { return t.toLowerCase() === value.toLowerCase(); });
+    if (!exists) {
+      currentTags.push(value);
+      tagInput.value = "";
+      saveTags();
+    } else {
+      tagInput.value = "";
+    }
   });
 })();

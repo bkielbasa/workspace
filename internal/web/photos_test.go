@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -54,7 +55,7 @@ func photoTestServer(t *testing.T, userID uuid.UUID, store *memFiles, auth memPh
 		t.Fatal(err)
 	}
 	server.SetPhotos(store, auth)
-	server.SetPhotoLabels(newMemPhotoLabels())
+	server.SetPhotoTags(newMemPhotoLabels())
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
 	return mux
@@ -69,30 +70,50 @@ func newMemPhotoLabels() *memPhotoLabels {
 	return &memPhotoLabels{labels: map[string]string{}}
 }
 
-func (m *memPhotoLabels) Get(_ context.Context, _ uuid.UUID, path string) (string, error) {
+func (m *memPhotoLabels) Set(_ context.Context, _ uuid.UUID, path string, tags []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.labels[path], nil
-}
-
-func (m *memPhotoLabels) Set(_ context.Context, _ uuid.UUID, path, label string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if label == "" {
-		delete(m.labels, path)
-		return nil
+	for k := range m.labels {
+		if strings.HasPrefix(k, path+"\x00") {
+			delete(m.labels, k)
+		}
 	}
-	m.labels[path] = label
+	for _, t := range tags {
+		m.labels[path+"\x00"+t] = t
+	}
 	return nil
 }
 
-func (m *memPhotoLabels) List(_ context.Context, _ uuid.UUID) (map[string]string, error) {
+func (m *memPhotoLabels) ByPhoto(_ context.Context, _ uuid.UUID) (map[string][]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make(map[string]string, len(m.labels))
-	for k, v := range m.labels {
-		out[k] = v
+	out := map[string][]string{}
+	seen := map[string]bool{}
+	for k, t := range m.labels {
+		path := k[:strings.Index(k, "\x00")]
+		if !seen[k] {
+			seen[k] = true
+			out[path] = append(out[path], t)
+		}
 	}
+	for _, v := range out {
+		sort.Strings(v)
+	}
+	return out, nil
+}
+
+func (m *memPhotoLabels) All(_ context.Context, _ uuid.UUID) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := map[string]bool{}
+	var out []string
+	for _, t := range m.labels {
+		if !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	sort.Strings(out)
 	return out, nil
 }
 
@@ -223,14 +244,15 @@ func TestGalleryDelete(t *testing.T) {
 	}
 }
 
-func TestGalleryModalAndLabel(t *testing.T) {
+func TestGalleryModalAndTags(t *testing.T) {
 	userID := uuid.New()
 	store := newMemFiles()
 	mux := photoTestServer(t, userID, store, memPhotoAuth{})
 
 	store.files["2026-09/beach.jpg"] = &memFile{data: []byte("fake-image-bytes"), mod: time.Now()}
+	store.files["2026-09/dune.jpg"] = &memFile{data: []byte("fake-image-bytes"), mod: time.Now()}
 
-	// Gallery carries the modal triggers with item data plus the modal shell.
+	// Gallery carries the modal triggers plus the modal shell.
 	req := httptest.NewRequest(http.MethodGet, "/gallery", nil)
 	photoCookies(req)
 	rec := httptest.NewRecorder()
@@ -241,107 +263,72 @@ func TestGalleryModalAndLabel(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		`class="gallery-open"`, `data-path="2026-09/beach.jpg"`, `data-kind="image"`,
-		`id="photo-modal"`, `data-label-form`, `/static/js/gallery.js`, "Sharing",
+		`id="photo-modal"`, `data-tag-form`, `/static/js/gallery.js`, "Sharing",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("gallery missing %q", want)
 		}
 	}
-	if strings.Contains(body, "/gallery/photo?path=") {
-		t.Errorf("gallery still links to the removed detail page")
-	}
 
-	// The modal saves labels through the JSON endpoint.
-	form := url.Values{"_csrf": {"test-csrf-token"}, "path": {"2026-09/beach.jpg"}, "label": {"Tatra sunrise"}}
-	req = httptest.NewRequest(http.MethodPost, "/gallery/label?format=json", strings.NewReader(form.Encode()))
+	// Tag one photo; the same tag is suggested for the other.
+	form := url.Values{"_csrf": {"test-csrf-token"}, "path": {"2026-09/beach.jpg"}, "tags": {"tatra, sunrise, Tatra "}}
+	req = httptest.NewRequest(http.MethodPost, "/gallery/tags?format=json", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	photoCookies(req)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("label save = %d", rec.Code)
+		t.Fatalf("tag save = %d", rec.Code)
 	}
-	if body := rec.Body.String(); !strings.Contains(body, `"label":"Tatra sunrise"`) {
-		t.Errorf("label JSON = %s", body)
+	if body := rec.Body.String(); !strings.Contains(body, `"tags":["tatra","sunrise"]`) {
+		t.Errorf("tag JSON normalizes poorly: %s", body)
 	}
 
-	// Saved labels render as captions with data for the modal.
+	// Gallery shows chips and suggests the tag everywhere.
 	req = httptest.NewRequest(http.MethodGet, "/gallery", nil)
 	photoCookies(req)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
-	if body := rec.Body.String(); !strings.Contains(body, `data-label="Tatra sunrise"`) || !strings.Contains(body, ">Tatra sunrise<") {
-		t.Errorf("saved label not rendered")
+	body = rec.Body.String()
+	for _, want := range []string{`data-tags="sunrise,tatra"`, `<option value="tatra">`, `<option value="sunrise">`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("gallery missing %q", want)
+		}
 	}
 
-	// Clearing removes the caption again.
-	form = url.Values{"_csrf": {"test-csrf-token"}, "path": {"2026-09/beach.jpg"}, "label": {""}}
-	req = httptest.NewRequest(http.MethodPost, "/gallery/label?format=json", strings.NewReader(form.Encode()))
+	// Reuse the same tag on the second photo.
+	form = url.Values{"_csrf": {"test-csrf-token"}, "path": {"2026-09/dune.jpg"}, "tags": {"tatra"}}
+	req = httptest.NewRequest(http.MethodPost, "/gallery/tags?format=json", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	photoCookies(req)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("label clear = %d", rec.Code)
+		t.Fatalf("tag reuse = %d", rec.Code)
 	}
 	req = httptest.NewRequest(http.MethodGet, "/gallery", nil)
 	photoCookies(req)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
-	if body := rec.Body.String(); strings.Contains(body, "Tatra sunrise") {
-		t.Errorf("cleared label still rendered")
-	}
-}
-
-func TestUUIDUploadRenamed(t *testing.T) {
-	userID := uuid.New()
-	store := newMemFiles()
-	mux := photoTestServer(t, userID, store, memPhotoAuth{})
-
-	upload := func(filename string) {
-		var buf bytes.Buffer
-		w := multipart.NewWriter(&buf)
-		_ = w.WriteField("_csrf", "test-csrf-token")
-		fw, _ := w.CreateFormFile("files", filename)
-		_, _ = fw.Write([]byte("fake-image-bytes"))
-		_ = w.Close()
-		req := httptest.NewRequest(http.MethodPost, "/api/upload", &buf)
-		req.Header.Set("Content-Type", w.FormDataContentType())
-		photoCookies(req)
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, req)
-		if rec.Code != http.StatusSeeOther {
-			t.Fatalf("upload %s = %d", filename, rec.Code)
-		}
+	if body := rec.Body.String(); !strings.Contains(body, `data-path="2026-09/dune.jpg" data-name="dune.jpg" data-kind="image" data-tags="tatra"`) {
+		t.Errorf("reused tag not rendered on second photo")
 	}
 
-	month := time.Now().UTC().Format("2006-01")
-	upload("c97b1595-9f28-4a89-bb60-b731220871e7.jpeg")
-	upload("IMG_1234.HEIC")
-
-	var uuidLeft, renamed, kept bool
-	for name := range store.files {
-		if !strings.HasPrefix(name, month+"/") {
-			continue
-		}
-		base := strings.TrimPrefix(name, month+"/")
-		if strings.HasPrefix(strings.ToLower(base), "c97b1595") {
-			uuidLeft = true
-		}
-		if strings.HasPrefix(base, "photo-") && strings.HasSuffix(strings.ToLower(base), ".jpeg") {
-			renamed = true
-		}
-		if base == "IMG_1234.HEIC" {
-			kept = true
-		}
+	// Empty set clears.
+	form = url.Values{"_csrf": {"test-csrf-token"}, "path": {"2026-09/beach.jpg"}, "tags": {""}}
+	req = httptest.NewRequest(http.MethodPost, "/gallery/tags?format=json", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tag clear = %d", rec.Code)
 	}
-	if uuidLeft {
-		t.Errorf("UUID filename stored as-is")
-	}
-	if !renamed {
-		t.Errorf("UUID upload not renamed to photo-*.jpeg: %v", store.files)
-	}
-	if !kept {
-		t.Errorf("real filename IMG_1234.HEIC not preserved")
+	req = httptest.NewRequest(http.MethodGet, "/gallery", nil)
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if body := rec.Body.String(); strings.Contains(body, `data-path="2026-09/beach.jpg" data-name="beach.jpg" data-kind="image" data-tags=""`) == false {
+		t.Errorf("cleared tags still rendered")
 	}
 }

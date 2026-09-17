@@ -78,11 +78,11 @@ type photoUploadAuth interface {
 	Authenticate(ctx context.Context, login, password string) (*identity.User, error)
 }
 
-// photoLabelStore persists per-photo labels (owner + library path).
-type photoLabelStore interface {
-	Get(ctx context.Context, userID uuid.UUID, path string) (string, error)
-	Set(ctx context.Context, userID uuid.UUID, path, label string) error
-	List(ctx context.Context, userID uuid.UUID) (map[string]string, error)
+// photoTagStore persists reusable photo tags (owner + library path).
+type photoTagStore interface {
+	Set(ctx context.Context, userID uuid.UUID, path string, tags []string) error
+	ByPhoto(ctx context.Context, userID uuid.UUID) (map[string][]string, error)
+	All(ctx context.Context, userID uuid.UUID) ([]string, error)
 }
 
 type usersService interface {
@@ -147,10 +147,10 @@ func (s *Server) SetPhotos(svc filesService, auth photoUploadAuth) {
 	s.views.photoAuth = auth
 }
 
-// SetPhotoLabels enables per-photo labels on the detail page.
-// Optional like the other setters; the page hides the form without it.
-func (s *Server) SetPhotoLabels(store photoLabelStore) {
-	s.views.photoLabels = store
+// SetPhotoTags enables reusable photo tags in the gallery modal.
+// Optional like the other setters; the editor hides without it.
+func (s *Server) SetPhotoTags(store photoTagStore) {
+	s.views.tagStore = store
 }
 
 // New constructs the web server from the root embedded filesystem and services.
@@ -212,7 +212,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /drive/rename", s.RequireAuth(s.RequireCSRF(s.views.driveRename)))
 
 	mux.HandleFunc("GET /gallery", s.page(s.views.galleryPage))
-	mux.HandleFunc("POST /gallery/label", s.RequireAuth(s.RequireCSRF(s.views.photoLabel)))
+	mux.HandleFunc("POST /gallery/tags", s.RequireAuth(s.RequireCSRF(s.views.photoTags)))
 	mux.HandleFunc("GET /gallery/file", s.RequireAuth(s.views.galleryFile))
 	mux.HandleFunc("GET /gallery/preview", s.RequireAuth(s.views.galleryPreview))
 	mux.HandleFunc("POST /gallery/delete", s.RequireAuth(s.RequireCSRF(s.views.galleryDelete)))

@@ -44,7 +44,7 @@ type photoFileItem struct {
 	Size       int64
 	Modified   string
 	HasPreview bool
-	Label      string
+	Tags       []string
 }
 
 // kindOfPhoto classifies by extension for gallery rendering.
@@ -215,11 +215,13 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 		return
 	}
 	var months []photoMonth
-	labels := map[string]string{}
-	if v.photoLabels != nil {
-		if got, err := v.photoLabels.List(r.Context(), user.ID); err == nil {
-			labels = got
+	tagsByPhoto := map[string][]string{}
+	var allTags []string
+	if v.tagStore != nil {
+		if got, err := v.tagStore.ByPhoto(r.Context(), user.ID); err == nil {
+			tagsByPhoto = got
 		}
+		allTags, _ = v.tagStore.All(r.Context(), user.ID)
 	}
 	for _, e := range entries {
 		if !e.IsDir || strings.HasPrefix(e.Name, ".") {
@@ -243,7 +245,7 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 				Name: k.Name, Path: e.Name + "/" + k.Name,
 				Kind: kind, Size: k.Size,
 				Modified: formatDetailDate(k.ModTime),
-				Label:    labels[e.Name+"/"+k.Name],
+				Tags:     tagsByPhoto[e.Name+"/"+k.Name],
 			}
 			if kind == "heic" {
 				if _, err := v.photos.Stat(home, previewName(item.Path)); err == nil {
@@ -265,6 +267,8 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 		CSRFToken:   csrfTokenFromRequest(r),
 		Wide:        true,
 		PhotoMonths: months,
+		AllPhotoTags: allTags,
+		TagsReady: v.tagStore != nil,
 		Error:       driveFlash(r),
 	})
 }
@@ -413,17 +417,22 @@ func (v *views) galleryDelete(w http.ResponseWriter, r *http.Request) {
 // maxPhotoLabel caps labels at a short caption, not an essay.
 const maxPhotoLabel = 140
 
-// photoLabel saves (or clears, when empty) the label of one photo.
-// The gallery modal posts with ?format=json; plain form posts fall back to
-// the gallery itself.
-func (v *views) photoLabel(w http.ResponseWriter, r *http.Request) {
+// maxPhotoTags caps the tag editor: enough to organize, too few to spam.
+const maxPhotoTags = 10
+
+// maxPhotoTag caps a single tag at a short word, not a sentence.
+const maxPhotoTag = 40
+
+// photoTags replaces one photo's whole tag set. The gallery modal posts
+// ?format=json; plain form posts fall back to the gallery itself.
+func (v *views) photoTags(w http.ResponseWriter, r *http.Request) {
 	user := UserFromContext(r.Context())
 	if !v.requirePhotos(w) {
 		return
 	}
 	home := files.HomeDir(user.Email)
 	name := cleanDrivePath(r.FormValue("path"))
-	if name == "" || v.photoLabels == nil {
+	if name == "" || v.tagStore == nil {
 		http.Redirect(w, r, "/gallery", http.StatusSeeOther)
 		return
 	}
@@ -431,25 +440,48 @@ func (v *views) photoLabel(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/gallery", http.StatusSeeOther)
 		return
 	}
-	label := strings.TrimSpace(r.FormValue("label"))
-	if runes := []rune(label); len(runes) > maxPhotoLabel {
-		label = string(runes[:maxPhotoLabel])
-	}
-	if err := v.photoLabels.Set(r.Context(), user.ID, name, label); err != nil {
-		obs.Log(r.Context(), slog.LevelError, "save photo label failed", "path", name, "error", err)
+	tags := normalizeTags(r.FormValue("tags"))
+	if err := v.tagStore.Set(r.Context(), user.ID, name, tags); err != nil {
+		obs.Log(r.Context(), slog.LevelError, "save photo tags failed", "path", name, "error", err)
 		if wantsJSON(r) {
-			writeJSONError(w, http.StatusInternalServerError, "could not save that label")
+			writeJSONError(w, http.StatusInternalServerError, "could not save those tags")
 			return
 		}
-		http.Redirect(w, r, "/gallery?error=label", http.StatusSeeOther)
+		http.Redirect(w, r, "/gallery?error=tags", http.StatusSeeOther)
 		return
 	}
 	if wantsJSON(r) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"label": label})
+		_ = json.NewEncoder(w).Encode(map[string][]string{"tags": tags})
 		return
 	}
 	http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+}
+
+// normalizeTags splits on commas, trims, drops empties and dupes
+// (case-insensitive, first spelling wins), and enforces the caps.
+func normalizeTags(raw string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, t := range strings.Split(raw, ",") {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		if runes := []rune(t); len(runes) > maxPhotoTag {
+			t = string(runes[:maxPhotoTag])
+		}
+		key := strings.ToLower(t)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, t)
+		if len(out) >= maxPhotoTags {
+			break
+		}
+	}
+	return out
 }
 
 type uploadResult struct {
