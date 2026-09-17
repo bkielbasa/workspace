@@ -70,10 +70,11 @@
         {{if .TagsReady}}
         <h3>Tags</h3>
         <div class="tag-chips" data-tag-chips></div>
-        <form class="profile-form" data-tag-form>
+        <form class="profile-form tag-form" data-tag-form>
           <label for="photo-modal-tag">Add tag
-            <input id="photo-modal-tag" name="tag" type="text" maxlength="40" autocomplete="off" placeholder="Type or pick below" list="tag-suggestions">
+            <input id="photo-modal-tag" name="tag" type="text" maxlength="40" autocomplete="off" placeholder="Type to see your tags">
           </label>
+          <div class="tag-suggest" data-tag-suggest hidden></div>
           <datalist id="tag-suggestions">
             {{range .AllPhotoTags}}<option value="{{.}}">{{end}}
           </datalist>

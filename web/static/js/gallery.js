@@ -14,6 +14,11 @@
   var tagChips = modal.querySelector("[data-tag-chips]");
   var tagForm = modal.querySelector("[data-tag-form]");
   var tagInput = modal.querySelector("#photo-modal-tag");
+  var tagSuggest = modal.querySelector("[data-tag-suggest]");
+  var knownTags = Array.prototype.map.call(
+    document.querySelectorAll("#tag-suggestions option"),
+    function (o) { return o.value; }
+  );
   var items = Array.prototype.slice.call(document.querySelectorAll(".gallery-open"));
   var current = -1;
   var currentTags = [];
@@ -141,6 +146,7 @@
     download.href = fileURL(path);
     renderChips();
     if (tagInput) tagInput.value = "";
+    hideSuggest();
   }
 
   function open(idx) {
@@ -182,15 +188,57 @@
   if (tagForm) tagForm.addEventListener("submit", function (ev) {
     ev.preventDefault();
     if (current < 0 || !tagInput) return;
-    var value = tagInput.value.trim();
-    if (!value) return;
+    addTag(tagInput.value.trim());
+  });
+
+  function addTag(value) {
+    if (current < 0 || !value) return;
     var exists = currentTags.some(function (t) { return t.toLowerCase() === value.toLowerCase(); });
     if (!exists) {
       currentTags.push(value);
-      tagInput.value = "";
       saveTags();
-    } else {
-      tagInput.value = "";
     }
-  });
+    if (tagInput) tagInput.value = "";
+    hideSuggest();
+  }
+
+  // Custom suggestions: the native datalist popup is unreliable on mobile
+  // Safari, so filter the known tags here and offer tap-to-add.
+  function hideSuggest() {
+    if (tagSuggest) tagSuggest.hidden = true;
+  }
+
+  function showSuggest() {
+    if (!tagSuggest || !tagInput || current < 0) return;
+    var q = tagInput.value.trim().toLowerCase();
+    var matches = knownTags.filter(function (t) {
+      if (t.toLowerCase().indexOf(q) < 0) return false;
+      return !currentTags.some(function (c) { return c.toLowerCase() === t.toLowerCase(); });
+    }).slice(0, 6);
+    // Empty query shows all unused tags; a full exact match shows nothing.
+    if (q !== "" && matches.some(function (t) { return t.toLowerCase() === q; }) && matches.length === 1) {
+      hideSuggest();
+      return;
+    }
+    tagSuggest.innerHTML = "";
+    if (matches.length === 0) {
+      hideSuggest();
+      return;
+    }
+    matches.forEach(function (tag) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "tag-suggest-item";
+      b.textContent = tag;
+      b.addEventListener("click", function () { addTag(tag); });
+      tagSuggest.appendChild(b);
+    });
+    tagSuggest.hidden = false;
+  }
+
+  if (tagInput) {
+    tagInput.addEventListener("input", showSuggest);
+    tagInput.addEventListener("focus", showSuggest);
+    tagInput.addEventListener("blur", function () { setTimeout(hideSuggest, 150); });
+  }
 })();
