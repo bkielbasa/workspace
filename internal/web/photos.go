@@ -233,8 +233,11 @@ func (v *views) galleryPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	preview := previewName(name)
 	if info, err := v.photos.Stat(home, preview); err == nil && !info.IsDir {
-		v.servePhotoFile(w, r, home, preview, info)
-		return
+		if v.validPreview(home, preview) {
+			v.servePhotoFile(w, r, home, preview, info)
+			return
+		}
+		_ = v.photos.Remove(home, preview)
 	}
 	// Generate on demand and cache on disk.
 	src, err := v.photos.LocalPath(home, name)
@@ -255,12 +258,20 @@ func (v *views) galleryPreview(w http.ResponseWriter, r *http.Request) {
 	if conv == nil {
 		conv = &execConverter{}
 	}
-	if err := conv.Convert(src, dst+".tmp"); err != nil {
+	// The temp file needs a .jpg suffix: ImageMagick picks the output
+	// format from the extension, and an extensionless temp file would
+	// silently come back as HEIC.
+	tmp, err := v.photos.LocalPath(home, preview+".tmp.jpg")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := conv.Convert(src, tmp); err != nil {
 		obs.Log(r.Context(), slog.LevelWarn, "heic preview failed", "path", name, "error", err)
 		http.NotFound(w, r)
 		return
 	}
-	if err := os.Rename(dst+".tmp", dst); err != nil {
+	if err := os.Rename(tmp, dst); err != nil {
 		http.Error(w, "cannot render preview", http.StatusInternalServerError)
 		return
 	}
@@ -270,6 +281,19 @@ func (v *views) galleryPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v.servePhotoFile(w, r, home, preview, info)
+}
+
+// validPreview reports whether a cached preview is really a JPEG
+// (a past bug cached unconverted bytes under .jpg names).
+func (v *views) validPreview(home, preview string) bool {
+	f, _, err := v.photos.Open(home, preview)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var magic [3]byte
+	n, _ := io.ReadFull(f, magic[:])
+	return n == 3 && magic[0] == 0xFF && magic[1] == 0xD8 && magic[2] == 0xFF
 }
 
 func dirOf(p string) string {
