@@ -45,6 +45,7 @@
       document.querySelectorAll("#tag-suggestions option"),
       function (o) { return o.value; }
     );
+    paintSelection();
     if (currentPath === "") return;
     var found = -1;
     liveItems().forEach(function (item, idx) {
@@ -188,12 +189,152 @@
     if (ev.target && ev.target.matches("input[data-album-id]")) toggleAlbum(ev.target);
   });
 
+  // ---- Multi-select -------------------------------------------------
+  // Paths, not nodes: HTMX swaps throw the nodes away on every refresh.
+  var selected = [];
+  var selectMode = false;
+  var lastIndex = -1;
+
+  function isSelected(path) { return selected.indexOf(path) >= 0; }
+
+  function setSelected(path, on) {
+    var at = selected.indexOf(path);
+    if (on && at < 0) selected.push(path);
+    if (!on && at >= 0) selected.splice(at, 1);
+  }
+
+  // Paint selection onto whatever nodes exist right now, and drop any
+  // paths that vanished (deleted elsewhere, or filtered out of view).
+  function paintSelection() {
+    var live = liveItems();
+    var alive = {};
+    live.forEach(function (item) {
+      var path = item.getAttribute("data-path");
+      alive[path] = true;
+      var on = isSelected(path);
+      item.classList.toggle("selected", on);
+      // Only a toggle while selecting; outside that it just opens a photo.
+      if (selectMode) {
+        item.setAttribute("aria-pressed", on ? "true" : "false");
+      } else {
+        item.removeAttribute("aria-pressed");
+      }
+    });
+    selected = selected.filter(function (p) { return alive[p]; });
+
+    var bar = document.querySelector("[data-select-bar]");
+    var count = document.querySelector("[data-select-count]");
+    if (count) count.textContent = String(selected.length);
+    if (bar) bar.hidden = !selectMode;
+    document.body.classList.toggle("select-mode", selectMode);
+    var toggle = document.querySelector("[data-select-toggle]");
+    if (toggle) {
+      toggle.textContent = selectMode ? "Done" : "Select";
+      toggle.setAttribute("aria-pressed", selectMode ? "true" : "false");
+    }
+  }
+
+  function exitSelect() {
+    selectMode = false;
+    selected = [];
+    lastIndex = -1;
+    paintSelection();
+  }
+
+  document.addEventListener("click", function (ev) {
+    var toggle = ev.target.closest ? ev.target.closest("[data-select-toggle]") : null;
+    if (!toggle) return;
+    selectMode = !selectMode;
+    if (!selectMode) selected = [];
+    paintSelection();
+  });
+
+  document.addEventListener("click", function (ev) {
+    var clear = ev.target.closest ? ev.target.closest("[data-select-clear]") : null;
+    if (clear) exitSelect();
+  });
+
+  // Escape leaves select mode, but only when the lightbox isn't using it.
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && selectMode && modal.hidden) exitSelect();
+  });
+
+  // ---- Bulk actions ---------------------------------------------------
+  function bulkAlbum(albumID, paths) {
+    return postForm("/gallery/albums/toggle", {album_id: albumID, path: paths, add: "1"});
+  }
+
+  function bulkDelete(paths) {
+    return postForm("/gallery/delete", {path: paths});
+  }
+
+  // Tags are per-photo (each keeps its own list), so this walks the
+  // selection one request at a time instead of flooding the server.
+  function bulkTag(tag, paths) {
+    return paths.reduce(function (chain, path) {
+      return chain.then(function () {
+        var btn = document.querySelector('.gallery-open[data-path="' + cssEscape(path) + '"]');
+        var tags = btn ? tagsOf(btn) : [];
+        if (tags.some(function (t) { return t.toLowerCase() === tag.toLowerCase(); })) {
+          return null;
+        }
+        tags.push(tag);
+        return postForm("/gallery/tags", {path: path, tags: tags.join(", ")});
+      });
+    }, Promise.resolve());
+  }
+
+  function cssEscape(value) {
+    return String(value).replace(/["\\]/g, "\\$&");
+  }
+
+  document.addEventListener("change", function (ev) {
+    var pick = ev.target.closest ? ev.target.closest("[data-bulk-album]") : null;
+    if (!pick || !pick.value || selected.length === 0) return;
+    var albumID = pick.value;
+    pick.value = "";
+    bulkAlbum(albumID, selected.slice()).then(function () {
+      exitSelect();
+      refreshLayout();
+    }).catch(function () {});
+  });
+
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key !== "Enter") return;
+    var input = ev.target.closest ? ev.target.closest("[data-bulk-tag]") : null;
+    if (!input) return;
+    ev.preventDefault();
+    var tag = input.value.trim();
+    if (!tag || selected.length === 0) return;
+    input.value = "";
+    bulkTag(tag, selected.slice()).then(function () {
+      exitSelect();
+      refreshLayout();
+    }).catch(function () {});
+  });
+
+  document.addEventListener("click", function (ev) {
+    var del = ev.target.closest ? ev.target.closest("[data-bulk-delete]") : null;
+    if (!del || selected.length === 0) return;
+    var n = selected.length;
+    if (!window.confirm("Delete " + n + (n === 1 ? " photo" : " photos") + "? This cannot be undone.")) {
+      return;
+    }
+    bulkDelete(selected.slice()).then(function () {
+      exitSelect();
+      refreshLayout();
+    }).catch(function () {});
+  });
+
   // Drag & drop filing (desktop pointers; touch uses the modal instead):
   // drag a thumbnail onto a sidebar album to file it, onto a tag to tag it.
   document.addEventListener("dragstart", function (ev) {
     var btn = ev.target.closest ? ev.target.closest(".gallery-open") : null;
     if (!btn || !ev.dataTransfer) return;
-    ev.dataTransfer.setData("text/photo-path", btn.getAttribute("data-path"));
+    var path = btn.getAttribute("data-path");
+    // Dragging any selected thumbnail drags the whole selection.
+    var payload = isSelected(path) && selected.length > 0 ? selected.slice() : [path];
+    ev.dataTransfer.setData("text/photo-path", JSON.stringify(payload));
     ev.dataTransfer.effectAllowed = "copy";
   });
 
@@ -220,10 +361,18 @@
     });
   });
 
+  // Array values repeat the key (path=a&path=b), which is what the bulk
+  // handlers read off r.Form.
   function postForm(url, params) {
-    var body = Object.keys(params).map(function (k) {
-      return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]);
-    }).join("&");
+    var parts = [];
+    Object.keys(params).forEach(function (k) {
+      var value = params[k];
+      var list = Array.isArray(value) ? value : [value];
+      list.forEach(function (v) {
+        parts.push(encodeURIComponent(k) + "=" + encodeURIComponent(v));
+      });
+    });
+    var body = parts.join("&");
     return fetch(url + "?format=json", {
       method: "POST",
       headers: {
@@ -243,23 +392,28 @@
     if (!row || !ev.dataTransfer) return;
     ev.preventDefault();
     row.classList.remove("drop-hint");
-    var path = ev.dataTransfer.getData("text/photo-path");
-    if (!path) return;
+    var raw = ev.dataTransfer.getData("text/photo-path");
+    if (!raw) return;
+    var paths;
+    try {
+      paths = JSON.parse(raw);
+    } catch (e) {
+      paths = [raw];
+    }
+    if (!Array.isArray(paths) || paths.length === 0) return;
+
     var albumID = row.getAttribute("data-drop-album");
     var tag = row.getAttribute("data-drop-tag");
+    var done = function () {
+      exitSelect();
+      refreshLayout();
+    };
     if (albumID) {
-      postForm("/gallery/albums/toggle", {album_id: albumID, path: path, add: "1"})
-        .then(refreshLayout).catch(function () {});
+      bulkAlbum(albumID, paths).then(done).catch(function () {});
       return;
     }
     if (tag) {
-      var btn = document.querySelector('.gallery-open[data-path="' + path.replace(/"/g, "") + '"]');
-      var tags = btn ? tagsOf(btn) : [];
-      if (!tags.some(function (t) { return t.toLowerCase() === tag.toLowerCase(); })) {
-        tags.push(tag);
-      }
-      postForm("/gallery/tags", {path: path, tags: tags.join(", ")})
-        .then(refreshLayout).catch(function () {});
+      bulkTag(tag, paths).then(done).catch(function () {});
     }
   });
 
@@ -362,7 +516,28 @@
     var btn = ev.target.closest ? ev.target.closest(".gallery-open") : null;
     if (!btn) return;
     var list = liveItems();
-    open(list.indexOf(btn));
+    var idx = list.indexOf(btn);
+
+    // Ctrl/Cmd-click starts a selection without arming the mode first;
+    // once in select mode plain clicks select instead of opening.
+    if (selectMode || ev.metaKey || ev.ctrlKey || ev.shiftKey) {
+      ev.preventDefault();
+      selectMode = true;
+      var path = btn.getAttribute("data-path");
+      if (ev.shiftKey && lastIndex >= 0 && idx >= 0) {
+        var from = Math.min(lastIndex, idx);
+        var to = Math.max(lastIndex, idx);
+        for (var i = from; i <= to; i++) {
+          setSelected(list[i].getAttribute("data-path"), true);
+        }
+      } else {
+        setSelected(path, !isSelected(path));
+      }
+      lastIndex = idx;
+      paintSelection();
+      return;
+    }
+    open(idx);
   });
   modal.querySelector(".photo-modal-prev").addEventListener("click", function () { step(-1); });
   modal.querySelector(".photo-modal-next").addEventListener("click", function () { step(1); });

@@ -10,6 +10,7 @@
       <input type="file" id="gallery-upload" name="files" multiple hidden accept="image/*,video/*">
       <noscript><button type="submit" class="btn btn-sm">Upload</button></noscript>
     </form>
+    <button type="button" class="btn btn-sm" data-select-toggle>Select</button>
   </div>
   <progress class="upload-progress" data-upload-progress hidden max="100" value="0"></progress>
 
@@ -66,6 +67,21 @@
 
 {{define "galleryContent"}}<div id="gallery-content">
   {{if .Error}}<div class="compose-error drive-error" role="alert">{{.Error}}</div>{{end}}
+
+  <div class="select-bar card" data-select-bar hidden>
+    <strong><span data-select-count>0</span> selected</strong>
+    {{if .AlbumsReady}}
+    <select data-bulk-album aria-label="Add to album">
+      <option value="">Add to album…</option>
+      {{range .Albums}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+    </select>
+    {{end}}
+    {{if .TagsReady}}
+    <input data-bulk-tag type="text" maxlength="40" autocomplete="off" placeholder="Add tag…" aria-label="Add tag to selected" list="tag-suggestions">
+    {{end}}
+    <button type="button" class="btn btn-sm" data-bulk-delete>Delete</button>
+    <button type="button" class="btn btn-ghost btn-sm" data-select-clear>Cancel</button>
+  </div>
 
   {{if or .ActiveAlbumID .ActiveTag}}
   <div class="gallery-filter card">

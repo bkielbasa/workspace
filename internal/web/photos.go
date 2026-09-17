@@ -387,21 +387,21 @@ func (v *views) galleryViewData(w http.ResponseWriter, r *http.Request, user *id
 	}
 
 	return viewData{
-		Title:       "Photos",
-		Section:     "photos",
-		User:        user,
-		CSRFToken:   csrfTokenFromRequest(r),
-		Wide:        true,
-		PhotoMonths: months,
-		AllPhotoTags: allTags,
-		TagsReady: v.tagStore != nil,
-		Albums: albumNav,
-		TagCounts: tagNav,
-		ActiveAlbumID: activeAlbumID,
+		Title:           "Photos",
+		Section:         "photos",
+		User:            user,
+		CSRFToken:       csrfTokenFromRequest(r),
+		Wide:            true,
+		PhotoMonths:     months,
+		AllPhotoTags:    allTags,
+		TagsReady:       v.tagStore != nil,
+		Albums:          albumNav,
+		TagCounts:       tagNav,
+		ActiveAlbumID:   activeAlbumID,
 		ActiveAlbumName: activeAlbumName,
-		ActiveTag: activeTag,
-		AlbumsReady: v.albumStore != nil,
-		Error:       errMsg,
+		ActiveTag:       activeTag,
+		AlbumsReady:     v.albumStore != nil,
+		Error:           errMsg,
 	}, true
 }
 
@@ -560,21 +560,78 @@ func (v *views) servePhotoFile(w http.ResponseWriter, r *http.Request, home, nam
 	http.ServeContent(w, r, info.Name, info.ModTime, f)
 }
 
+// maxBulkDelete caps one delete request. Selecting a whole month is fine;
+// a runaway client can't walk the entire library in a single call.
+const maxBulkDelete = 200
+
+// galleryDelete removes one or more photos. The form may repeat `path`
+// (multi-select); tag rows and album memberships for each removed file go
+// with it, otherwise the sidebar keeps counting photos that are gone.
 func (v *views) galleryDelete(w http.ResponseWriter, r *http.Request) {
 	user := UserFromContext(r.Context())
 	if !v.requirePhotos(w) {
 		return
 	}
 	home := files.HomeDir(user.Email)
-	name := cleanDrivePath(r.FormValue("path"))
-	if name == "" {
+	if err := r.ParseForm(); err != nil {
 		driveRedirect(w, r, "", "")
 		return
 	}
-	if kindOfPhoto(name) == "heic" {
-		_ = v.photos.Remove(home, previewName(name))
+	seen := map[string]bool{}
+	var names []string
+	for _, raw := range r.Form["path"] {
+		name := cleanDrivePath(raw)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+		if len(names) >= maxBulkDelete {
+			break
+		}
 	}
-	if err := v.photos.Remove(home, name); err != nil {
+	if len(names) == 0 {
+		if wantsJSON(r) {
+			writeJSONError(w, http.StatusBadRequest, "nothing to delete")
+			return
+		}
+		driveRedirect(w, r, "", "")
+		return
+	}
+
+	var memberships map[string][]uuid.UUID
+	if v.albumStore != nil {
+		memberships, _ = v.albumStore.Memberships(r.Context(), user.ID)
+	}
+	deleted, failed := 0, 0
+	for _, name := range names {
+		if kindOfPhoto(name) == "heic" {
+			_ = v.photos.Remove(home, previewName(name))
+		}
+		if err := v.photos.Remove(home, name); err != nil {
+			obs.Log(r.Context(), slog.LevelError, "delete photo failed", "path", name, "error", err)
+			failed++
+			continue
+		}
+		deleted++
+		// Best effort: the file is already gone, so a failed cleanup must
+		// not fail the request. Worst case a stale row inflates a count.
+		if v.tagStore != nil {
+			_ = v.tagStore.Set(r.Context(), user.ID, name, nil)
+		}
+		if v.albumStore != nil {
+			for _, albumID := range memberships[name] {
+				_ = v.albumStore.Remove(r.Context(), user.ID, albumID, name)
+			}
+		}
+	}
+
+	if wantsJSON(r) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]int{"deleted": deleted, "failed": failed})
+		return
+	}
+	if deleted == 0 {
 		http.Redirect(w, r, "/gallery?error=delete", http.StatusSeeOther)
 		return
 	}
@@ -649,40 +706,71 @@ func (v *views) albumToggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	albumID, err := uuid.Parse(strings.TrimSpace(r.FormValue("album_id")))
-	name := cleanDrivePath(r.FormValue("path"))
-	if err != nil || name == "" {
+	if err != nil {
+		http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
 		http.Redirect(w, r, "/gallery", http.StatusSeeOther)
 		return
 	}
 	home := files.HomeDir(user.Email)
-	if info, err := v.photos.Stat(home, name); err != nil || info.IsDir {
+	// `path` may repeat: dragging a multi-selection files them in one call.
+	seen := map[string]bool{}
+	var names []string
+	for _, raw := range r.Form["path"] {
+		name := cleanDrivePath(raw)
+		if name == "" || seen[name] {
+			continue
+		}
+		if info, err := v.photos.Stat(home, name); err != nil || info.IsDir {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+		if len(names) >= maxBulkDelete {
+			break
+		}
+	}
+	if len(names) == 0 {
+		if wantsJSON(r) {
+			writeJSONError(w, http.StatusBadRequest, "no photos to file")
+			return
+		}
 		http.Redirect(w, r, "/gallery", http.StatusSeeOther)
 		return
 	}
-	if r.FormValue("add") == "1" {
-		err = v.albumStore.Add(r.Context(), user.ID, albumID, name)
-	} else {
-		err = v.albumStore.Remove(r.Context(), user.ID, albumID, name)
-	}
-	if err != nil {
-		obs.Log(r.Context(), slog.LevelError, "toggle album failed", "path", name, "error", err)
-		if wantsJSON(r) {
-			writeJSONError(w, http.StatusInternalServerError, "could not update the album")
+	add := r.FormValue("add") == "1"
+	for _, name := range names {
+		if add {
+			err = v.albumStore.Add(r.Context(), user.ID, albumID, name)
+		} else {
+			err = v.albumStore.Remove(r.Context(), user.ID, albumID, name)
+		}
+		if err != nil {
+			obs.Log(r.Context(), slog.LevelError, "toggle album failed", "path", name, "error", err)
+			if wantsJSON(r) {
+				writeJSONError(w, http.StatusInternalServerError, "could not update the album")
+				return
+			}
+			http.Redirect(w, r, "/gallery?error=album", http.StatusSeeOther)
 			return
 		}
-		http.Redirect(w, r, "/gallery?error=album", http.StatusSeeOther)
-		return
 	}
 	if wantsJSON(r) {
 		paths, _ := v.albumStore.Paths(r.Context(), user.ID, albumID)
-		in := false
+		inAlbum := map[string]bool{}
 		for _, p := range paths {
-			if p == name {
-				in = true
+			if seen[p] {
+				inAlbum[p] = true
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]bool{"in_album": in})
+		// `in_album` keeps the single-photo modal checkbox contract.
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"in_album": len(names) == 1 && inAlbum[names[0]],
+			"updated":  len(names),
+		})
 		return
 	}
 	http.Redirect(w, r, "/gallery", http.StatusSeeOther)

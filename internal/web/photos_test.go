@@ -3,12 +3,14 @@ package web_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -593,5 +595,154 @@ func TestGalleryShowsNestedUploads(t *testing.T) {
 	}
 	if strings.Contains(body, ".previews") {
 		t.Errorf("preview cache leaked into the gallery")
+	}
+}
+
+// Bulk delete: repeated `path`, JSON reply, and no orphaned tag rows left
+// inflating the sidebar counts.
+func TestGalleryBulkDelete(t *testing.T) {
+	userID := uuid.New()
+	store := newMemFiles()
+	mux := photoTestServer(t, userID, store, memPhotoAuth{})
+
+	for _, p := range []string{"2026-01/a.jpg", "2026-01/b.jpg", "2026-01/keep.jpg"} {
+		store.files[p] = &memFile{data: []byte("x"), mod: time.Now()}
+	}
+
+	// Tag one of the doomed photos so cleanup has something to remove.
+	form := url.Values{"_csrf": {"test-csrf-token"}, "path": {"2026-01/a.jpg"}, "tags": {"beach"}}
+	req := httptest.NewRequest(http.MethodPost, "/gallery/tags?format=json", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	photoCookies(req)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("seed tag = %d", rec.Code)
+	}
+
+	form = url.Values{"_csrf": {"test-csrf-token"}, "path": {"2026-01/a.jpg", "2026-01/b.jpg"}}
+	req = httptest.NewRequest(http.MethodPost, "/gallery/delete?format=json", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bulk delete = %d: %s", rec.Code, rec.Body.String())
+	}
+	var got map[string]int
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["deleted"] != 2 || got["failed"] != 0 {
+		t.Errorf("deleted=%d failed=%d, want 2/0", got["deleted"], got["failed"])
+	}
+	for _, p := range []string{"2026-01/a.jpg", "2026-01/b.jpg"} {
+		if _, ok := store.files[p]; ok {
+			t.Errorf("%s survived", p)
+		}
+	}
+	if _, ok := store.files["2026-01/keep.jpg"]; !ok {
+		t.Errorf("unselected photo was deleted")
+	}
+
+	// The deleted photo's tag must be gone from the sidebar.
+	req = httptest.NewRequest(http.MethodGet, "/gallery", nil)
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if strings.Contains(rec.Body.String(), "beach") {
+		t.Errorf("tag of deleted photo still listed")
+	}
+}
+
+// One drag of a multi-selection files every path in a single request.
+func TestGalleryBulkAlbumAdd(t *testing.T) {
+	userID := uuid.New()
+	store := newMemFiles()
+	mux := photoTestServer(t, userID, store, memPhotoAuth{})
+
+	for _, p := range []string{"2026-02/x.jpg", "2026-02/y.jpg"} {
+		store.files[p] = &memFile{data: []byte("x"), mod: time.Now()}
+	}
+	form := url.Values{"_csrf": {"test-csrf-token"}, "name": {"Trip"}}
+	req := httptest.NewRequest(http.MethodPost, "/gallery/albums", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	photoCookies(req)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	req = httptest.NewRequest(http.MethodGet, "/gallery", nil)
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	m := regexp.MustCompile(`data-drop-album="([0-9a-f-]+)"`).FindStringSubmatch(rec.Body.String())
+	if m == nil {
+		t.Fatal("no album drop target rendered")
+	}
+	albumID := m[1]
+
+	form = url.Values{
+		"_csrf":    {"test-csrf-token"},
+		"album_id": {albumID},
+		"add":      {"1"},
+		"path":     {"2026-02/x.jpg", "2026-02/y.jpg"},
+	}
+	req = httptest.NewRequest(http.MethodPost, "/gallery/albums/toggle?format=json", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bulk album = %d: %s", rec.Code, rec.Body.String())
+	}
+	var res map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if n, _ := res["updated"].(float64); int(n) != 2 {
+		t.Errorf("updated=%v, want 2", res["updated"])
+	}
+
+	// Filtering by the album must now return both photos.
+	req = httptest.NewRequest(http.MethodGet, "/gallery?album="+albumID, nil)
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, "x.jpg") || !strings.Contains(body, "y.jpg") {
+		t.Errorf("album filter missing bulk-added photos")
+	}
+}
+
+// The select bar lives inside the swapped fragment so its album list stays
+// fresh; the Select toggle lives outside so it survives refreshes.
+func TestGallerySelectUIRenders(t *testing.T) {
+	userID := uuid.New()
+	store := newMemFiles()
+	mux := photoTestServer(t, userID, store, memPhotoAuth{})
+	store.files["2026-03/p.jpg"] = &memFile{data: []byte("x"), mod: time.Now()}
+
+	req := httptest.NewRequest(http.MethodGet, "/gallery", nil)
+	photoCookies(req)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	for _, want := range []string{"data-select-toggle", "data-select-bar", "data-bulk-delete", "data-bulk-album", `draggable="true"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("full page missing %s", want)
+		}
+	}
+
+	// The fragment alone must carry the bar (HTMX replaces only this).
+	req = httptest.NewRequest(http.MethodGet, "/gallery/content", nil)
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	frag := rec.Body.String()
+	if !strings.Contains(frag, "data-select-bar") {
+		t.Errorf("fragment lost the select bar")
+	}
+	if strings.Contains(frag, "data-select-toggle") {
+		t.Errorf("Select toggle must stay outside the swapped fragment")
 	}
 }
