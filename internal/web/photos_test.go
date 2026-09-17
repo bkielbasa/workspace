@@ -500,3 +500,73 @@ func TestGalleryAlbums(t *testing.T) {
 		t.Errorf("emptied album should show the nothing-matches state")
 	}
 }
+
+func TestGalleryFragments(t *testing.T) {
+	userID := uuid.New()
+	store := newMemFiles()
+	mux := photoTestServer(t, userID, store, memPhotoAuth{})
+
+	store.files["2026-09/beach.jpg"] = &memFile{data: []byte("x"), mod: time.Now()}
+
+	hxGet := func(target string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.Header.Set("HX-Request", "true")
+		photoCookies(req)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Content fragment: grid yes, full-page chrome no.
+	rec := hxGet("/gallery/content")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("content = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `id="gallery-content"`) || !strings.Contains(body, "beach.jpg") {
+		t.Errorf("fragment missing grid")
+	}
+	for _, chrome := range []string{"nav-brand", "<html", "photo-modal"} {
+		if strings.Contains(body, chrome) {
+			t.Errorf("fragment leaks full-page chrome %q", chrome)
+		}
+	}
+
+	// HX album create returns the fragment with the push URL, no redirect.
+	form := url.Values{"_csrf": {"test-csrf-token"}, "name": {"HX Album"}}
+	req := httptest.NewRequest(http.MethodPost, "/gallery/albums", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("hx create = %d", rec.Code)
+	}
+	if push := rec.Header().Get("HX-Push-Url"); !strings.HasPrefix(push, "/gallery?album=") {
+		t.Errorf("hx create push = %q", push)
+	}
+	if !strings.Contains(rec.Body.String(), "HX Album") {
+		t.Errorf("hx create fragment missing the album")
+	}
+
+	// HX upload returns the fragment showing the new photo, no redirect.
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	_ = w.WriteField("_csrf", "test-csrf-token")
+	fw, _ := w.CreateFormFile("files", "hx.jpg")
+	_, _ = fw.Write([]byte("fake-image-bytes"))
+	_ = w.Close()
+	req = httptest.NewRequest(http.MethodPost, "/api/upload", &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("HX-Request", "true")
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("hx upload = %d", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "hx.jpg") || !strings.Contains(body, `id="gallery-content"`) {
+		t.Errorf("hx upload fragment missing the photo")
+	}
+}

@@ -229,6 +229,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /drive/rename", s.RequireAuth(s.RequireCSRF(s.views.driveRename)))
 
 	mux.HandleFunc("GET /gallery", s.page(s.views.galleryPage))
+	mux.HandleFunc("GET /gallery/content", s.page(s.views.galleryContent))
 	mux.HandleFunc("POST /gallery/tags", s.RequireAuth(s.RequireCSRF(s.views.photoTags)))
 	mux.HandleFunc("POST /gallery/albums", s.RequireAuth(s.RequireCSRF(s.views.albumCreate)))
 	mux.HandleFunc("POST /gallery/albums/delete", s.RequireAuth(s.RequireCSRF(s.views.albumDelete)))

@@ -233,18 +233,56 @@ func (v *views) ensurePhotoRoot(w http.ResponseWriter, user *identity.User) bool
 }
 
 func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identity.User) {
-	if !v.requirePhotos(w) {
+	data, ok := v.galleryViewData(w, r, user, driveFlash(r),
+		strings.TrimSpace(r.URL.Query().Get("album")),
+		strings.TrimSpace(r.URL.Query().Get("tag")))
+	if !ok {
 		return
 	}
-	if !v.ensurePhotoRoot(w, user) {
+	renderView(w, r, v.galleryT, "layout", data)
+}
+
+// galleryContent serves the filterable region (banner + sidebar + grid) as a
+// fragment for HTMX swaps: filtering, upload, album create/delete all refresh
+// in place without a full page load.
+func (v *views) galleryContent(w http.ResponseWriter, r *http.Request, user *identity.User) {
+	data, ok := v.galleryViewData(w, r, user, driveFlash(r),
+		strings.TrimSpace(r.URL.Query().Get("album")),
+		strings.TrimSpace(r.URL.Query().Get("tag")))
+	if !ok {
 		return
+	}
+	renderView(w, r, v.galleryT, "galleryContent", data)
+}
+
+// isHX reports HTMX fragment requests, which get HTML partials instead of
+// redirects so the page updates without reloading.
+func isHX(r *http.Request) bool {
+	return r.Header.Get("HX-Request") == "true"
+}
+
+// galleryFragment renders the filterable gallery region for HTMX swaps.
+func (v *views) galleryFragment(w http.ResponseWriter, r *http.Request, user *identity.User, errMsg, albumParam, tagParam string) {
+	data, ok := v.galleryViewData(w, r, user, errMsg, albumParam, tagParam)
+	if !ok {
+		return
+	}
+	renderView(w, r, v.galleryT, "galleryContent", data)
+}
+
+func (v *views) galleryViewData(w http.ResponseWriter, r *http.Request, user *identity.User, errMsg, albumParam, tagParam string) (viewData, bool) {
+	if !v.requirePhotos(w) {
+		return viewData{}, false
+	}
+	if !v.ensurePhotoRoot(w, user) {
+		return viewData{}, false
 	}
 	home := files.HomeDir(user.Email)
 
 	entries, err := v.photos.ListDir(home, "")
 	if err != nil {
 		http.NotFound(w, r)
-		return
+		return viewData{}, false
 	}
 	var months []photoMonth
 	tagsByPhoto := map[string][]string{}
@@ -266,11 +304,11 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 
 	// Sidebar filters: one album and/or one tag. Both narrow the same
 	// month-grouped grid; empty months drop out.
-	activeTag := strings.TrimSpace(r.URL.Query().Get("tag"))
+	activeTag := tagParam
 	var inAlbum map[string]bool
 	var activeAlbumID, activeAlbumName string
 	if v.albumStore != nil {
-		if albumID, err := uuid.Parse(strings.TrimSpace(r.URL.Query().Get("album"))); err == nil {
+		if albumID, err := uuid.Parse(albumParam); err == nil {
 			if paths, err := v.albumStore.Paths(r.Context(), user.ID, albumID); err == nil {
 				inAlbum = map[string]bool{}
 				for _, p := range paths {
@@ -281,6 +319,12 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 					if a.ID == albumID {
 						activeAlbumName = a.Name
 					}
+				}
+				if activeAlbumName == "" {
+					// Deleted or foreign album: drop the filter, don't
+					// strand the user on an empty unnamed view.
+					inAlbum = nil
+					activeAlbumID = ""
 				}
 			}
 		}
@@ -348,7 +392,7 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 		albumNav = append(albumNav, photoAlbumNav{ID: a.ID.String(), Name: a.Name, Count: a.Count})
 	}
 
-	renderView(w, r, v.galleryT, "layout", viewData{
+	return viewData{
 		Title:       "Photos",
 		Section:     "photos",
 		User:        user,
@@ -363,8 +407,8 @@ func (v *views) galleryPage(w http.ResponseWriter, r *http.Request, user *identi
 		ActiveAlbumName: activeAlbumName,
 		ActiveTag: activeTag,
 		AlbumsReady: v.albumStore != nil,
-		Error:       driveFlash(r),
-	})
+		Error:       errMsg,
+	}, true
 }
 
 func (v *views) galleryFile(w http.ResponseWriter, r *http.Request) {
@@ -508,13 +552,11 @@ func (v *views) galleryDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/gallery", http.StatusSeeOther)
 }
 
-// maxPhotoLabel caps labels at a short caption, not an essay.
-const maxPhotoLabel = 140
-
 // maxAlbumName caps album names at a short title.
 const maxAlbumName = 60
 
 // albumCreate makes an album and lands on its (empty) filtered view.
+// HTMX posts get the content fragment with the new filter pushed to the URL.
 func (v *views) albumCreate(w http.ResponseWriter, r *http.Request) {
 	user := UserFromContext(r.Context())
 	if !v.requirePhotos(w) || v.albumStore == nil {
@@ -526,13 +568,26 @@ func (v *views) albumCreate(w http.ResponseWriter, r *http.Request) {
 		name = string(runes[:maxAlbumName])
 	}
 	if name == "" {
+		if isHX(r) {
+			v.galleryFragment(w, r, user, "Could not manage that album.", "", "")
+			return
+		}
 		http.Redirect(w, r, "/gallery?error=album", http.StatusSeeOther)
 		return
 	}
 	album, err := v.albumStore.Create(r.Context(), user.ID, name)
 	if err != nil {
 		obs.Log(r.Context(), slog.LevelError, "create album failed", "error", err)
+		if isHX(r) {
+			v.galleryFragment(w, r, user, "Could not manage that album.", "", "")
+			return
+		}
 		http.Redirect(w, r, "/gallery?error=album", http.StatusSeeOther)
+		return
+	}
+	if isHX(r) {
+		w.Header().Set("HX-Push-Url", "/gallery?album="+album.ID.String())
+		v.galleryFragment(w, r, user, "", album.ID.String(), "")
 		return
 	}
 	http.Redirect(w, r, "/gallery?album="+album.ID.String(), http.StatusSeeOther)
@@ -547,6 +602,11 @@ func (v *views) albumDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if id, err := uuid.Parse(strings.TrimSpace(r.FormValue("id"))); err == nil {
 		_ = v.albumStore.Delete(r.Context(), user.ID, id)
+	}
+	if isHX(r) {
+		w.Header().Set("HX-Push-Url", "/gallery")
+		v.galleryFragment(w, r, user, "", "", "")
+		return
 	}
 	http.Redirect(w, r, "/gallery", http.StatusSeeOther)
 }
@@ -771,10 +831,33 @@ func (v *views) photoUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(result.Failed) > 0 || len(result.Uploaded) == 0 {
+		if usingBasic || wantsJSON(r) {
+			v.uploadFailed(w, r, usingBasic, "request failed")
+			return
+		}
+		if isHX(r) {
+			v.galleryFragment(w, r, user, "Upload failed. Files are limited to 1 GB each within your 10 GB quota.", hxFilter(r, "album"), hxFilter(r, "tag"))
+			return
+		}
 		http.Redirect(w, r, "/gallery?error=upload", http.StatusSeeOther)
 		return
 	}
+	if usingBasic || wantsJSON(r) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+		return
+	}
+	if isHX(r) {
+		v.galleryFragment(w, r, user, "", hxFilter(r, "album"), hxFilter(r, "tag"))
+		return
+	}
 	http.Redirect(w, r, "/gallery", http.StatusSeeOther)
+}
+
+// hxFilter carries the sidebar filter through HTMX posts: gallery.js injects
+// the current album/tag from the URL so a refresh keeps the view.
+func hxFilter(r *http.Request, key string) string {
+	return strings.TrimSpace(r.FormValue(key))
 }
 
 // uniquePhotoPath avoids overwriting: photo.jpg, photo-1.jpg, ...

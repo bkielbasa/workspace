@@ -20,9 +20,66 @@
     document.querySelectorAll("#tag-suggestions option"),
     function (o) { return o.value; }
   );
-  var items = Array.prototype.slice.call(document.querySelectorAll(".gallery-open"));
+  var progress = document.querySelector("[data-upload-progress]");
   var current = -1;
+  var currentPath = "";
   var currentTags = [];
+
+  // Live list: HTMX swaps replace grid nodes, so never cache them.
+  function liveItems() {
+    return Array.prototype.slice.call(document.querySelectorAll(".gallery-open"));
+  }
+
+  function refreshLayout() {
+    if (typeof htmx === "undefined") return;
+    htmx.ajax("GET", "/gallery/content" + window.location.search, {
+      target: "#gallery-content",
+      swap: "outerHTML",
+    });
+  }
+
+  // After any content swap, re-point the open modal at the fresh nodes.
+  document.body.addEventListener("htmx:afterSwap", function (ev) {
+    if (!ev.detail || !ev.detail.target || ev.detail.target.id !== "gallery-content") return;
+    knownTags = Array.prototype.map.call(
+      document.querySelectorAll("#tag-suggestions option"),
+      function (o) { return o.value; }
+    );
+    if (currentPath === "") return;
+    var found = -1;
+    liveItems().forEach(function (item, idx) {
+      if (item.getAttribute("data-path") === currentPath) found = idx;
+    });
+    if (found < 0) {
+      close();
+      return;
+    }
+    current = found;
+    render(liveItems()[current]);
+  });
+
+  // Keep the sidebar filter across upload posts.
+  document.body.addEventListener("htmx:configRequest", function (ev) {
+    if (!ev.detail || ev.detail.path.indexOf("/api/upload") < 0) return;
+    var q = new URLSearchParams(window.location.search);
+    ["album", "tag"].forEach(function (key) {
+      var val = q.get(key);
+      if (val) ev.detail.parameters[key] = val;
+    });
+  });
+
+  // Upload progress on the header bar.
+  document.body.addEventListener("htmx:xhr:progress", function (ev) {
+    if (!progress || !ev.detail || !ev.detail.total) return;
+    progress.hidden = false;
+    progress.value = Math.round((ev.detail.loaded / ev.detail.total) * 100);
+  });
+  document.body.addEventListener("htmx:afterRequest", function () {
+    if (progress) {
+      progress.hidden = true;
+      progress.value = 0;
+    }
+  });
 
   function fmtBytes(n) {
     n = Number(n) || 0;
@@ -98,7 +155,8 @@
 
   function toggleAlbum(box) {
     if (current < 0) return;
-    var item = items[current];
+    var item = liveItems()[current];
+    if (!item) return;
     var path = item.getAttribute("data-path");
     var albumID = box.getAttribute("data-album-id");
     var add = box.checked ? "1" : "0";
@@ -119,6 +177,7 @@
         var mine = albumsOf(item).filter(function (id) { return id !== albumID; });
         if (data && data.in_album) mine.push(albumID);
         item.setAttribute("data-albums", mine.join(","));
+        refreshLayout();
       })
       .catch(function () {
         box.checked = !box.checked;
@@ -131,7 +190,8 @@
 
   function saveTags() {
     if (current < 0) return;
-    var item = items[current];
+    var item = liveItems()[current];
+    if (!item) return;
     var path = item.getAttribute("data-path");
     fetch("/gallery/tags?format=json", {
       method: "POST",
@@ -152,6 +212,7 @@
         title.textContent = currentTags.join(", ") || item.getAttribute("data-name");
         renderChips();
         syncCaption(item);
+        refreshLayout();
       })
       .catch(function () {
         renderChips();
@@ -197,9 +258,11 @@
   }
 
   function open(idx) {
-    if (idx < 0 || idx >= items.length) return;
+    var list = liveItems();
+    if (idx < 0 || idx >= list.length) return;
     current = idx;
-    render(items[current]);
+    currentPath = list[current].getAttribute("data-path");
+    render(list[current]);
     modal.hidden = false;
     document.body.style.overflow = "hidden";
   }
@@ -210,15 +273,21 @@
     var media = stage.querySelector("video");
     if (media) media.pause();
     current = -1;
+    currentPath = "";
   }
 
   function step(dir) {
-    if (current < 0 || items.length === 0) return;
-    open((current + dir + items.length) % items.length);
+    var list = liveItems();
+    if (current < 0 || list.length === 0) return;
+    open((current + dir + list.length) % list.length);
   }
 
-  items.forEach(function (item, idx) {
-    item.addEventListener("click", function () { open(idx); });
+  // Delegated: grid nodes are replaced by HTMX swaps.
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest ? ev.target.closest(".gallery-open") : null;
+    if (!btn) return;
+    var list = liveItems();
+    open(list.indexOf(btn));
   });
   modal.querySelector(".photo-modal-prev").addEventListener("click", function () { step(-1); });
   modal.querySelector(".photo-modal-next").addEventListener("click", function () { step(1); });

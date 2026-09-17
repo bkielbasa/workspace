@@ -625,6 +625,10 @@ textarea::placeholder {
   padding: 0.6rem 1rem;
 }
 
+.upload-progress {
+  width: 100%;
+}
+
 .gallery-main {
   min-width: 0;
 }
