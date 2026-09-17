@@ -21,6 +21,36 @@ import (
 
 const capabilities = "IMAP4rev1 SASL-IR AUTH=PLAIN AUTH=LOGIN IDLE NAMESPACE UIDPLUS"
 
+const (
+	// idleWakeInterval is how often an idling connection surfaces to check
+	// for DONE. It governs responsiveness, not database load.
+	idleWakeInterval = time.Second
+
+	// idlePollInterval is how often an idling connection actually queries
+	// for mailbox changes.
+	idlePollInterval = 15 * time.Second
+
+	// mailboxWindow caps how many messages a SELECT or IDLE poll loads.
+	mailboxWindow = 1000
+
+	// dbTimeout bounds a single store call. Without it a stalled query
+	// leaves the client waiting on a reply that never comes, which reads
+	// as "the server doesn't respond".
+	dbTimeout = 15 * time.Second
+
+	// commandTimeout bounds the work behind one client command.
+	commandTimeout = 30 * time.Second
+
+	// idleConnTimeout closes connections that go silent without LOGOUT,
+	// so abandoned sockets stop pinning a goroutine each.
+	idleConnTimeout = 30 * time.Minute
+
+	// maxConnections caps concurrent IMAP sessions. A misbehaving client
+	// can reconnect in a tight loop; this keeps it from exhausting the
+	// database pool and starving everyone else.
+	maxConnections = 128
+)
+
 // Authenticator verifies the credentials supplied by LOGIN and AUTHENTICATE.
 type Authenticator interface {
 	Authenticate(ctx context.Context, email, password string) (*identity.User, error)
@@ -39,6 +69,9 @@ type MessageStore interface {
 	Append(ctx context.Context, message *mail.Message) error
 	Get(ctx context.Context, id uuid.UUID) (*mail.Message, error)
 	List(ctx context.Context, mailboxID uuid.UUID, limit, offset int) ([]mail.Message, error)
+	// ListSummary is List without message bodies, for the UID/flag views
+	// that SELECT and IDLE need.
+	ListSummary(ctx context.Context, mailboxID uuid.UUID, limit, offset int) ([]mail.Message, error)
 	UpdateFlags(ctx context.Context, id uuid.UUID, seen, flagged, answered, deleted, draft bool) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	Move(ctx context.Context, id, mailboxID uuid.UUID) error
@@ -52,14 +85,31 @@ type Server struct {
 	mboxes    MailboxStore
 	tlsConfig *tls.Config
 	tracer    trace.Tracer
+	// slots bounds concurrent sessions; each handler holds one.
+	slots chan struct{}
 }
 
 func NewServer(addr string, users Authenticator, messages MessageStore, mailboxes MailboxStore) *Server {
-	return &Server{addr: addr, users: users, mail: messages, mboxes: mailboxes, tracer: otel.Tracer("imap")}
+	return &Server{
+		addr:   addr,
+		users:  users,
+		mail:   newBoundedMessages(messages, dbTimeout),
+		mboxes: newBoundedMailboxes(mailboxes, dbTimeout),
+		tracer: otel.Tracer("imap"),
+		slots:  make(chan struct{}, maxConnections),
+	}
 }
 
 func NewTLSServer(addr string, users Authenticator, messages MessageStore, mailboxes MailboxStore, tlsCfg *tls.Config) *Server {
-	return &Server{addr: addr, users: users, mail: messages, mboxes: mailboxes, tlsConfig: tlsCfg, tracer: otel.Tracer("imap")}
+	return &Server{
+		addr:      addr,
+		users:     users,
+		mail:      newBoundedMessages(messages, dbTimeout),
+		mboxes:    newBoundedMailboxes(mailboxes, dbTimeout),
+		tlsConfig: tlsCfg,
+		tracer:    otel.Tracer("imap"),
+		slots:     make(chan struct{}, maxConnections),
+	}
 }
 
 func (s *Server) ListenAndServe() error {
@@ -82,7 +132,24 @@ func (s *Server) ListenAndServe() error {
 			obs.Log(context.Background(), slog.LevelError, "imap accept error", "error", err)
 			continue
 		}
-		go s.handle(c)
+		// Refuse politely at the cap rather than spawning without limit:
+		// a client stuck in a reconnect loop would otherwise drain the
+		// database pool and take the server down for everyone.
+		select {
+		case s.slots <- struct{}{}:
+			go func(conn net.Conn) {
+				defer func() { <-s.slots }()
+				s.handle(conn)
+			}(c)
+		default:
+			obs.Log(context.Background(), slog.LevelWarn, "imap connection refused",
+				"reason", "too many connections",
+				"limit", maxConnections,
+				"remote", c.RemoteAddr().String(),
+			)
+			_, _ = c.Write([]byte("* BYE too many connections\r\n"))
+			_ = c.Close()
+		}
 	}
 }
 
@@ -103,24 +170,28 @@ func (s *Server) handle(conn net.Conn) {
 	var selected *mail.Mailbox
 	var selectedMsgs []mail.Message
 
-	ctx, sessionSpan := s.tracer.Start(context.Background(), "imap.session")
+	sessionCtx, sessionSpan := s.tracer.Start(context.Background(), "imap.session")
 	defer sessionSpan.End()
 
-	obs.Log(ctx, slog.LevelInfo, "imap connection",
+	obs.Log(sessionCtx, slog.LevelInfo, "imap connection",
 		"remote", conn.RemoteAddr().String(),
 		"local", conn.LocalAddr().String(),
 		"implicit_tls", s.tlsConfig != nil,
 	)
 
 	for {
+		// Drop connections that go quiet without logging out, instead of
+		// pinning a goroutine on them until the process restarts.
+		_ = conn.SetReadDeadline(time.Now().Add(idleConnTimeout))
 		line, err := rw.ReadString('\n')
 		if err != nil {
 			return
 		}
+		_ = conn.SetReadDeadline(time.Time{})
 		rawLine := line
 		line = strings.TrimSpace(line)
 
-		obs.Log(ctx, slog.LevelInfo, "imap raw recv",
+		obs.Log(sessionCtx, slog.LevelDebug, "imap raw recv",
 			"raw", redactCredentials(strings.TrimSpace(rawLine)),
 		)
 
@@ -135,6 +206,11 @@ func (s *Server) handle(conn net.Conn) {
 		if len(parts) > 2 {
 			args = parts[2:]
 		}
+
+		// Store calls are deadline-bounded by the wrappers in
+		// NewServer/NewTLSServer, so a stalled query surfaces as an
+		// error rather than an unanswered client.
+		ctx := sessionCtx
 
 		_, cmdSpan := s.tracer.Start(ctx, "imap.command")
 		cmdSpan.SetAttributes(
@@ -280,7 +356,7 @@ func (s *Server) handle(conn net.Conn) {
 			obs.Log(ctx, slog.LevelInfo, "imap SELECT start",
 				"mailbox_id", mb.ID.String(),
 			)
-			msgs, errList := s.mail.List(ctx, mb.ID, 1000, 0)
+			msgs, errList := s.mail.ListSummary(ctx, mb.ID, mailboxWindow, 0)
 			if errList != nil {
 				obs.Log(ctx, slog.LevelError, "imap SELECT list error",
 					"error", errList,
@@ -298,11 +374,12 @@ func (s *Server) handle(conn net.Conn) {
 			write(fmt.Sprintf("* %d EXISTS", len(selectedMsgs)))
 			write(fmt.Sprintf("* %d RECENT", countRecent(selectedMsgs)))
 
-			// first unseen (optional but helps clients)
+			// First unseen (optional, but clients use it). The summary
+			// already carries the flag, so this no longer costs one
+			// round trip per message in the mailbox.
 			unseen := 0
 			for i, m := range selectedMsgs {
-				full, err := s.mail.Get(ctx, m.ID)
-				if err == nil && !full.Seen {
+				if !m.Seen {
 					unseen = i + 1
 					break
 				}
@@ -769,8 +846,12 @@ func (s *Server) handle(conn net.Conn) {
 
 		case "IDLE":
 			write("+ idling")
+			// Wake often enough to notice DONE promptly, but only hit the
+			// database every idlePollInterval: this loop used to run a
+			// full mailbox query every second for every idling client.
+			nextPoll := time.Now().Add(idlePollInterval)
 			for {
-				_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+				_ = conn.SetReadDeadline(time.Now().Add(idleWakeInterval))
 				line, err := rw.ReadString('\n')
 				if err == nil {
 					_ = conn.SetReadDeadline(time.Time{})
@@ -784,10 +865,13 @@ func (s *Server) handle(conn net.Conn) {
 				if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
 					return
 				}
-				if selected == nil {
+				if selected == nil || time.Now().Before(nextPoll) {
 					continue
 				}
-				updated, listErr := s.mail.List(ctx, selected.ID, 1000, 0)
+				nextPoll = time.Now().Add(idlePollInterval)
+				pollCtx, cancel := context.WithTimeout(ctx, dbTimeout)
+				updated, listErr := s.mail.ListSummary(pollCtx, selected.ID, mailboxWindow, 0)
+				cancel()
 				if listErr != nil {
 					continue
 				}

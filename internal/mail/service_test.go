@@ -98,6 +98,19 @@ func (m *mockMessageRepo) List(ctx context.Context, mailboxID uuid.UUID, limit, 
 	return result, nil
 }
 
+// ListSummary mirrors List but without bodies, matching what the real
+// repository returns for UID/flag-only callers.
+func (m *mockMessageRepo) ListSummary(ctx context.Context, mailboxID uuid.UUID, limit, offset int) ([]mail.Message, error) {
+	result, err := m.List(ctx, mailboxID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	for i := range result {
+		result[i].RawMessage = ""
+	}
+	return result, nil
+}
+
 func (m *mockMessageRepo) ListUIDs(ctx context.Context, mailboxID uuid.UUID) ([]uint32, error) {
 	return nil, nil
 }
@@ -136,7 +149,7 @@ func (m *mockMessageRepo) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 type mockDeliverer struct {
-	deliveredTo string
+	deliveredTo  string
 	deliveredMsg *mail.Message
 }
 

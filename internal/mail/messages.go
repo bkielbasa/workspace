@@ -13,6 +13,7 @@ type MessageRepository interface {
 	Get(ctx context.Context, id uuid.UUID) (*Message, error)
 	GetForUser(ctx context.Context, userID, id uuid.UUID) (*Message, *Mailbox, error)
 	List(ctx context.Context, mailboxID uuid.UUID, limit, offset int) ([]Message, error)
+	ListSummary(ctx context.Context, mailboxID uuid.UUID, limit, offset int) ([]Message, error)
 	UpdateFlags(ctx context.Context, id uuid.UUID, seen, flagged, answered, deleted, draft bool) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	Move(ctx context.Context, id, mailboxID uuid.UUID) error
@@ -49,6 +50,14 @@ func (m *Mail) List(ctx context.Context, mailboxID uuid.UUID, limit, offset int)
 	ctx, span := m.tracer.Start(ctx, "mail.list")
 	defer span.End()
 	return m.repo.List(ctx, mailboxID, limit, offset)
+}
+
+// ListSummary lists messages without their bodies, for callers that only
+// need UIDs and flags.
+func (m *Mail) ListSummary(ctx context.Context, mailboxID uuid.UUID, limit, offset int) ([]Message, error) {
+	ctx, span := m.tracer.Start(ctx, "mail.list_summary")
+	defer span.End()
+	return m.repo.ListSummary(ctx, mailboxID, limit, offset)
 }
 
 func (m *Mail) UpdateFlags(ctx context.Context, id uuid.UUID, seen, flagged, answered, deleted, draft bool) error {

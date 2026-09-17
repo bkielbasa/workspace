@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 
 	"go.opentelemetry.io/otel/trace"
 )
@@ -13,9 +14,26 @@ var logger *slog.Logger
 // Init installs the JSON logger used by every package. It also becomes the
 // slog default so output from dependencies that still use the standard log
 // package is emitted in the same format instead of plain text.
+//
+// LOG_LEVEL switches the threshold (debug, info, warn, error). Verbose
+// traces such as the IMAP wire protocol sit at debug so they can be turned
+// on for an investigation without a rebuild, and stay off by default.
 func Init() {
-	logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: levelFromEnv()}))
 	slog.SetDefault(logger)
+}
+
+func levelFromEnv() slog.Level {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOG_LEVEL"))) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 // Log emits a structured record, correlated with the span in ctx when there

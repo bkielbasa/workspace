@@ -150,6 +150,16 @@ const messageColumns = `
 	seen, flagged, answered, deleted, draft, received_at, sent_at,
 	created_at, updated_at`
 
+// messageSummaryColumns mirrors messageColumns but leaves the body out.
+// IMAP SELECT and IDLE only need UIDs and flags; pulling every raw_message
+// for those made an idle mailbox poll cost megabytes a second.
+const messageSummaryColumns = `
+	id, mailbox_id, uid, COALESCE(message_id, ''), sender,
+	COALESCE(array_to_string(recipients, ','), '') AS recipients, COALESCE(subject, ''), COALESCE(in_reply_to, ''),
+	COALESCE(references_header, ''), '' AS raw_message, COALESCE(mime_type, ''), COALESCE(charset, ''), size_bytes,
+	seen, flagged, answered, deleted, draft, received_at, sent_at,
+	created_at, updated_at`
+
 const joinedMessageColumns = `
 	m.id, m.mailbox_id, m.uid, COALESCE(m.message_id, ''), m.sender,
 	COALESCE(array_to_string(m.recipients, ','), '') AS recipients, COALESCE(m.subject, ''), COALESCE(m.in_reply_to, ''),
@@ -225,6 +235,31 @@ func (r *messageRepository) List(ctx context.Context, mailboxID uuid.UUID, limit
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate messages: %w", err)
+	}
+	return messages, nil
+}
+
+// ListSummary is List without the message bodies. Callers that only need
+// UIDs and flags should prefer it; RawMessage comes back empty.
+func (r *messageRepository) ListSummary(ctx context.Context, mailboxID uuid.UUID, limit, offset int) ([]mail.Message, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT `+messageSummaryColumns+` FROM messages
+		WHERE mailbox_id = $1 ORDER BY received_at DESC LIMIT $2 OFFSET $3
+	`, mailboxID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list message summaries: %w", err)
+	}
+	defer rows.Close()
+	messages := make([]mail.Message, 0)
+	for rows.Next() {
+		message, err := scanMessage(rows, true)
+		if err != nil {
+			return nil, fmt.Errorf("scan message summary: %w", err)
+		}
+		messages = append(messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate message summaries: %w", err)
 	}
 	return messages, nil
 }
