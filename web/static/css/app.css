@@ -466,6 +466,13 @@ textarea::placeholder {
   margin: 0.75rem 0;
 }
 
+.photo-name {
+  font-size: 1.1rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+
 .photo-meta dl > div {
   display: flex;
   gap: 0.5rem;
@@ -473,7 +480,8 @@ textarea::placeholder {
 
 .photo-meta dt {
   font-weight: 600;
-  min-width: 4rem;
+  min-width: 5.5rem;
+  flex-shrink: 0;
 }
 
 .photo-meta dd {

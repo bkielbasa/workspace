@@ -21,11 +21,11 @@
 
   <div class="photo-side">
     <section class="card photo-meta">
-      <h2>{{if .Photo.Label}}{{.Photo.Label}}{{else}}{{.Photo.Name}}{{end}}</h2>
+      <h2 class="photo-name">{{if .Photo.Label}}{{.Photo.Label}}{{else}}{{.Photo.Name}}{{end}}</h2>
       <dl>
         <div><dt>File</dt><dd>{{.Photo.Name}}</dd></div>
-        {{if .Photo.Dims}}<div><dt>Size</dt><dd>{{.Photo.Dims}}</dd></div>{{end}}
-        <div><dt>Stored</dt><dd>{{formatBytes .Photo.Size}} &middot; {{fmtDate .Photo.Modified}}</dd></div>
+        {{if .Photo.Dims}}<div><dt>Dimensions</dt><dd>{{.Photo.Dims}}</dd></div>{{end}}
+        <div><dt>Added</dt><dd>{{formatBytes .Photo.Size}} &middot; {{fmtDate .Photo.Modified}}</dd></div>
       </dl>
       <p><a class="btn btn-sm" href="/gallery/file?path={{.Photo.Path}}">Download original</a></p>
     </section>
