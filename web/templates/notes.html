@@ -34,7 +34,7 @@
 {{end}}
 
 {{define "notesList"}}
-<div id="notes-container" class="notes-grid">
+<div id="notes-container" class="notes-grid" sse-swap="message">
   {{range .Notes}}
   <article class="note-card note-color-{{.Color}}{{if .IsPinned}} note-pinned{{end}}" id="note-{{.ID}}">
     <div class="note-card-head">
@@ -50,7 +50,7 @@
       <li class="note-checkitem{{if .Completed}} completed{{end}}" id="item-{{.ID}}">
         <form class="inline-form" hx-post="/notes/{{.NoteID}}/items/{{.ID}}/toggle" hx-target="#note-{{.NoteID}}" hx-swap="outerHTML">
           <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-          <input type="checkbox" {{if .Completed}}checked{{end}} onchange="this.form.requestSubmit()">
+          <input type="checkbox" name="completed" {{if .Completed}}checked{{end}} onchange="this.form.requestSubmit()">
           <span class="note-item-text">{{.Content}}</span>
         </form>
       </li>
