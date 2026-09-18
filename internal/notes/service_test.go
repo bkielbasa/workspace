@@ -224,3 +224,43 @@ func TestServiceSecurityConstraints(t *testing.T) {
 		t.Fatalf("expected ErrNotFound when deleting item belonging to another note, got: %v", err)
 	}
 }
+
+func TestServiceAddItemWithIDAndUpdatedItem(t *testing.T) {
+	repo := newMockRepo()
+	broker := NewBroker()
+	svc := NewService(repo, broker)
+
+	userID := uuid.New()
+	ctx := context.Background()
+
+	note, err := svc.CreateNote(ctx, userID, Note{
+		Title: "Checklist",
+		Kind:  KindList,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error creating note: %v", err)
+	}
+
+	customID := uuid.New()
+	item, err := svc.AddItemWithID(ctx, userID, note.ID, customID, "Item 1")
+	if err != nil {
+		t.Fatalf("unexpected error adding item with ID: %v", err)
+	}
+	if item.ID != customID {
+		t.Fatalf("expected item ID %s, got %s", customID, item.ID)
+	}
+	if item.Content != "Item 1" {
+		t.Fatalf("expected content 'Item 1', got '%s'", item.Content)
+	}
+
+	updated, err := svc.UpdateItem(ctx, userID, note.ID, customID, "Item 1 Modified", true)
+	if err != nil {
+		t.Fatalf("unexpected error updating item: %v", err)
+	}
+	if updated.Content != "Item 1 Modified" {
+		t.Fatalf("expected updated content 'Item 1 Modified', got '%s'", updated.Content)
+	}
+	if !updated.Completed {
+		t.Fatalf("expected completed to be true")
+	}
+}

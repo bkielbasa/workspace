@@ -74,13 +74,20 @@ func (m *mockNotesService) GetNote(ctx context.Context, userID uuid.UUID, id uui
 }
 
 func (m *mockNotesService) AddItem(ctx context.Context, userID uuid.UUID, noteID uuid.UUID, content string) (*notes.NoteItem, error) {
+	return m.AddItemWithID(ctx, userID, noteID, uuid.Nil, content)
+}
+
+func (m *mockNotesService) AddItemWithID(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, content string) (*notes.NoteItem, error) {
 	n, ok := m.notes[noteID]
 	if !ok {
 		return nil, fmt.Errorf("note not found: %s", noteID)
 	}
 	now := time.Now().UTC()
+	if itemID == uuid.Nil {
+		itemID = uuid.New()
+	}
 	item := notes.NoteItem{
-		ID:        uuid.New(),
+		ID:        itemID,
 		NoteID:    noteID,
 		Content:   content,
 		Completed: false,
@@ -90,6 +97,29 @@ func (m *mockNotesService) AddItem(ctx context.Context, userID uuid.UUID, noteID
 	n.Items = append(n.Items, item)
 	n.UpdatedAt = now
 	return &item, nil
+}
+
+func (m *mockNotesService) UpdateItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, content string, completed bool) (*notes.NoteItem, error) {
+	n, ok := m.notes[noteID]
+	if !ok {
+		return nil, fmt.Errorf("note not found: %s", noteID)
+	}
+	for i := range n.Items {
+		if n.Items[i].ID == itemID {
+			now := time.Now().UTC()
+			n.Items[i].Content = content
+			n.Items[i].Completed = completed
+			if completed {
+				n.Items[i].CompletedAt = &now
+			} else {
+				n.Items[i].CompletedAt = nil
+			}
+			n.Items[i].UpdatedAt = now
+			n.UpdatedAt = now
+			return &n.Items[i], nil
+		}
+	}
+	return nil, fmt.Errorf("item not found: %s", itemID)
 }
 
 func (m *mockNotesService) ToggleItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, completed bool) (*notes.NoteItem, error) {
@@ -523,18 +553,32 @@ func TestCalDAVListItemPUT(t *testing.T) {
 	if len(note.Items) != 1 || note.Items[0].Content != "Tomatoes" {
 		t.Fatalf("expected 1 item with Tomatoes, got %+v", note.Items)
 	}
-	createdID := note.Items[0].ID
+	if note.Items[0].ID != newItemID {
+		t.Fatalf("expected item ID to match client-supplied UUID %s, got %s", newItemID, note.Items[0].ID)
+	}
 
-	// 2. Update item (mark completed) via PUT
-	completedItem := notes.NoteItem{
-		ID:        createdID,
+	// 1b. GET newly created item directly using client resource URI
+	getReq := httptest.NewRequest("GET", fmt.Sprintf("/cal/lists/%s/%s.ics", listID, newItemID), nil)
+	getReq.SetBasicAuth("alice@example.com", "secret")
+	getW := httptest.NewRecorder()
+	h.ServeHTTP(getW, getReq)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK fetching newly created item, got %d", getW.Code)
+	}
+	if !strings.Contains(getW.Body.String(), "SUMMARY:Tomatoes") {
+		t.Fatalf("expected SUMMARY:Tomatoes in GET response, got: %s", getW.Body.String())
+	}
+
+	// 2. Update item content AND completion status via PUT
+	updatedItem := notes.NoteItem{
+		ID:        newItemID,
 		NoteID:    listID,
-		Content:   "Tomatoes",
+		Content:   "Organic Tomatoes",
 		Completed: true,
 	}
-	completedICS := vtodo.Format(completedItem)
+	updatedICS := vtodo.Format(updatedItem)
 
-	req = httptest.NewRequest("PUT", fmt.Sprintf("/cal/lists/%s/%s.ics", listID, createdID), strings.NewReader(completedICS))
+	req = httptest.NewRequest("PUT", fmt.Sprintf("/cal/lists/%s/%s.ics", listID, newItemID), strings.NewReader(updatedICS))
 	req.SetBasicAuth("alice@example.com", "secret")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -542,8 +586,24 @@ func TestCalDAVListItemPUT(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204 No Content, got %d: %s", w.Code, w.Body.String())
 	}
+	if note.Items[0].Content != "Organic Tomatoes" {
+		t.Fatalf("expected updated content 'Organic Tomatoes', got '%s'", note.Items[0].Content)
+	}
 	if !note.Items[0].Completed {
 		t.Fatalf("expected item to be completed after PUT")
+	}
+
+	// Verify updated item via GET
+	getReq = httptest.NewRequest("GET", fmt.Sprintf("/cal/lists/%s/%s.ics", listID, newItemID), nil)
+	getReq.SetBasicAuth("alice@example.com", "secret")
+	getW = httptest.NewRecorder()
+	h.ServeHTTP(getW, getReq)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK fetching updated item, got %d", getW.Code)
+	}
+	getBody := getW.Body.String()
+	if !strings.Contains(getBody, "SUMMARY:Organic Tomatoes") || !strings.Contains(getBody, "STATUS:COMPLETED") {
+		t.Fatalf("expected updated content and completed status in GET body, got:\n%s", getBody)
 	}
 
 	// 3. PUT with invalid ICS

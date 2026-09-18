@@ -108,12 +108,17 @@ func (s *Service) DeleteNote(ctx context.Context, userID uuid.UUID, isAdmin bool
 }
 
 func (s *Service) AddItem(ctx context.Context, userID uuid.UUID, noteID uuid.UUID, content string) (*NoteItem, error) {
+	return s.AddItemWithID(ctx, userID, noteID, uuid.Nil, content)
+}
+
+func (s *Service) AddItemWithID(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, content string) (*NoteItem, error) {
 	_, err := s.GetNote(ctx, userID, noteID)
 	if err != nil {
 		return nil, err
 	}
 
 	item, err := s.repo.AddItem(ctx, NoteItem{
+		ID:      itemID,
 		NoteID:  noteID,
 		Content: content,
 	})
@@ -128,6 +133,48 @@ func (s *Service) AddItem(ctx context.Context, userID uuid.UUID, noteID uuid.UUI
 		UserID:    userID,
 	})
 	return item, nil
+}
+
+func (s *Service) UpdateItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, content string, completed bool) (*NoteItem, error) {
+	_, err := s.GetNote(ctx, userID, noteID)
+	if err != nil {
+		return nil, err
+	}
+
+	item, err := s.repo.GetItem(ctx, itemID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if item.NoteID != noteID {
+		return nil, ErrNotFound
+	}
+
+	updated := item
+	if item.Content != content {
+		item.Content = content
+		u, err := s.repo.UpdateItem(ctx, *item)
+		if err != nil {
+			return nil, err
+		}
+		updated = u
+	}
+
+	if updated.Completed != completed {
+		u, err := s.repo.ToggleItem(ctx, itemID, completed)
+		if err != nil {
+			return nil, err
+		}
+		updated = u
+	}
+
+	s.broker.Publish(Event{
+		Type:      "item_updated",
+		NoteID:    noteID,
+		ItemID:    updated.ID,
+		Completed: updated.Completed,
+		UserID:    userID,
+	})
+	return updated, nil
 }
 
 func (s *Service) ToggleItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, completed bool) (*NoteItem, error) {

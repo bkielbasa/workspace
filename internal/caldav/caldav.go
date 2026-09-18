@@ -34,6 +34,8 @@ type notesService interface {
 	ListNotes(ctx context.Context, userID uuid.UUID, archived bool, tag string) ([]notes.Note, error)
 	GetNote(ctx context.Context, userID uuid.UUID, id uuid.UUID) (*notes.Note, error)
 	AddItem(ctx context.Context, userID uuid.UUID, noteID uuid.UUID, content string) (*notes.NoteItem, error)
+	AddItemWithID(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, content string) (*notes.NoteItem, error)
+	UpdateItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, content string, completed bool) (*notes.NoteItem, error)
 	ToggleItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, completed bool) (*notes.NoteItem, error)
 	DeleteItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID) error
 }
@@ -774,7 +776,7 @@ func (h *handler) putTask(w http.ResponseWriter, r *http.Request, userID uuid.UU
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if !strings.Contains(string(body), "BEGIN:VTODO") {
+	if !strings.Contains(strings.ToUpper(string(body)), "BEGIN:VTODO") {
 		http.Error(w, "missing VTODO component", http.StatusBadRequest)
 		return
 	}
@@ -783,8 +785,9 @@ func (h *handler) putTask(w http.ResponseWriter, r *http.Request, userID uuid.UU
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if itemID, err := uuid.Parse(target.resource); err == nil && parsedItem.ID == uuid.Nil {
-		parsedItem.ID = itemID
+	targetItemID, _ := uuid.Parse(target.resource)
+	if targetItemID != uuid.Nil && parsedItem.ID == uuid.Nil {
+		parsedItem.ID = targetItemID
 	}
 
 	var existing *notes.NoteItem
@@ -796,21 +799,25 @@ func (h *handler) putTask(w http.ResponseWriter, r *http.Request, userID uuid.UU
 	}
 
 	if existing != nil {
-		resultItem := existing
-		if parsedItem.Completed != existing.Completed {
-			updated, err := h.notes.ToggleItem(r.Context(), userID, target.noteID, existing.ID, parsedItem.Completed)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			resultItem = updated
+		content := parsedItem.Content
+		if content == "" {
+			content = existing.Content
 		}
-		w.Header().Set("ETag", quoteETag(itemETag(*resultItem)))
+		updated, err := h.notes.UpdateItem(r.Context(), userID, target.noteID, existing.ID, content, parsedItem.Completed)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("ETag", quoteETag(itemETag(*updated)))
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	created, err := h.notes.AddItem(r.Context(), userID, target.noteID, parsedItem.Content)
+	itemID := targetItemID
+	if itemID == uuid.Nil {
+		itemID = parsedItem.ID
+	}
+	created, err := h.notes.AddItemWithID(r.Context(), userID, target.noteID, itemID, parsedItem.Content)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -848,7 +855,7 @@ func (h *handler) deleteTask(w http.ResponseWriter, r *http.Request, userID uuid
 func itemETag(item notes.NoteItem) string {
 	hash := sha256.New()
 	hash.Write([]byte(item.ID.String()))
-	hash.Write([]byte(item.UpdatedAt.Format(time.RFC3339Nano)))
+	hash.Write([]byte(item.UpdatedAt.UTC().Format(time.RFC3339Nano)))
 	if item.Completed {
 		hash.Write([]byte{1})
 	} else {
@@ -861,7 +868,7 @@ func itemETag(item notes.NoteItem) string {
 func noteToken(note *notes.Note) string {
 	hash := sha256.New()
 	hash.Write([]byte(note.ID.String()))
-	hash.Write([]byte(note.UpdatedAt.Format(time.RFC3339Nano)))
+	hash.Write([]byte(note.UpdatedAt.UTC().Format(time.RFC3339Nano)))
 	for _, item := range note.Items {
 		hash.Write([]byte(itemETag(item)))
 	}
