@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -213,7 +214,9 @@ func (c *ffmpegConverter) Preview(src, dst string) error {
 	if !c.Available() {
 		return fmt.Errorf("photos: no ffmpeg installed")
 	}
-	tmp, err := os.CreateTemp("", "video-*.jpg")
+	// Create the scratch file beside dst, not in $TMPDIR: the caller may
+	// stage it on a different mount (PVC) where rename would cross devices.
+	tmp, err := os.CreateTemp(filepath.Dir(dst), "video-*.jpg")
 	if err != nil {
 		return err
 	}
