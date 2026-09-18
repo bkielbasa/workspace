@@ -141,6 +141,7 @@ type views struct {
 	driveT       *template.Template
 	galleryT     *template.Template
 	inviteT      *template.Template
+	notesT       *template.Template
 	login        *template.Template
 }
 
@@ -198,6 +199,10 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	if err != nil {
 		return nil, err
 	}
+	notesT, err := page("web/templates/notes.html")
+	if err != nil {
+		return nil, err
+	}
 
 	return &views{
 		contacts: contactService, calendar: calendarService, mail: mailService,
@@ -205,6 +210,7 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
 		calendarT: calendarT, mailT: mailT, profileT: profileT, driveT: driveT, galleryT: galleryT, login: login,
 		inviteT:      inviteT,
+		notesT:       notesT,
 		previewSlots: make(chan struct{}, 2),
 		previewing:   map[string]bool{},
 	}, nil

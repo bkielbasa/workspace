@@ -15,6 +15,7 @@ import (
 	"github.com/bklimczak/workspace/internal/files"
 	"github.com/bklimczak/workspace/internal/identity"
 	"github.com/bklimczak/workspace/internal/mail"
+	"github.com/bklimczak/workspace/internal/notes"
 	"github.com/google/uuid"
 )
 
@@ -114,6 +115,20 @@ type invitesService interface {
 	Revoke(ctx context.Context, id uuid.UUID) error
 }
 
+type notesService interface {
+	Broker() *notes.Broker
+	CreateNote(ctx context.Context, userID uuid.UUID, n notes.Note) (*notes.Note, error)
+	GetNote(ctx context.Context, userID uuid.UUID, id uuid.UUID) (*notes.Note, error)
+	ListNotes(ctx context.Context, userID uuid.UUID, archived bool, tag string) ([]notes.Note, error)
+	UpdateNote(ctx context.Context, userID uuid.UUID, isAdmin bool, n notes.Note) (*notes.Note, error)
+	DeleteNote(ctx context.Context, userID uuid.UUID, isAdmin bool, id uuid.UUID) error
+	AddItem(ctx context.Context, userID uuid.UUID, noteID uuid.UUID, content string) (*notes.NoteItem, error)
+	AddItemWithID(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, content string) (*notes.NoteItem, error)
+	UpdateItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, content string, completed bool) (*notes.NoteItem, error)
+	ToggleItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, completed bool) (*notes.NoteItem, error)
+	DeleteItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID) error
+}
+
 // Server owns the web templates, assets, and cookie authentication policy.
 type Server struct {
 	files    fs.FS
@@ -137,6 +152,8 @@ type Server struct {
 	davHost      string
 	// invites wires family onboarding. Optional like the above.
 	invites invitesService
+	// notes backs the Keep-style notes and checklists dashboard.
+	notes notesService
 }
 
 // SetDeviceSetup enables the iPhone profile flow with embedded per-device
@@ -150,6 +167,11 @@ func (s *Server) SetDeviceSetup(apps appPasswordsService, mailHost, davHost stri
 // SetInvites enables family invite management. Call once after New.
 func (s *Server) SetInvites(invites invitesService) {
 	s.invites = invites
+}
+
+// SetNotes enables the notes and checklists dashboard.
+func (s *Server) SetNotes(svc notesService) {
+	s.notes = svc
 }
 
 // SetFiles enables the Drive file browser backed by the file store.
@@ -268,6 +290,18 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /calendars", s.RequireAuth(s.RequireCSRF(s.views.calendarsAdd)))
 	mux.HandleFunc("POST /calendars/{id}", s.RequireAuth(s.RequireCSRF(s.views.calendarsUpdate)))
 	mux.HandleFunc("DELETE /calendars/{id}", s.RequireAuth(s.RequireCSRF(s.views.calendarsDelete)))
+
+	mux.HandleFunc("GET /notes", s.page(s.notesPage))
+	mux.HandleFunc("GET /notes/live", s.RequireAuth(s.notesLiveSSE))
+	mux.HandleFunc("POST /notes", s.RequireAuth(s.RequireCSRF(s.notesCreate)))
+	mux.HandleFunc("GET /notes/{id}", s.RequireAuth(s.notesDetail))
+	mux.HandleFunc("POST /notes/{id}", s.RequireAuth(s.RequireCSRF(s.notesUpdate)))
+	mux.HandleFunc("POST /notes/{id}/delete", s.RequireAuth(s.RequireCSRF(s.notesDelete)))
+	mux.HandleFunc("POST /notes/{id}/share", s.RequireAuth(s.RequireCSRF(s.notesShare)))
+	mux.HandleFunc("POST /notes/{id}/toggle-pin", s.RequireAuth(s.RequireCSRF(s.notesTogglePin)))
+	mux.HandleFunc("POST /notes/{id}/items", s.RequireAuth(s.RequireCSRF(s.notesAddItem)))
+	mux.HandleFunc("POST /notes/{id}/items/{item_id}/toggle", s.RequireAuth(s.RequireCSRF(s.notesToggleItem)))
+	mux.HandleFunc("POST /notes/{id}/items/{item_id}/delete", s.RequireAuth(s.RequireCSRF(s.notesDeleteItem)))
 }
 
 // loginViewData carries the login form context: an optional banner error and
