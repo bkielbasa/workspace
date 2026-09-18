@@ -71,8 +71,8 @@ func TestGetForUserRepairsSeparator(t *testing.T) {
 
 	var userID uuid.UUID
 	err = db.QueryRowContext(ctx, `
-		INSERT INTO users (email, password_hash, display_name)
-		VALUES ('repair-test@example.com', 'x', 'Repair Test')
+		INSERT INTO users (email, username, password_hash, display_name)
+		VALUES ('repair-test@example.com', 'repairtest', 'x', 'Repair Test')
 		RETURNING id
 	`).Scan(&userID)
 	if err != nil {
