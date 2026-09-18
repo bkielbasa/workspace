@@ -12,9 +12,13 @@ import (
 	"net/http"
 	"strings"
 
+	"time"
+
 	"github.com/bklimczak/workspace/internal/calendar"
 	"github.com/bklimczak/workspace/internal/format/ics"
+	"github.com/bklimczak/workspace/internal/format/vtodo"
 	"github.com/bklimczak/workspace/internal/identity"
+	"github.com/bklimczak/workspace/internal/notes"
 	"github.com/bklimczak/workspace/internal/obs"
 	"github.com/google/uuid"
 )
@@ -26,18 +30,32 @@ type calendarService interface {
 	DeleteByResource(ctx context.Context, userID uuid.UUID, resource string) error
 }
 
+type notesService interface {
+	ListNotes(ctx context.Context, userID uuid.UUID, archived bool, tag string) ([]notes.Note, error)
+	GetNote(ctx context.Context, userID uuid.UUID, id uuid.UUID) (*notes.Note, error)
+	AddItem(ctx context.Context, userID uuid.UUID, noteID uuid.UUID, content string) (*notes.NoteItem, error)
+	ToggleItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, completed bool) (*notes.NoteItem, error)
+	DeleteItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID) error
+}
+
 type authenticator interface {
 	Authenticate(ctx context.Context, email, password string) (*identity.User, error)
 }
 
 type handler struct {
 	calendar calendarService
+	notes    notesService
 	users    authenticator
 }
 
 // New returns a CalDAV HTTP handler backed by the supplied application services.
 func New(calendar calendarService, users authenticator) http.Handler {
-	return &handler{calendar: calendar, users: users}
+	return NewWithTasks(calendar, nil, users)
+}
+
+// NewWithTasks returns a CalDAV HTTP handler backed by calendar, notes, and auth services.
+func NewWithTasks(calendar calendarService, notes notesService, users authenticator) http.Handler {
+	return &handler{calendar: calendar, notes: notes, users: users}
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +88,25 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"path", r.URL.Path,
 	)
 
+	target := parseListPath(r.URL.Path)
+	if target.isList {
+		switch r.Method {
+		case "PROPFIND":
+			h.listTasks(w, r, user.ID, target)
+		case "REPORT":
+			h.reportTasks(w, r, user.ID, target)
+		case http.MethodPut:
+			h.putTask(w, r, user.ID, target)
+		case http.MethodGet:
+			h.getTask(w, r, user.ID, target)
+		case http.MethodDelete:
+			h.deleteTask(w, r, user.ID, target)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+		return
+	}
+
 	switch r.Method {
 	case "PROPFIND":
 		h.list(w, r, user.ID)
@@ -91,8 +128,18 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request, userID uuid.UUID)
 	w.WriteHeader(http.StatusMultiStatus)
 
 	if r.URL.Path == "/cal/" || r.URL.Path == "/cal" {
+		var listHrefs strings.Builder
+		if h.notes != nil {
+			if allNotes, err := h.notes.ListNotes(r.Context(), userID, false, ""); err == nil {
+				for _, n := range allNotes {
+					if n.Kind == notes.KindList {
+						listHrefs.WriteString(fmt.Sprintf("\n          <d:href>/cal/lists/%s/</d:href>", n.ID))
+					}
+				}
+			}
+		}
 		fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
-<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:C="urn:ietf:params:xml:ns:caldav">
   <d:response>
     <d:href>/cal/</d:href>
     <d:propstat>
@@ -101,7 +148,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request, userID uuid.UUID)
           <d:href>/cal/%s/</d:href>
         </d:current-user-principal>
         <cal:calendar-home-set>
-          <d:href>/cal/%s/default/</d:href>
+          <d:href>/cal/%s/default/</d:href>%s
         </cal:calendar-home-set>
         <d:resourcetype>
           <d:collection/>
@@ -112,13 +159,23 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request, userID uuid.UUID)
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
   </d:response>
-</d:multistatus>`, userID, userID, userID)
+</d:multistatus>`, userID, userID, listHrefs.String(), userID)
 		return
 	}
 
 	if segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/"); len(segments) == 2 {
+		var listHrefs strings.Builder
+		if h.notes != nil {
+			if allNotes, err := h.notes.ListNotes(r.Context(), userID, false, ""); err == nil {
+				for _, n := range allNotes {
+					if n.Kind == notes.KindList {
+						listHrefs.WriteString(fmt.Sprintf("\n          <d:href>/cal/lists/%s/</d:href>", n.ID))
+					}
+				}
+			}
+		}
 		fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
-<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:C="urn:ietf:params:xml:ns:caldav">
   <d:response>
     <d:href>/cal/%s/</d:href>
     <d:propstat>
@@ -127,7 +184,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request, userID uuid.UUID)
           <d:href>/cal/%s/</d:href>
         </d:current-user-principal>
         <cal:calendar-home-set>
-          <d:href>/cal/%s/default/</d:href>
+          <d:href>/cal/%s/default/</d:href>%s
         </cal:calendar-home-set>
         <d:resourcetype>
           <d:collection/>
@@ -138,7 +195,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request, userID uuid.UUID)
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
   </d:response>
-</d:multistatus>`, userID, userID, userID)
+</d:multistatus>`, userID, userID, userID, listHrefs.String())
 		return
 	}
 
@@ -388,6 +445,425 @@ func listToken(etags []string) string {
 	for _, etag := range etags {
 		hash.Write([]byte(etag))
 		hash.Write([]byte{0})
+	}
+	return hex.EncodeToString(hash.Sum(nil))[:20]
+}
+
+type listTarget struct {
+	isList      bool
+	isListsRoot bool
+	noteID      uuid.UUID
+	resource    string
+	isItem      bool
+}
+
+func parseListPath(path string) listTarget {
+	trimmed := strings.Trim(path, "/")
+	parts := strings.Split(trimmed, "/")
+	listsIdx := -1
+	for i, part := range parts {
+		if part == "lists" {
+			listsIdx = i
+			break
+		}
+	}
+	if listsIdx == -1 {
+		return listTarget{}
+	}
+	target := listTarget{isList: true}
+	rem := parts[listsIdx+1:]
+	if len(rem) == 0 {
+		target.isListsRoot = true
+		return target
+	}
+	noteID, err := uuid.Parse(rem[0])
+	if err != nil {
+		return target
+	}
+	target.noteID = noteID
+	if len(rem) == 1 {
+		return target
+	}
+	target.isItem = true
+	target.resource = strings.TrimSuffix(rem[1], ".ics")
+	return target
+}
+
+func (h *handler) listTasks(w http.ResponseWriter, r *http.Request, userID uuid.UUID, target listTarget) {
+	if h.notes == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if target.isListsRoot {
+		allNotes, err := h.notes.ListNotes(r.Context(), userID, false, "")
+		if err != nil {
+			allNotes = nil
+		}
+		var listNotes []notes.Note
+		for _, n := range allNotes {
+			if n.Kind == notes.KindList {
+				listNotes = append(listNotes, n)
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		w.WriteHeader(http.StatusMultiStatus)
+		fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/">
+  <d:response>
+    <d:href>/cal/lists/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype>
+          <d:collection/>
+        </d:resourcetype>
+        <d:displayname>Lists</d:displayname>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`)
+
+		if r.Header.Get("Depth") == "1" {
+			for _, n := range listNotes {
+				token := noteToken(&n)
+				displayName := n.Title
+				if displayName == "" {
+					displayName = "List"
+				}
+				fmt.Fprintf(w, `
+  <d:response>
+    <d:href>/cal/lists/%s/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype>
+          <d:collection/>
+          <cal:calendar/>
+        </d:resourcetype>
+        <C:supported-calendar-component-set>
+          <C:comp name="VTODO"/>
+        </C:supported-calendar-component-set>
+        <d:displayname>%s</d:displayname>
+        <cs:getctag>%s</cs:getctag>
+        <d:sync-token>%s</d:sync-token>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`, n.ID, escapeXML(displayName), token, token)
+			}
+		}
+		fmt.Fprint(w, `
+</d:multistatus>`)
+		return
+	}
+
+	if target.noteID == uuid.Nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	note, err := h.notes.GetNote(r.Context(), userID, target.noteID)
+	if err != nil || note.Kind != notes.KindList {
+		http.NotFound(w, r)
+		return
+	}
+
+	if target.isItem {
+		var found *notes.NoteItem
+		for i := range note.Items {
+			if note.Items[i].ID.String() == target.resource {
+				found = &note.Items[i]
+				break
+			}
+		}
+		if found == nil {
+			http.NotFound(w, r)
+			return
+		}
+		etag := itemETag(*found)
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		w.WriteHeader(http.StatusMultiStatus)
+		fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/cal/lists/%s/%s.ics</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>%s</d:getetag>
+        <d:getcontenttype>text/calendar; charset=utf-8</d:getcontenttype>
+        <d:resourcetype/>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`, target.noteID, found.ID, quoteETag(etag))
+		return
+	}
+
+	// Collection PROPFIND: /cal/lists/{note_id}/
+	token := noteToken(note)
+	displayName := note.Title
+	if displayName == "" {
+		displayName = "List"
+	}
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.WriteHeader(http.StatusMultiStatus)
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/">
+  <d:response>
+    <d:href>/cal/lists/%s/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype>
+          <d:collection/>
+          <cal:calendar/>
+        </d:resourcetype>
+        <C:supported-calendar-component-set>
+          <C:comp name="VTODO"/>
+        </C:supported-calendar-component-set>
+        <d:displayname>%s</d:displayname>
+        <cs:getctag>%s</cs:getctag>
+        <d:sync-token>%s</d:sync-token>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`, note.ID, escapeXML(displayName), token, token)
+
+	if r.Header.Get("Depth") == "1" {
+		for _, item := range note.Items {
+			fmt.Fprintf(w, `
+  <d:response>
+    <d:href>/cal/lists/%s/%s.ics</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>%s</d:getetag>
+        <d:getcontenttype>text/calendar; charset=utf-8</d:getcontenttype>
+        <d:resourcetype/>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`, note.ID, item.ID, quoteETag(itemETag(item)))
+		}
+	}
+	fmt.Fprint(w, `
+</d:multistatus>`)
+}
+
+func (h *handler) reportTasks(w http.ResponseWriter, r *http.Request, userID uuid.UUID, target listTarget) {
+	if h.notes == nil || target.noteID == uuid.Nil {
+		http.NotFound(w, r)
+		return
+	}
+	note, err := h.notes.GetNote(r.Context(), userID, target.noteID)
+	if err != nil || note.Kind != notes.KindList {
+		http.NotFound(w, r)
+		return
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	var req reportRequest
+	if err := xml.Unmarshal(body, &req); err != nil {
+		http.Error(w, "bad report", http.StatusBadRequest)
+		return
+	}
+
+	byResource := make(map[string]notes.NoteItem, len(note.Items))
+	for _, item := range note.Items {
+		byResource[item.ID.String()] = item
+	}
+
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	switch req.XMLName.Local {
+	case "calendar-multiget":
+		w.WriteHeader(http.StatusMultiStatus)
+		fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:C="urn:ietf:params:xml:ns:caldav">`)
+		for _, href := range req.Hrefs {
+			resource := eventResourceFromPath(href)
+			item, ok := byResource[resource]
+			if !ok {
+				fmt.Fprintf(w, `
+  <d:response>
+    <d:href>%s</d:href>
+    <d:status>HTTP/1.1 404 Not Found</d:status>
+  </d:response>`, escapeXML(href))
+				continue
+			}
+			etag := itemETag(item)
+			icsData := vtodo.Format(item)
+			fmt.Fprintf(w, `
+  <d:response>
+    <d:href>%s</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>%s</d:getetag>
+        <cal:calendar-data>%s</cal:calendar-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`, escapeXML(href), quoteETag(etag), escapeXML(icsData))
+		}
+		fmt.Fprint(w, `
+</d:multistatus>`)
+	case "calendar-query", "sync-collection":
+		token := noteToken(note)
+		w.WriteHeader(http.StatusMultiStatus)
+		fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:C="urn:ietf:params:xml:ns:caldav">`)
+		for _, item := range note.Items {
+			etag := itemETag(item)
+			icsData := vtodo.Format(item)
+			fmt.Fprintf(w, `
+  <d:response>
+    <d:href>/cal/lists/%s/%s.ics</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>%s</d:getetag>
+        <cal:calendar-data>%s</cal:calendar-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`, target.noteID, item.ID, quoteETag(etag), escapeXML(icsData))
+		}
+		fmt.Fprintf(w, `
+  <d:sync-token>%s</d:sync-token>
+</d:multistatus>`, token)
+	default:
+		http.Error(w, "unsupported report", http.StatusUnsupportedMediaType)
+	}
+}
+
+func (h *handler) getTask(w http.ResponseWriter, r *http.Request, userID uuid.UUID, target listTarget) {
+	if h.notes == nil || target.noteID == uuid.Nil || !target.isItem {
+		http.NotFound(w, r)
+		return
+	}
+	note, err := h.notes.GetNote(r.Context(), userID, target.noteID)
+	if err != nil || note.Kind != notes.KindList {
+		http.NotFound(w, r)
+		return
+	}
+	var found *notes.NoteItem
+	for i := range note.Items {
+		if note.Items[i].ID.String() == target.resource {
+			found = &note.Items[i]
+			break
+		}
+	}
+	if found == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
+	w.Header().Set("ETag", quoteETag(itemETag(*found)))
+	fmt.Fprint(w, vtodo.Format(*found))
+}
+
+func (h *handler) putTask(w http.ResponseWriter, r *http.Request, userID uuid.UUID, target listTarget) {
+	if h.notes == nil || target.noteID == uuid.Nil || !target.isItem {
+		http.Error(w, "bad list item path", http.StatusBadRequest)
+		return
+	}
+	note, err := h.notes.GetNote(r.Context(), userID, target.noteID)
+	if err != nil || note.Kind != notes.KindList {
+		http.NotFound(w, r)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !strings.Contains(string(body), "BEGIN:VTODO") {
+		http.Error(w, "missing VTODO component", http.StatusBadRequest)
+		return
+	}
+	parsedItem, err := vtodo.Parse(string(body))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if itemID, err := uuid.Parse(target.resource); err == nil && parsedItem.ID == uuid.Nil {
+		parsedItem.ID = itemID
+	}
+
+	var existing *notes.NoteItem
+	for i := range note.Items {
+		if note.Items[i].ID == parsedItem.ID || note.Items[i].ID.String() == target.resource {
+			existing = &note.Items[i]
+			break
+		}
+	}
+
+	if existing != nil {
+		resultItem := existing
+		if parsedItem.Completed != existing.Completed {
+			updated, err := h.notes.ToggleItem(r.Context(), userID, target.noteID, existing.ID, parsedItem.Completed)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			resultItem = updated
+		}
+		w.Header().Set("ETag", quoteETag(itemETag(*resultItem)))
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	created, err := h.notes.AddItem(r.Context(), userID, target.noteID, parsedItem.Content)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	resultItem := created
+	if parsedItem.Completed {
+		updated, err := h.notes.ToggleItem(r.Context(), userID, target.noteID, created.ID, true)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		resultItem = updated
+	}
+	w.Header().Set("ETag", quoteETag(itemETag(*resultItem)))
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (h *handler) deleteTask(w http.ResponseWriter, r *http.Request, userID uuid.UUID, target listTarget) {
+	if h.notes == nil || target.noteID == uuid.Nil || !target.isItem {
+		http.NotFound(w, r)
+		return
+	}
+	itemID, err := uuid.Parse(target.resource)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := h.notes.DeleteItem(r.Context(), userID, target.noteID, itemID); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func itemETag(item notes.NoteItem) string {
+	hash := sha256.New()
+	hash.Write([]byte(item.ID.String()))
+	hash.Write([]byte(item.UpdatedAt.Format(time.RFC3339Nano)))
+	if item.Completed {
+		hash.Write([]byte{1})
+	} else {
+		hash.Write([]byte{0})
+	}
+	hash.Write([]byte(item.Content))
+	return hex.EncodeToString(hash.Sum(nil))[:20]
+}
+
+func noteToken(note *notes.Note) string {
+	hash := sha256.New()
+	hash.Write([]byte(note.ID.String()))
+	hash.Write([]byte(note.UpdatedAt.Format(time.RFC3339Nano)))
+	for _, item := range note.Items {
+		hash.Write([]byte(itemETag(item)))
 	}
 	return hex.EncodeToString(hash.Sum(nil))[:20]
 }
