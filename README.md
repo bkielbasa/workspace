@@ -1,12 +1,19 @@
 # Workspace
 
-**Workspace** is a self-hosted personal communication and productivity suite written in Go. It combines a dark-themed, server-rendered web application with standard mail and synchronization protocols: a Gmail-inspired webmail client, an interactive calendar with drag-and-drop rescheduling, a contacts address book, account profile management, and native SMTP, IMAP, CalDAV, and CardDAV servers.
+**Workspace** is a self-hosted personal communication and productivity suite written in Go. It combines a dark-themed, server-rendered web application with standard mail and synchronization protocols: a Gmail-inspired webmail client, an interactive calendar with drag-and-drop rescheduling, a contacts address book, Keep-style notes & checklists, account profile management, and native SMTP, IMAP, CalDAV, and CardDAV servers.
 
 ---
 
 ## Key Features
 
 ### 1. Web Application (Server-Rendered + HTMX)
+- **Notes & Lists (Google Keep alternative)**:
+  - Card-grid dashboard with pinned and regular sections, color labeling (yellow, green, blue, purple, red, default), and tag filtering.
+  - Checklists with completed item separation, instant strike-through, inline item additions, and deletions.
+  - Plain text notes with auto-saving, archive management, and full-screen modal editing.
+  - Family sharing to collaborate on shared household notes and shopping lists.
+  - Real-time live synchronization across devices and tabs via Server-Sent Events (`/notes/live`).
+  - Native CalDAV task synchronization: lists expose as CalDAV VTODO collections for Apple Reminders, DAVx5, and Thunderbird.
 - **Mail (Gmail-inspired)**:
   - Mailbox folders (`Inbox`, `Sent`, `Drafts`, `Trash`, `Spam`) with unread count badges.
   - Search, star/unstar (`★`), mark read/unread, and deletion/trashing.
@@ -34,7 +41,7 @@
 - **Delivery Worker**: Background worker handling queued outbound email delivery.
 
 ### 3. Sync & Client Autodiscovery
-- **CalDAV** (`/cal/`, `/.well-known/caldav`): Calendar syncing for Apple Calendar, Thunderbird, etc.
+- **CalDAV** (`/cal/`, `/.well-known/caldav`): Calendar syncing (events) and task list syncing (VTODO collections) for Apple Reminders, Apple Calendar, Thunderbird, DAVx5, etc.
 - **CardDAV** (`/dav/`, `/.well-known/carddav`): Address book syncing.
 - **Client Autodiscovery**:
   - Mozilla Thunderbird Autoconfig (`/mail/config-v1.1.xml`)
@@ -91,6 +98,17 @@ Configured via environment variables:
 - `POST /mail/message/{id}/delete` – Delete message
 - `GET /calendars`, `POST /calendars`, `POST /calendars/{id}`, `DELETE /calendars/{id}` – Calendar
 - `GET /contacts`, `POST /contacts`, `GET /contacts/{id}`, `POST /contacts/{id}`, `DELETE /contacts/{id}` – Contacts
+- `GET /notes` – Notes & lists dashboard
+- `GET /notes/live` – Real-time SSE updates stream
+- `POST /notes` – Create note or checklist
+- `GET /notes/{id}` – Get note details (JSON)
+- `POST /notes/{id}` – Update note title, content, color, kind, or archive status
+- `POST /notes/{id}/delete` – Delete note
+- `POST /notes/{id}/share` – Toggle family sharing
+- `POST /notes/{id}/toggle-pin` – Pin / unpin note
+- `POST /notes/{id}/items` – Add checklist item
+- `POST /notes/{id}/items/{item_id}/toggle` – Toggle checklist item completion
+- `POST /notes/{id}/items/{item_id}/delete` – Delete checklist item
 - `GET /profile`, `POST /profile`, `POST /profile/password` – Profile & password settings
 
 ### Protocols & Discovery

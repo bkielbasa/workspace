@@ -20,6 +20,7 @@ import (
 	"github.com/bklimczak/workspace/internal/identity"
 	"github.com/bklimczak/workspace/internal/imap"
 	"github.com/bklimczak/workspace/internal/mail"
+	"github.com/bklimczak/workspace/internal/notes"
 	"github.com/bklimczak/workspace/internal/obs"
 	"github.com/bklimczak/workspace/internal/postgres"
 	"github.com/bklimczak/workspace/internal/smb"
@@ -78,6 +79,8 @@ func main() {
 	outbox := mail.NewOutbox(postgres.NewOutboxRepository(db))
 	contactSvc := contacts.NewService(postgres.NewContactRepository(db), vcard.Encode)
 	calendarSvc := calendar.NewService(postgres.NewCalendarRepository(db))
+	notesRepo := postgres.NewNotesRepository(db)
+	notesSvc := notes.NewService(notesRepo, notes.NewBroker())
 	fileStore, err := files.NewStore(cfg.filesDataDir, cfg.filesQuota, cfg.filesMaxFile)
 	if err != nil {
 		obs.Fatal(ctx, "files store unavailable", "error", err)
@@ -162,6 +165,7 @@ func main() {
 	webUI.SetPhotoTags(postgres.NewPhotoTagRepository(db))
 	webUI.SetPhotoAlbums(postgres.NewPhotoAlbumRepository(db))
 	webUI.SetInvites(identity.NewInvites(postgres.NewInviteRepository(db), users))
+	webUI.SetNotes(notesSvc)
 	configureSSO(webUI, users, db)
 	(&discovery{mailHost: mailHostname, davHost: davHost, domains: domains}).register(mux)
 
@@ -187,7 +191,7 @@ func main() {
 	mux.HandleFunc("GET /threads", webUI.RequireAuth(api.Threads.ListHandler))
 
 	mux.Handle("/dav/", carddav.New(contactSvc, deviceAuth))
-	mux.Handle("/cal/", caldav.New(calendarSvc, deviceAuth))
+	mux.Handle("/cal/", caldav.NewWithTasks(calendarSvc, notesSvc, deviceAuth))
 	// Both the subtree and the exact root: some clients never follow
 	// the mux's trailing-slash redirect on PROPFIND.
 	filesHandler := files.New(fileStore, deviceAuth)
