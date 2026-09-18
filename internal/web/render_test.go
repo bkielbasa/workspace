@@ -237,3 +237,85 @@ func TestWeekPageRendersEditMode(t *testing.T) {
 		}
 	}
 }
+
+func TestNotesTemplateSyntax(t *testing.T) {
+	files := os.DirFS("../..")
+	tpl, err := template.New("").Funcs(templateFuncs).ParseFS(files,
+		"web/templates/layout.html", "web/templates/nav.html", "web/templates/notes.html")
+	if err != nil {
+		t.Fatalf("Failed to parse templates: %v", err)
+	}
+
+	type DummyItem struct {
+		ID        string
+		NoteID    string
+		Content   string
+		Completed bool
+	}
+
+	type DummyNote struct {
+		ID             string
+		Title          string
+		Body           string
+		Kind           string
+		Color          string
+		IsPinned       bool
+		IsFamilyShared bool
+		Items          []DummyItem
+	}
+
+	data := viewData{
+		Title:     "Notes",
+		Section:   "notes",
+		CSRFToken: "dummy-csrf",
+		Notes: []DummyNote{
+			{
+				ID:             "note-1",
+				Title:          "Family Errands",
+				Kind:           "list",
+				Color:          "mint",
+				IsPinned:       true,
+				IsFamilyShared: true,
+				Items: []DummyItem{
+					{ID: "item-1", NoteID: "note-1", Content: "Buy organic milk", Completed: false},
+					{ID: "item-2", NoteID: "note-1", Content: "Clean garage", Completed: true},
+				},
+			},
+			{
+				ID:             "note-2",
+				Title:          "Project Idea",
+				Body:           "Self-hosted privacy-focused Google Keep alternative.",
+				Kind:           "note",
+				Color:          "storm",
+				IsPinned:       false,
+				IsFamilyShared: false,
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := tpl.ExecuteTemplate(&buf, "layout", data); err != nil {
+		t.Fatalf("Failed to execute template: %v", err)
+	}
+
+	html := buf.String()
+	// Quick assertions to confirm elements are rendering
+	expectedStrings := []string{
+		"Family Errands",
+		"Buy organic milk",
+		"Clean garage",
+		"Project Idea",
+		"Self-hosted privacy-focused Google Keep alternative.",
+		"dummy-csrf",
+		"note-pinned",
+		"note-color-mint",
+		"note-color-storm",
+	}
+
+	for _, s := range expectedStrings {
+		if !strings.Contains(html, s) {
+			t.Errorf("Expected rendered template to contain %q, but it didn't", s)
+		}
+	}
+}
+

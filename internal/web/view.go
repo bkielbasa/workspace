@@ -107,6 +107,8 @@ type viewData struct {
 	ActiveTag       string
 	// AlbumsReady reports whether the album store is wired.
 	AlbumsReady bool
+	// Notes dashboard state.
+	Notes any
 }
 
 type views struct {

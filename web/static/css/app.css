@@ -3157,3 +3157,287 @@ input[readonly] {
   background: var(--accent-soft);
   font-weight: 600;
 }
+
+/* ---- Notes & Lists --------------------------------------------------- */
+
+.notes-page {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.notes-topbar {
+  max-width: 36rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.notes-quickadd {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.notes-quickadd-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.notes-input-title {
+  flex: 1;
+  background: transparent !important;
+  border: none !important;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
+  padding: 0.25rem 0 !important;
+}
+
+.notes-input-title:focus-visible {
+  outline: none !important;
+}
+
+.notes-input-body {
+  background: transparent !important;
+  border: none !important;
+  font-size: 0.95rem;
+  color: var(--text);
+  padding: 0.25rem 0 !important;
+  resize: none;
+}
+
+.notes-input-body:focus-visible {
+  outline: none !important;
+}
+
+.notes-quickadd-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.notes-quickadd-actions label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+}
+
+.notes-quickadd-actions input[type="radio"],
+.notes-quickadd-actions input[type="checkbox"] {
+  margin: 0;
+  width: auto;
+  height: auto;
+  cursor: pointer;
+}
+
+.notes-color-select {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* Notes Grid & Cards */
+.notes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.note-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  box-shadow: var(--shadow);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+  word-wrap: break-word;
+}
+
+.note-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+.note-card-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.note-card-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.note-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.note-badge-family {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.note-card-body {
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+/* Checklist Styling */
+.note-checklist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.note-checkitem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.note-checkitem .inline-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.note-checkitem input[type="checkbox"] {
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.note-item-text {
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.note-checkitem.completed .note-item-text {
+  text-decoration: line-through;
+  color: var(--text-muted);
+  opacity: 0.65;
+}
+
+.note-additem-form {
+  margin-top: 0.25rem;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.5rem;
+}
+
+.note-input-additem {
+  width: 100%;
+  background: transparent !important;
+  border: none !important;
+  font-size: 0.85rem;
+  padding: 0.25rem 0 !important;
+  color: var(--text-muted);
+}
+
+.note-input-additem:focus-visible {
+  outline: none !important;
+  color: var(--text);
+}
+
+/* Footer / Actions */
+.note-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
+  opacity: 0.35;
+  transition: opacity 0.15s ease;
+}
+
+.note-card:hover .note-card-foot {
+  opacity: 1;
+}
+
+@media (max-width: 640px) {
+  .note-card-foot {
+    opacity: 1;
+  }
+}
+
+/* Pinned border/indicator */
+.note-pinned {
+  border-width: 1.5px;
+  border-color: var(--accent);
+}
+
+/* Pastel Theme Backgrounds (Dark Mode Soft Tints) */
+.note-color-coral {
+  background-color: #3d1414;
+  border-color: #5e1f1f;
+}
+.note-color-peach {
+  background-color: #3b2803;
+  border-color: #5c3e04;
+}
+.note-color-sand {
+  background-color: #363202;
+  border-color: #544d03;
+}
+.note-color-mint {
+  background-color: #122c0b;
+  border-color: #1d4712;
+}
+.note-color-sage {
+  background-color: #0b2b24;
+  border-color: #13473b;
+}
+.note-color-fog {
+  background-color: #062633;
+  border-color: #0d4254;
+}
+.note-color-storm {
+  background-color: #0b1f42;
+  border-color: #14356b;
+}
+.note-color-blossom {
+  background-color: #380d2b;
+  border-color: #59163e;
+}
+.note-color-clay {
+  background-color: #2b1f14;
+  border-color: #42311f;
+}
