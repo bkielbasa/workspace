@@ -76,9 +76,10 @@ func (r *notesRepository) GetNote(ctx context.Context, id uuid.UUID) (*notes.Not
 	res.Items = items
 
 	tags, err := r.getNoteTags(ctx, res.ID)
-	if err == nil {
-		res.Tags = tags
+	if err != nil {
+		return nil, fmt.Errorf("get note tags: %w", err)
 	}
+	res.Tags = tags
 
 	return &res, nil
 }
@@ -116,13 +117,16 @@ func (r *notesRepository) ListNotes(ctx context.Context, userID uuid.UUID, archi
 
 	for i := range result {
 		items, err := r.ListItems(ctx, result[i].ID)
-		if err == nil {
-			result[i].Items = items
+		if err != nil {
+			return nil, fmt.Errorf("list notes items: %w", err)
 		}
+		result[i].Items = items
+
 		tags, err := r.getNoteTags(ctx, result[i].ID)
-		if err == nil {
-			result[i].Tags = tags
+		if err != nil {
+			return nil, fmt.Errorf("list notes tags: %w", err)
 		}
+		result[i].Tags = tags
 	}
 	return result, nil
 }
@@ -265,12 +269,17 @@ func (r *notesRepository) UpdateItem(ctx context.Context, item notes.NoteItem) (
 
 func (r *notesRepository) DeleteItem(ctx context.Context, id uuid.UUID) error {
 	var noteID uuid.UUID
-	_ = r.db.QueryRowContext(ctx, "SELECT note_id FROM note_items WHERE id = $1", id).Scan(&noteID)
-	_, err := r.db.ExecContext(ctx, "DELETE FROM note_items WHERE id = $1", id)
-	if err == nil && noteID != uuid.Nil {
+	err := r.db.QueryRowContext(ctx, "DELETE FROM note_items WHERE id = $1 RETURNING note_id", id).Scan(&noteID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil // item wasn't present, no-op
+		}
+		return err
+	}
+	if noteID != uuid.Nil {
 		_, _ = r.db.ExecContext(ctx, "UPDATE notes SET updated_at = $1 WHERE id = $2", time.Now(), noteID)
 	}
-	return err
+	return nil
 }
 
 func (r *notesRepository) ListTags(ctx context.Context, userID uuid.UUID) ([]notes.NoteTag, error) {
