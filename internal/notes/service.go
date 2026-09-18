@@ -63,13 +63,15 @@ func (s *Service) UpdateNote(ctx context.Context, userID uuid.UUID, isAdmin bool
 		return nil, ErrNotFound
 	}
 
-	if existing.UserID != userID && !existing.IsFamilyShared {
+	if existing.UserID != userID && !existing.IsFamilyShared && !isAdmin {
 		return nil, ErrNotFound
 	}
 
 	if existing.IsFamilyShared != n.IsFamilyShared && existing.UserID != userID && !isAdmin {
 		return nil, ErrForbidden
 	}
+
+	n.UserID = existing.UserID // Prevent ownership hijacking
 
 	updated, err := s.repo.UpdateNote(ctx, n)
 	if err != nil {
@@ -86,6 +88,9 @@ func (s *Service) UpdateNote(ctx context.Context, userID uuid.UUID, isAdmin bool
 func (s *Service) DeleteNote(ctx context.Context, userID uuid.UUID, isAdmin bool, id uuid.UUID) error {
 	existing, err := s.repo.GetNote(ctx, id)
 	if err != nil {
+		return ErrNotFound
+	}
+	if existing.UserID != userID && !existing.IsFamilyShared && !isAdmin {
 		return ErrNotFound
 	}
 	if existing.UserID != userID && !isAdmin {
@@ -131,24 +136,40 @@ func (s *Service) ToggleItem(ctx context.Context, userID uuid.UUID, noteID, item
 		return nil, err
 	}
 
-	item, err := s.repo.ToggleItem(ctx, itemID, completed)
+	item, err := s.repo.GetItem(ctx, itemID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if item.NoteID != noteID {
+		return nil, ErrNotFound
+	}
+
+	updated, err := s.repo.ToggleItem(ctx, itemID, completed)
 	if err != nil {
 		return nil, err
 	}
 	s.broker.Publish(Event{
 		Type:      "item_toggled",
 		NoteID:    noteID,
-		ItemID:    item.ID,
-		Completed: item.Completed,
+		ItemID:    updated.ID,
+		Completed: updated.Completed,
 		UserID:    userID,
 	})
-	return item, nil
+	return updated, nil
 }
 
 func (s *Service) DeleteItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID) error {
 	_, err := s.GetNote(ctx, userID, noteID)
 	if err != nil {
 		return err
+	}
+
+	item, err := s.repo.GetItem(ctx, itemID)
+	if err != nil {
+		return ErrNotFound
+	}
+	if item.NoteID != noteID {
+		return ErrNotFound
 	}
 
 	if err := s.repo.DeleteItem(ctx, itemID); err != nil {

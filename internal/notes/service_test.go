@@ -145,3 +145,82 @@ func TestServiceAuthorization(t *testing.T) {
 		t.Fatalf("expected ErrForbidden for non-owner deleting note, got: %v", err)
 	}
 }
+
+func TestServiceSecurityConstraints(t *testing.T) {
+	repo := newMockRepo()
+	broker := NewBroker()
+	svc := NewService(repo, broker)
+
+	userAlice := uuid.New()
+	userBob := uuid.New()
+
+	ctx := context.Background()
+
+	// 1. Alice creates a private note
+	noteAlice, err := svc.CreateNote(ctx, userAlice, Note{
+		Title:          "Alice's Secret",
+		IsFamilyShared: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 2. Alice creates a shared note
+	noteShared, err := svc.CreateNote(ctx, userAlice, Note{
+		Title:          "Shared List",
+		IsFamilyShared: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 3. Bob attempts to delete Alice's private note -> should return ErrNotFound (information leak prevention)
+	err = svc.DeleteNote(ctx, userBob, false, noteAlice.ID)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for unauthorized delete of private note, got: %v", err)
+	}
+
+	// 4. Bob attempts to delete Alice's shared note -> should return ErrForbidden (since it exists and is shared, but Bob is not the owner)
+	err = svc.DeleteNote(ctx, userBob, false, noteShared.ID)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden for unauthorized delete of shared note, got: %v", err)
+	}
+
+	// 5. Test ownership preservation on update
+	// Alice's shared note updated by Bob (who tries to hijack it by setting user_id to Bob)
+	hijackedNote := *noteShared
+	hijackedNote.UserID = userBob
+	hijackedNote.Title = "Hijacked Title"
+	updated, err := svc.UpdateNote(ctx, userBob, false, hijackedNote)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.UserID != userAlice {
+		t.Fatalf("expected note owner to remain Alice, but changed to: %s", updated.UserID)
+	}
+
+	// 6. Test item verification belonging to note
+	// Let's add an item to Alice's shared note
+	item, err := svc.AddItem(ctx, userAlice, noteShared.ID, "Buy Milk")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Bob tries to toggle this item on a completely different note (or a fake note)
+	fakeNote, err := svc.CreateNote(ctx, userBob, Note{Title: "Bob's Note"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// ToggleItem with incorrect note ID -> should return ErrNotFound
+	_, err = svc.ToggleItem(ctx, userBob, fakeNote.ID, item.ID, true)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound when toggling item belonging to another note, got: %v", err)
+	}
+
+	// DeleteItem with incorrect note ID -> should return ErrNotFound
+	err = svc.DeleteItem(ctx, userBob, fakeNote.ID, item.ID)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound when deleting item belonging to another note, got: %v", err)
+	}
+}
