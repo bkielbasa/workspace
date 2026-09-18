@@ -254,16 +254,17 @@ func configureSSO(webUI *web.Server, users *identity.Users, db *sql.DB) {
 		}
 	}
 	provider := web.OIDCProvider{
-		Name:           getEnv("OIDC_PROVIDER_NAME", "Single Sign-On"),
-		Issuer:         issuer,
-		ClientID:       getEnv("OIDC_CLIENT_ID", ""),
-		ClientSecret:   getEnv("OIDC_CLIENT_SECRET", ""),
-		RedirectURL:    redirectURL,
-		Scopes:         strings.Fields(getEnv("OIDC_SCOPES", "openid profile email")),
-		EmailClaim:     getEnv("OIDC_EMAIL_CLAIM", "email"),
-		NameClaim:      getEnv("OIDC_NAME_CLAIM", "name"),
-		AllowedDomains: allowedDomains,
-		AutoCreate:     envBool("OIDC_AUTO_CREATE", true),
+		Name:                 getEnv("OIDC_PROVIDER_NAME", "Single Sign-On"),
+		Issuer:               issuer,
+		ClientID:             getEnv("OIDC_CLIENT_ID", ""),
+		ClientSecret:         getEnv("OIDC_CLIENT_SECRET", ""),
+		RedirectURL:          redirectURL,
+		Scopes:               strings.Fields(getEnv("OIDC_SCOPES", "openid profile email")),
+		EmailClaim:           getEnv("OIDC_EMAIL_CLAIM", "email"),
+		NameClaim:            getEnv("OIDC_NAME_CLAIM", "name"),
+		AllowedDomains:       allowedDomains,
+		RequireEmailVerified: envBool("OIDC_REQUIRE_EMAIL_VERIFIED", true),
+		AutoCreate:           envBool("OIDC_AUTO_CREATE", true),
 	}
 	sso := identity.NewSSO(postgres.NewSSORepository(db), users)
 	if err := webUI.SetOIDC(provider, sso); err != nil {

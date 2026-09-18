@@ -130,6 +130,8 @@ spec:
             - name: OIDC_ALLOWED_DOMAINS
               value: {{ . | quote }}
             {{- end }}
+            - name: OIDC_REQUIRE_EMAIL_VERIFIED
+              value: {{ .Values.sso.requireEmailVerified | quote }}
             - name: OIDC_AUTO_CREATE
               value: {{ .Values.sso.autoCreate | quote }}
             {{- end }}

@@ -43,6 +43,12 @@ type OIDCProvider struct {
 	// AllowedDomains, when non-empty, restricts who can sign in: only
 	// accounts whose email is in this list are admitted.
 	AllowedDomains []string
+	// RequireEmailVerified rejects a sign-in unless the provider asserts
+	// email_verified. Secure default: true (configureSSO reads
+	// OIDC_REQUIRE_EMAIL_VERIFIED). Some IdPs (Authentik without a custom
+	// scope mapping) always report email_verified=false even for trusted
+	// users; operators vouch for those directories by setting this false.
+	RequireEmailVerified bool
 	// AutoCreate governs just-in-time provisioning: unknown-but-verified
 	// SSO users get an account when true.
 	AutoCreate bool
@@ -238,7 +244,7 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if known && !verified {
+	if oc.idp.RequireEmailVerified && known && !verified {
 		s.ssoFail(w, r, "SSO sign-in requires a verified email address.")
 		return
 	}

@@ -45,6 +45,10 @@ sso:
   nameClaim: ""
   # allowedDomains: comma-separated list that restricts sign-in, or empty.
   allowedDomains: ""
+  # requireEmailVerified rejects sign-in unless the IdP asserts
+  # email_verified (secure default). Set false to trust the IdP's own
+  # directory, e.g. Authentik without a custom scope mapping.
+  requireEmailVerified: true
   # autoCreate provisions unknown verified SSO accounts on first sign-in.
   autoCreate: true
 

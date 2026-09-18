@@ -405,11 +405,33 @@ func TestSSORejectsUnverifiedEmail(t *testing.T) {
 	f := newFakeIdP(t)
 	f.verified = false
 	user := &identity.User{ID: uuid.New(), Email: "alice@example.com", Enabled: true}
-	srv := newSSOServer(t, f, &testSSOService{user: user}, web.OIDCProvider{})
+	srv := newSSOServer(t, f, &testSSOService{user: user},
+		web.OIDCProvider{RequireEmailVerified: true})
 
 	resp := walkLoginFlow(t, srv, f.srv)
 	if !strings.Contains(resp.Header.Get("Location"), "/login?error=SSO+sign-in+requires") {
 		t.Fatalf("redirect = %q, want unverified-email error", resp.Header.Get("Location"))
+	}
+}
+
+func TestSSOAcceptsUnverifiedWhenNotRequired(t *testing.T) {
+	f := newFakeIdP(t)
+	f.verified = false // an IdP like stock Authentik that never verifies
+	user := &identity.User{ID: uuid.New(), Email: "alice@example.com", Enabled: true}
+	svc := &testSSOService{user: user}
+	srv := newSSOServer(t, f, svc, web.OIDCProvider{})
+
+	resp := walkLoginFlow(t, srv, f.srv)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303 past the email_verified gate", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/" {
+		t.Fatalf("post-login redirect = %q, want /", loc)
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.email != "alice@example.com" {
+		t.Fatalf("claims email = %q, want alice@example.com", svc.email)
 	}
 }
 
