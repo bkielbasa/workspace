@@ -162,6 +162,7 @@ func main() {
 	webUI.SetPhotoTags(postgres.NewPhotoTagRepository(db))
 	webUI.SetPhotoAlbums(postgres.NewPhotoAlbumRepository(db))
 	webUI.SetInvites(identity.NewInvites(postgres.NewInviteRepository(db), users))
+	configureSSO(webUI, users, db)
 	(&discovery{mailHost: mailHostname, davHost: davHost, domains: domains}).register(mux)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -230,6 +231,44 @@ func main() {
 
 type listener interface {
 	ListenAndServe() error
+}
+
+// configureSSO enables OIDC sign-in when OIDC_ISSUER is set. It fails hard on
+// malformed config: an operator who intends SSO wants to know immediately.
+// Without OIDC_ISSUER the app keeps password-only login untouched.
+func configureSSO(webUI *web.Server, users *identity.Users, db *sql.DB) {
+	issuer := getEnv("OIDC_ISSUER", "")
+	if issuer == "" {
+		return
+	}
+	redirectURL := getEnv("OIDC_REDIRECT_URL", "")
+	if redirectURL == "" {
+		redirectURL = "https://" + mailHostname + "/login/sso/callback"
+	}
+	var allowedDomains []string
+	if raw := getEnv("OIDC_ALLOWED_DOMAINS", ""); raw != "" {
+		for _, d := range strings.Split(raw, ",") {
+			if d = strings.TrimSpace(d); d != "" {
+				allowedDomains = append(allowedDomains, d)
+			}
+		}
+	}
+	provider := web.OIDCProvider{
+		Name:           getEnv("OIDC_PROVIDER_NAME", "Single Sign-On"),
+		Issuer:         issuer,
+		ClientID:       getEnv("OIDC_CLIENT_ID", ""),
+		ClientSecret:   getEnv("OIDC_CLIENT_SECRET", ""),
+		RedirectURL:    redirectURL,
+		Scopes:         strings.Fields(getEnv("OIDC_SCOPES", "openid profile email")),
+		EmailClaim:     getEnv("OIDC_EMAIL_CLAIM", "email"),
+		NameClaim:      getEnv("OIDC_NAME_CLAIM", "name"),
+		AllowedDomains: allowedDomains,
+		AutoCreate:     envBool("OIDC_AUTO_CREATE", true),
+	}
+	sso := identity.NewSSO(postgres.NewSSORepository(db), users)
+	if err := webUI.SetOIDC(provider, sso); err != nil {
+		obs.Fatal(context.Background(), "sso configuration failed", "error", err)
+	}
 }
 
 func mustListen(s listener) {

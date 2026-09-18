@@ -57,20 +57,29 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "invalid email or password")
 		return
 	}
-	session, err := s.sessions.Create(r.Context(), user.ID, sessionTTL)
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	csrf, err := newRandomToken()
+	csrf, err := s.establishSession(w, r, user)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "could not start session")
 		return
 	}
 
+	writeJSON(w, http.StatusOK, map[string]any{"user": toUserResponse(user), "csrf": csrf})
+}
+
+// establishSession issues a session token and CSRF nonce as cookies for user.
+// Returns the CSRF token so callers can hand it to the client.
+func (s *Server) establishSession(w http.ResponseWriter, r *http.Request, user *identity.User) (string, error) {
+	session, err := s.sessions.Create(r.Context(), user.ID, sessionTTL)
+	if err != nil {
+		return "", err
+	}
+	csrf, err := newRandomToken()
+	if err != nil {
+		return "", err
+	}
 	s.setSessionCookie(w, r, session.Token)
 	s.setCSRFCookie(w, r, csrf)
-	writeJSON(w, http.StatusOK, map[string]any{"user": toUserResponse(user), "csrf": csrf})
+	return csrf, nil
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {

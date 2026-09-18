@@ -11,6 +11,13 @@
       <div class="card">
         <h1>Workspace</h1>
         <p class="subtitle">Sign in to your account</p>
+        {{if .Error}}<p class="error msg">{{.Error}}</p>{{end}}
+        {{if .SSOProviders}}
+          {{range .SSOProviders}}
+          <a class="sso-button" href="{{.Href}}">Sign in with {{.Name}}</a>
+          {{end}}
+          <div class="sso-divider"><span>or use your password</span></div>
+        {{end}}
         <form id="login-form" class="login-form" autocomplete="on">
           <label for="email">Email or username
             <input

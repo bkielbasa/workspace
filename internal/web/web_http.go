@@ -125,6 +125,11 @@ type Server struct {
 	secure   bool
 	limiter  *loginLimiter
 	views    *views
+	// sso + oidc power the login-page "Sign in with ..." button. sso is a
+	// small adapter over identity.SSO (provisioning/linking); oidc is the
+	// live provider client, nil while SSO is disabled.
+	sso  ssoservice
+	oidc *oidcClient
 	// appPasswords and DAV hosts wire the device setup (iPhone profile).
 	// They are optional: without them the profile page hides that card.
 	appPasswords appPasswordsService
@@ -203,6 +208,8 @@ func New(files fs.FS, contacts contactsService, calendars calendarService, mail 
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
+	mux.HandleFunc("GET /login/sso", s.ssoLogin)
+	mux.HandleFunc("GET /login/sso/callback", s.ssoCallback)
 	mux.Handle("/static/", s.staticHandler())
 
 	mux.HandleFunc("GET /{$}", s.page(s.views.homePage))
@@ -263,12 +270,28 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /calendars/{id}", s.RequireAuth(s.RequireCSRF(s.views.calendarsDelete)))
 }
 
+// loginViewData carries the login form context: an optional banner error and
+// the SSO buttons rendered under the password form.
+type loginViewData struct {
+	Error        string
+	SSOProviders []ssoProviderView
+}
+
+type ssoProviderView struct {
+	Name string
+	Href string
+}
+
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 	if s.validSession(r) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	renderView(w, r, s.views.login, "login", nil)
+	data := loginViewData{Error: r.URL.Query().Get("error")}
+	if s.oidc != nil {
+		data.SSOProviders = []ssoProviderView{{Name: s.oidc.idp.Name, Href: "/login/sso"}}
+	}
+	renderView(w, r, s.views.login, "login", data)
 }
 
 func (s *Server) validSession(r *http.Request) bool {

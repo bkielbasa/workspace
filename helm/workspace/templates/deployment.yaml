@@ -91,6 +91,48 @@ spec:
               value: {{ .Values.files.maxFileBytes | quote }}
             - name: PHOTOS_DATA_DIR
               value: {{ .Values.photos.dataDir | quote }}
+            {{- if .Values.sso.enabled }}
+            - name: OIDC_ISSUER
+              value: {{ .Values.sso.issuer | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.sso.clientID | quote }}
+            {{- if and .Values.sso.clientSecretSecret.name }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sso.clientSecretSecret.name }}
+                  key: {{ .Values.sso.clientSecretSecret.key }}
+            {{- else }}
+            - name: OIDC_CLIENT_SECRET
+              value: {{ .Values.sso.clientSecret | quote }}
+            {{- end }}
+            {{- with .Values.sso.providerName }}
+            - name: OIDC_PROVIDER_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.sso.redirectURL }}
+            - name: OIDC_REDIRECT_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.sso.scopes }}
+            - name: OIDC_SCOPES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.sso.emailClaim }}
+            - name: OIDC_EMAIL_CLAIM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.sso.nameClaim }}
+            - name: OIDC_NAME_CLAIM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.sso.allowedDomains }}
+            - name: OIDC_ALLOWED_DOMAINS
+              value: {{ . | quote }}
+            {{- end }}
+            - name: OIDC_AUTO_CREATE
+              value: {{ .Values.sso.autoCreate | quote }}
+            {{- end }}
           volumeMounts:
             - name: data
               mountPath: /data

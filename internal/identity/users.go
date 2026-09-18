@@ -210,6 +210,33 @@ func (u *Users) CreateDisabled(ctx context.Context, email, displayName string) (
 	return user, nil
 }
 
+// Provision creates an enabled account with no working password, for
+// SSO-only users created on first sign-in. Unlike Create it never mirrors
+// anything into password stores (Samba): the account has no password.
+func (u *Users) Provision(ctx context.Context, email, displayName string) (*User, error) {
+	ctx, span := u.tracer.Start(ctx, "users.provision")
+	defer span.End()
+
+	email = strings.ToLower(strings.TrimSpace(email))
+	parts := strings.SplitN(email, "@", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return nil, fmt.Errorf("invalid email address")
+	}
+	bootstrap, err := GeneratePassword()
+	if err != nil {
+		return nil, err
+	}
+	passwordHashBytes, err := bcrypt.GenerateFromPassword([]byte(bootstrap), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash password: %w", err)
+	}
+	username, err := u.deriveUsername(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	return u.repo.Create(ctx, email, username, string(passwordHashBytes), displayName)
+}
+
 // SetUsername renames a login alias. Emails, DAV principals and share paths
 // all keep using the email address, so this is safe to change any time.
 func (u *Users) SetUsername(ctx context.Context, id uuid.UUID, username string) error {

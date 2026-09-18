@@ -23,6 +23,31 @@ dkim:
   domain: ""
   selector: "default"
 
+# OIDC single sign-on (login-page "Sign in with ..." button). Enabled by the
+# app only when OIDC_ISSUER is set; set sso.enabled to render it below.
+# The client secret should live in an existing k8s Secret:
+#   sso.clientSecretSecret: { name: my-secret, key: OIDC_CLIENT_SECRET }
+# For quick local setups a plaintext sso.clientSecret also works.
+sso:
+  enabled: false
+  issuer: ""
+  clientID: ""
+  clientSecret: ""
+  clientSecretSecret: {}
+  # providerName is shown on the button; defaults to "Single Sign-On".
+  providerName: ""
+  # redirectURL defaults to https://<mailHost>/login/sso/callback.
+  redirectURL: ""
+  # scopes default to "openid profile email".
+  scopes: ""
+  # emailClaim / nameClaim default to "email" / "name".
+  emailClaim: ""
+  nameClaim: ""
+  # allowedDomains: comma-separated list that restricts sign-in, or empty.
+  allowedDomains: ""
+  # autoCreate provisions unknown verified SSO accounts on first sign-in.
+  autoCreate: true
+
 # HTTP ingress (nginx, for web API / CardDAV / CalDAV / autoconfig)
 ingress:
   enabled: true
