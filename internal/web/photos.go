@@ -184,6 +184,69 @@ func (c *execConverter) Convert(src, dst string) error {
 	return cerr
 }
 
+// videoPreviewer extracts a JPEG poster frame from a video file.
+type videoPreviewer interface {
+	Preview(src, dst string) error
+	Available() bool
+}
+
+type ffmpegConverter struct {
+	once sync.Once
+	bin  string
+}
+
+func (c *ffmpegConverter) Available() bool {
+	c.once.Do(func() {
+		if bin, err := exec.LookPath("ffmpeg"); err == nil {
+			c.bin = bin
+		}
+	})
+	return c.bin != ""
+}
+
+// Preview grabs one frame about a second into the clip (past the fade-in
+// black) and downscales it to at most 1600px wide. Seeking happens before
+// decode, so ffmpeg jumps to the nearest keyframe instead of chewing the
+// whole GOP: cheap even on long videos. Rotation metadata is honoured.
+// Video too short for a 1s frame retries at the very start.
+func (c *ffmpegConverter) Preview(src, dst string) error {
+	if !c.Available() {
+		return fmt.Errorf("photos: no ffmpeg installed")
+	}
+	tmp, err := os.CreateTemp("", "video-*.jpg")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	_ = tmp.Close()
+	defer os.Remove(tmpName)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	var lastErr error
+	for _, seek := range []string{"00:00:01", "00:00:00"} {
+		cmd := exec.CommandContext(ctx, c.bin,
+			"-y", "-ss", seek,
+			"-i", src,
+			"-frames:v", "1",
+			"-vf", "scale='min(1600,iw)':-2",
+			"-q:v", "3",
+			tmpName,
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			lastErr = fmt.Errorf("photos: ffmpeg frame at %s: %w: %s", seek, err, strings.TrimSpace(string(out)))
+			continue
+		}
+		if err := os.Rename(tmpName, dst); err != nil {
+			return err
+		}
+		return nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("photos: no video frame extracted")
+	}
+	return lastErr
+}
+
 // boundImage downscales img to fit within maxDim (never upscales).
 func boundImage(img image.Image, maxDim int) image.Image {
 	b := img.Bounds()
@@ -362,9 +425,13 @@ func (v *views) galleryViewData(w http.ResponseWriter, r *http.Request, user *id
 			if m, ok := members[item.Path]; ok {
 				item.Albums = albumIDs(m)
 			}
-			if kind == "heic" {
+			if kind == "heic" || kind == "video" {
 				if _, err := v.photos.Stat(home, previewName(item.Path)); err == nil {
 					item.HasPreview = true
+				} else {
+					// Poster missing: seed one in the background so the
+					// next render shows a thumbnail. Deduped inside.
+					v.schedulePreviewIfNeeded(home, item.Path, kind)
 				}
 			}
 			month.Files = append(month.Files, item)
@@ -473,7 +540,8 @@ func (v *views) galleryPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	home := files.HomeDir(user.Email)
 	name := cleanDrivePath(r.URL.Query().Get("path"))
-	if name == "" || kindOfPhoto(name) != "heic" {
+	kind := kindOfPhoto(name)
+	if name == "" || (kind != "heic" && kind != "video") {
 		http.NotFound(w, r)
 		return
 	}
@@ -485,40 +553,11 @@ func (v *views) galleryPreview(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = v.photos.Remove(home, preview)
 	}
-	// Generate on demand and cache on disk.
-	src, err := v.photos.LocalPath(home, name)
-	if err != nil {
+	// Generate on demand and cache on disk (HEIC covers display order in
+	// the iPhone camera roll; video covers everything else).
+	if err := v.createPreview(home, name, kind); err != nil {
+		obs.Log(r.Context(), slog.LevelWarn, "media preview failed", "path", name, "kind", kind, "error", err)
 		http.NotFound(w, r)
-		return
-	}
-	dst, err := v.photos.LocalPath(home, preview)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	if err := os.MkdirAll(dirOf(dst), 0o755); err != nil {
-		http.Error(w, "cannot render preview", http.StatusInternalServerError)
-		return
-	}
-	conv := v.previewConv
-	if conv == nil {
-		conv = &execConverter{}
-	}
-	// The temp file needs a .jpg suffix: ImageMagick picks the output
-	// format from the extension, and an extensionless temp file would
-	// silently come back as HEIC.
-	tmp, err := v.photos.LocalPath(home, preview+".tmp.jpg")
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	if err := conv.Convert(src, tmp); err != nil {
-		obs.Log(r.Context(), slog.LevelWarn, "heic preview failed", "path", name, "error", err)
-		http.NotFound(w, r)
-		return
-	}
-	if err := os.Rename(tmp, dst); err != nil {
-		http.Error(w, "cannot render preview", http.StatusInternalServerError)
 		return
 	}
 	info, err := v.photos.Stat(home, preview)
@@ -547,6 +586,90 @@ func dirOf(p string) string {
 		return p[:i]
 	}
 	return "."
+}
+
+// createPreview generates a JPEG poster for photoPath if one isn't already
+// cached on disk. It is safe to call concurrently — the worst case is a
+// harmless double-generation.
+func (v *views) createPreview(home, photoPath, kind string) error {
+	preview := previewName(photoPath)
+	src, err := v.photos.LocalPath(home, photoPath)
+	if err != nil {
+		return err
+	}
+	dst, err := v.photos.LocalPath(home, preview)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dirOf(dst), 0o755); err != nil {
+		return err
+	}
+	tmp, err := v.photos.LocalPath(home, preview+".tmp.jpg")
+	if err != nil {
+		return err
+	}
+	var renderErr error
+	switch kind {
+	case "video":
+		vid := v.videoConv
+		if vid == nil {
+			vid = &ffmpegConverter{}
+		}
+		renderErr = vid.Preview(src, tmp)
+	default:
+		conv := v.previewConv
+		if conv == nil {
+			conv = &execConverter{}
+		}
+		renderErr = conv.Convert(src, tmp)
+	}
+	if renderErr != nil {
+		return renderErr
+	}
+	return os.Rename(tmp, dst)
+}
+
+// schedulePreviewIfNeeded mints a gallery poster for photoPath if one isn't
+// cached yet, in the background. Post-upload this makes the thumbnail appear
+// on the next visit; the same call on every gallery render self-heals older
+// files (videos synced before the feature, or jobs dropped under load).
+//
+// Jobs are deduped by home+path so page reloads can't stack up work, and
+// serialized through previewSlots so a phone burst of fifty clips doesn't
+// spawn fifty ffmpeg processes at once. A job that outlives the request
+// still finishes; it only logs.
+func (v *views) schedulePreviewIfNeeded(home, photoPath, kind string) {
+	if kind != "video" && kind != "heic" {
+		return
+	}
+	if _, err := v.photos.Stat(home, previewName(photoPath)); err == nil {
+		return
+	}
+	key := home + "\x00" + photoPath
+	v.previewMu.Lock()
+	if v.previewing == nil {
+		v.previewing = map[string]bool{}
+	}
+	if v.previewing[key] {
+		v.previewMu.Unlock()
+		return
+	}
+	v.previewing[key] = true
+	v.previewMu.Unlock()
+	go func() {
+		defer func() {
+			v.previewMu.Lock()
+			delete(v.previewing, key)
+			v.previewMu.Unlock()
+		}()
+		v.previewSlots <- struct{}{}
+		defer func() { <-v.previewSlots }()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := v.createPreview(home, photoPath, kind); err != nil {
+			obs.Log(ctx, slog.LevelInfo, "async photo preview failed", "path", photoPath, "kind", kind, "error", err)
+		}
+	}()
 }
 
 func (v *views) servePhotoFile(w http.ResponseWriter, r *http.Request, home, name string, info files.File) {
@@ -605,7 +728,7 @@ func (v *views) galleryDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	deleted, failed := 0, 0
 	for _, name := range names {
-		if kindOfPhoto(name) == "heic" {
+		if k := kindOfPhoto(name); k == "heic" || k == "video" {
 			_ = v.photos.Remove(home, previewName(name))
 		}
 		if err := v.photos.Remove(home, name); err != nil {
@@ -938,6 +1061,9 @@ func (v *views) photoUpload(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				_ = f.Close()
+				if kindOfPhoto(target) == "video" {
+					v.schedulePreviewIfNeeded(home, target, "video")
+				}
 				result.Uploaded = append(result.Uploaded, uploadEntry{Name: path.Base(target), Path: target, Size: fh.Size})
 			}
 		}

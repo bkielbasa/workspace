@@ -461,7 +461,11 @@
     if (kind === "video") {
       var video = document.createElement("video");
       video.src = fileURL(path);
+      if (hasPreview) {
+        video.poster = "/gallery/preview?path=" + encodeURIComponent(path);
+      }
       video.controls = true;
+      video.preload = "metadata";
       video.className = "photo-large";
       stage.appendChild(video);
     } else if (kind === "image" || (kind === "heic" && hasPreview)) {

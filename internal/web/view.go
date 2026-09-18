@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bklimczak/workspace/internal/calendar"
@@ -109,17 +110,25 @@ type viewData struct {
 }
 
 type views struct {
-	contacts contactsService
-	calendar calendarService
-	mail     mailService
-	files    filesService
-	photos   filesService
-	photoAuth photoUploadAuth
-	tagStore photoTagStore
-	albumStore photoAlbumStore
+	contacts    contactsService
+	calendar    calendarService
+	mail        mailService
+	files       filesService
+	photos      filesService
+	photoAuth   photoUploadAuth
+	tagStore    photoTagStore
+	albumStore  photoAlbumStore
 	previewConv heicConverter
-	sessions sessionsService
-	users    usersService
+	videoConv   videoPreviewer
+	// previewSlots bounds concurrent poster jobs so a big upload batch
+	// doesn't spawn one heavy ffmpeg per frame.
+	previewSlots chan struct{}
+	// previewing and previewMu dedupe background poster jobs so repeated
+	// gallery renders don't re-queue the same file.
+	previewing map[string]bool
+	previewMu  sync.Mutex
+	sessions   sessionsService
+	users      usersService
 
 	home         *template.Template
 	contactsT    *template.Template
@@ -193,7 +202,9 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 		sessions: sessions, users: users,
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
 		calendarT: calendarT, mailT: mailT, profileT: profileT, driveT: driveT, galleryT: galleryT, login: login,
-		inviteT: inviteT,
+		inviteT:      inviteT,
+		previewSlots: make(chan struct{}, 2),
+		previewing:   map[string]bool{},
 	}, nil
 }
 

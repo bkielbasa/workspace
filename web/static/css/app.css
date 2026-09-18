@@ -676,6 +676,7 @@ textarea::placeholder {
   padding: 0;
   cursor: zoom-in;
   width: 100%;
+  position: relative;
 }
 
 .gallery-open img {
@@ -917,6 +918,25 @@ body.select-mode .gallery-open.selected::after {
 
 .gallery-file-icon {
   font-size: 2rem;
+}
+
+/* Play badge over a video poster thumbnail. pointer-events keep it a
+   decoration: the click still opens the lightbox on the button. */
+.gallery-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 1.05rem;
+  line-height: 44px;
+  text-align: center;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
 }
 
 /* ---- Buttons ---------------------------------------------------------- */

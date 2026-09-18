@@ -237,4 +237,3 @@ func TestWeekPageRendersEditMode(t *testing.T) {
 		}
 	}
 }
-

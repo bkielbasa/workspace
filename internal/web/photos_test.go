@@ -49,6 +49,142 @@ func (f *fakeConverter) Convert(src, dst string) error {
 
 func (f *fakeConverter) Available() bool { return f.err == nil }
 
+// A video with a cached poster: the grid shows the thumbnail with a play
+// badge instead of the clapperboard icon, and the poster is served from
+// disk without involving ffmpeg.
+func TestGalleryVideoThumbAndBadge(t *testing.T) {
+	userID := uuid.New()
+	store := newMemFiles()
+	mux := photoTestServer(t, userID, store, memPhotoAuth{})
+
+	jpegData := []byte{0xFF, 0xD8, 0xFF, 0xD9}
+	store.files["2026-09/clip.mp4"] = &memFile{data: []byte("fake-video"), mod: time.Now()}
+	store.files["2026-09/.previews/clip.jpg"] = &memFile{data: jpegData, mod: time.Now()}
+
+	req := httptest.NewRequest(http.MethodGet, "/gallery", nil)
+	photoCookies(req)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /gallery = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `<img src="/gallery/preview?path=2026-09%2fclip.mp4"`) {
+		t.Errorf("grid missing the video poster <img>: got\n%s", excerpt(body, "clip.mp4"))
+	}
+	if !strings.Contains(body, "gallery-play") {
+		t.Errorf("grid missing the play badge")
+	}
+	if strings.Contains(body, "🎬") {
+		t.Errorf("clapperboard icon shown despite a cached poster")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/gallery/preview?path=2026-09/clip.mp4", nil)
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET preview = %d. Body: %s", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.HasPrefix(body, "\xff\xd8\xff") {
+		t.Errorf("preview body is not the cached JPEG: %q", body)
+	}
+}
+
+// No poster yet: grid falls back to the icon, and an unrenderable video
+// fails gracefully with 404 rather than a 500.
+func TestGalleryVideoWithoutPreviewFallsBack(t *testing.T) {
+	userID := uuid.New()
+	store := newMemFiles()
+	mux := photoTestServer(t, userID, store, memPhotoAuth{})
+	store.files["2026-09/clip.mp4"] = &memFile{data: []byte("fake-video"), mod: time.Now()}
+
+	req := httptest.NewRequest(http.MethodGet, "/gallery", nil)
+	photoCookies(req)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, "🎬") {
+		t.Errorf("expected the clapperboard icon when no poster exists")
+	}
+	if strings.Contains(body, "gallery-play") {
+		t.Errorf("play badge shown without a poster")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/gallery/preview?path=2026-09/clip.mp4", nil)
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("preview without a renderer = %d, want 404", rec.Code)
+	}
+}
+
+// A video lands through the upload endpoint and schedules its poster job;
+// generation itself is skipped when the store has no real filesystem (as
+// here), leaving the clapperboard fallback intact. The point is that
+// uploading must never fail or block on the poster.
+func TestGalleryVideoUploadSchedulesPoster(t *testing.T) {
+	userID := uuid.New()
+	store := newMemFiles()
+	mux := photoTestServer(t, userID, store, memPhotoAuth{})
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	_ = w.WriteField("_csrf", "test-csrf-token")
+	fw, _ := w.CreateFormFile("files", "clip.mp4")
+	_, _ = fw.Write([]byte("fake-video-bytes"))
+	_ = w.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/upload?format=json", &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	photoCookies(req)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload = %d. Body: %s", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "clip.mp4") || !strings.Contains(body, "uploaded") {
+		t.Errorf("video upload result wrong: %s", body)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/gallery", nil)
+	photoCookies(req)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /gallery = %d", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "🎬") {
+		t.Errorf("uploaded video should fall back to the icon until a poster exists")
+	}
+}
+
+// Deleting a video must take its cached poster with it, or the .previews
+// directory grows stale rows that never get served again.
+func TestGalleryDeleteRemovesVideoPoster(t *testing.T) {
+	userID := uuid.New()
+	store := newMemFiles()
+	mux := photoTestServer(t, userID, store, memPhotoAuth{})
+	store.files["2026-09/olds.mp4"] = &memFile{data: []byte("fake-video"), mod: time.Now()}
+	store.files["2026-09/.previews/olds.jpg"] = &memFile{data: []byte{0xFF, 0xD8, 0xFF, 0xD9}, mod: time.Now()}
+
+	form := url.Values{"_csrf": {"test-csrf-token"}, "path": {"2026-09/olds.mp4"}}
+	req := httptest.NewRequest(http.MethodPost, "/gallery/delete?format=json", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	photoCookies(req)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete = %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, ok := store.files["2026-09/olds.mp4"]; ok {
+		t.Errorf("video not deleted")
+	}
+	if _, ok := store.files["2026-09/.previews/olds.jpg"]; ok {
+		t.Errorf("video poster left behind")
+	}
+}
+
 func photoTestServer(t *testing.T, userID uuid.UUID, store *memFiles, auth memPhotoAuth) *http.ServeMux {
 	t.Helper()
 	filesFS := os.DirFS("../..")
@@ -125,6 +261,19 @@ var errAuthTest = errors.New("bad credentials")
 func photoCookies(req *http.Request) {
 	req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
 	req.AddCookie(&http.Cookie{Name: "csrf", Value: "test-csrf-token"})
+}
+
+// excerpt pulls a short window around needle from s for failure messages.
+func excerpt(s, needle string) string {
+	if i := strings.Index(s, needle); i >= 0 {
+		lo := max(0, i-80)
+		hi := min(len(s), i+80)
+		return s[lo:hi]
+	}
+	if len(s) > 160 {
+		return s[:160]
+	}
+	return s
 }
 
 func TestGalleryEmptyAndUpload(t *testing.T) {

@@ -14,7 +14,7 @@ FROM alpine:3.20
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates tzdata libheif-tools libheif libde265 libjpeg-turbo
+RUN apk add --no-cache ca-certificates tzdata libheif-tools libheif libde265 libjpeg-turbo ffmpeg
 
 COPY --from=builder /app/server .
 COPY migrations ./migrations

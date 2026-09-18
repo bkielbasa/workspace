@@ -141,7 +141,12 @@
                 <span class="gallery-file-icon" aria-hidden="true">🖼</span>
                 {{end}}
               {{else if eq .Kind "video"}}
-              <span class="gallery-file-icon" aria-hidden="true">🎬</span>
+                {{if .HasPreview}}
+                <img src="/gallery/preview?path={{.Path}}" alt="{{.Name}}" loading="lazy">
+                <span class="gallery-play" aria-hidden="true">▶</span>
+                {{else}}
+                <span class="gallery-file-icon" aria-hidden="true">🎬</span>
+                {{end}}
               {{end}}
             </button>
             <figcaption class="gallery-caption" title="{{.Path}}">
