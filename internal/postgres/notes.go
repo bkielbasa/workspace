@@ -86,7 +86,8 @@ func (r *notesRepository) GetNote(ctx context.Context, id uuid.UUID) (*notes.Not
 
 func (r *notesRepository) ListNotes(ctx context.Context, userID uuid.UUID, archived bool, tag string) ([]notes.Note, error) {
 	query := `
-		SELECT DISTINCT n.id, n.user_id, n.title, n.body, n.kind, n.color, n.is_pinned, n.is_archived, n.is_family_shared, n.created_at, n.updated_at
+		SELECT DISTINCT n.id, n.user_id, n.title, n.body, n.kind, n.color,
+		       n.is_pinned, n.is_archived, n.is_family_shared, n.created_at, n.updated_at
 		FROM notes n
 		LEFT JOIN notes_tags nt ON n.id = nt.note_id
 		LEFT JOIN note_tags t ON nt.tag_id = t.id
@@ -114,20 +115,75 @@ func (r *notesRepository) ListNotes(ctx context.Context, userID uuid.UUID, archi
 		n.Kind = notes.Kind(kindStr)
 		result = append(result, n)
 	}
-
-	for i := range result {
-		items, err := r.ListItems(ctx, result[i].ID)
-		if err != nil {
-			return nil, fmt.Errorf("list notes items: %w", err)
-		}
-		result[i].Items = items
-
-		tags, err := r.getNoteTags(ctx, result[i].ID)
-		if err != nil {
-			return nil, fmt.Errorf("list notes tags: %w", err)
-		}
-		result[i].Tags = tags
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list notes iterate: %w", err)
 	}
+
+	if len(result) == 0 {
+		return result, nil
+	}
+
+	noteIDs := make([]uuid.UUID, len(result))
+	noteIndexMap := make(map[uuid.UUID]int, len(result))
+	for i, n := range result {
+		noteIDs[i] = n.ID
+		noteIndexMap[n.ID] = i
+	}
+
+	itemsQuery := `
+		SELECT id, note_id, content, completed, completed_at, sort_order, created_at, updated_at
+		FROM note_items
+		WHERE note_id = ANY($1)
+		ORDER BY sort_order ASC, created_at ASC
+	`
+	itemRows, err := r.db.QueryContext(ctx, itemsQuery, noteIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list notes items: %w", err)
+	}
+	defer itemRows.Close()
+
+	for itemRows.Next() {
+		var item notes.NoteItem
+		if err := itemRows.Scan(
+			&item.ID, &item.NoteID, &item.Content, &item.Completed, &item.CompletedAt, &item.SortOrder, &item.CreatedAt, &item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan note item: %w", err)
+		}
+		if idx, ok := noteIndexMap[item.NoteID]; ok {
+			result[idx].Items = append(result[idx].Items, item)
+		}
+	}
+	if err := itemRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate note items: %w", err)
+	}
+
+	tagsQuery := `
+		SELECT nt.note_id, t.name
+		FROM note_tags t
+		JOIN notes_tags nt ON t.id = nt.tag_id
+		WHERE nt.note_id = ANY($1)
+		ORDER BY t.name ASC
+	`
+	tagRows, err := r.db.QueryContext(ctx, tagsQuery, noteIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list notes tags: %w", err)
+	}
+	defer tagRows.Close()
+
+	for tagRows.Next() {
+		var noteID uuid.UUID
+		var tagName string
+		if err := tagRows.Scan(&noteID, &tagName); err != nil {
+			return nil, fmt.Errorf("scan note tag: %w", err)
+		}
+		if idx, ok := noteIndexMap[noteID]; ok {
+			result[idx].Tags = append(result[idx].Tags, tagName)
+		}
+	}
+	if err := tagRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate note tags: %w", err)
+	}
+
 	return result, nil
 }
 

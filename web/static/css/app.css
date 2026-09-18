@@ -3376,6 +3376,109 @@ input[readonly] {
   color: var(--text);
 }
 
+.note-item-del-form {
+  margin: 0;
+  width: auto !important;
+}
+
+.note-item-del {
+  padding: 0 0.35rem;
+  font-size: 1.1rem;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  opacity: 0.35;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.note-checkitem:hover .note-item-del {
+  opacity: 0.8;
+}
+
+.note-item-del:hover {
+  opacity: 1 !important;
+  color: var(--danger, #ff6b6b);
+}
+
+button.note-badge-family {
+  border: none;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+button.note-badge-family:hover,
+button.note-badge-family.is-shared {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--text);
+}
+
+.note-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.note-tag-chip {
+  font-size: 0.75rem;
+  color: var(--accent);
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.note-tag-chip:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.notes-filter-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.9rem;
+}
+
+.note-edit-details {
+  margin-top: 0.35rem;
+}
+
+.note-edit-details summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.note-edit-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.note-edit-form {
+  margin-top: 0.5rem;
+  padding: 0.65rem;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.notes-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 /* Footer / Actions */
 .note-card-foot {
   display: flex;

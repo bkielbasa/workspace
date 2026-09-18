@@ -90,6 +90,18 @@ func (m *mockNotesService) ListNotes(ctx context.Context, userID uuid.UUID, arch
 		if n.IsArchived != archived {
 			continue
 		}
+		if tag != "" {
+			hasTag := false
+			for _, t := range n.Tags {
+				if t == tag {
+					hasTag = true
+					break
+				}
+			}
+			if !hasTag {
+				continue
+			}
+		}
 		if n.UserID == userID || n.IsFamilyShared {
 			cp := *n
 			cp.Items = make([]notes.NoteItem, len(n.Items))
@@ -732,6 +744,136 @@ func TestNotesLiveSSEUnauthorized(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 Unauthorized, got %d", w.Code)
 	}
+}
+
+func TestNotesLiveSSEFiltering(t *testing.T) {
+	userAlice := &identity.User{
+		ID:      uuid.New(),
+		Email:   "alice@example.com",
+		Enabled: true,
+	}
+	userBob := &identity.User{
+		ID:      uuid.New(),
+		Email:   "bob@example.com",
+		Enabled: true,
+	}
+	notesSvc := newMockNotesService()
+	_, mux := setupNotesTestServer(t, userAlice, notesSvc)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/notes/live", nil).WithContext(ctx)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "test-session-token"})
+	w := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		mux.ServeHTTP(w, req)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// 1. Bob's private event -> should NOT be received by Alice
+	bobPrivateID := uuid.New()
+	notesSvc.Broker().Publish(notes.Event{
+		Type:           "note_created",
+		NoteID:         bobPrivateID,
+		UserID:         userBob.ID,
+		IsFamilyShared: false,
+	})
+
+	// 2. Bob's family-shared event -> SHOULD be received by Alice
+	bobSharedID := uuid.New()
+	notesSvc.Broker().Publish(notes.Event{
+		Type:           "note_created",
+		NoteID:         bobSharedID,
+		UserID:         userBob.ID,
+		IsFamilyShared: true,
+	})
+
+	// 3. Alice's own private event -> SHOULD be received by Alice
+	alicePrivateID := uuid.New()
+	notesSvc.Broker().Publish(notes.Event{
+		Type:           "note_created",
+		NoteID:         alicePrivateID,
+		UserID:         userAlice.ID,
+		IsFamilyShared: false,
+	})
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+
+	out := w.Body.String()
+	if strings.Contains(out, bobPrivateID.String()) {
+		t.Errorf("Alice received Bob's private note event!")
+	}
+	if !strings.Contains(out, bobSharedID.String()) {
+		t.Errorf("Alice did not receive Bob's family shared note event")
+	}
+	if !strings.Contains(out, alicePrivateID.String()) {
+		t.Errorf("Alice did not receive her own note event")
+	}
+}
+
+func TestNotesPageFiltering(t *testing.T) {
+	user := &identity.User{
+		ID:      uuid.New(),
+		Email:   "alice@example.com",
+		Enabled: true,
+	}
+	notesSvc := newMockNotesService()
+
+	// 1. Active note with tag "work"
+	note1, _ := notesSvc.CreateNote(context.Background(), user.ID, notes.Note{
+		Title: "Work Note",
+		Tags:  []string{"work"},
+	})
+	// 2. Active note with tag "home"
+	notesSvc.CreateNote(context.Background(), user.ID, notes.Note{
+		Title: "Home Note",
+		Tags:  []string{"home"},
+	})
+	// 3. Archived note
+	n3, _ := notesSvc.CreateNote(context.Background(), user.ID, notes.Note{
+		Title: "Archived Note",
+	})
+	n3.IsArchived = true
+
+	_, mux := setupNotesTestServer(t, user, notesSvc)
+
+	// Filter by tag=work
+	req := httptest.NewRequest(http.MethodGet, "/notes?tag=work", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "test-session-token"})
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Work Note") {
+		t.Errorf("expected Work Note in response")
+	}
+	if strings.Contains(w.Body.String(), "Home Note") {
+		t.Errorf("Home Note should not be present when filtered by tag=work")
+	}
+
+	// Filter by archived=true
+	req = httptest.NewRequest(http.MethodGet, "/notes?archived=true", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "test-session-token"})
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Archived Note") {
+		t.Errorf("expected Archived Note in response")
+	}
+	if strings.Contains(w.Body.String(), "Work Note") {
+		t.Errorf("Work Note should not be present when filtered by archived=true")
+	}
+	_ = note1
 }
 
 func TestNotesDetail(t *testing.T) {

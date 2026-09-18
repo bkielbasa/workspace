@@ -108,7 +108,9 @@ type viewData struct {
 	// AlbumsReady reports whether the album store is wired.
 	AlbumsReady bool
 	// Notes dashboard state.
-	Notes any
+	Notes    any
+	Tag      string
+	Archived bool
 }
 
 type views struct {

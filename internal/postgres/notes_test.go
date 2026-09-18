@@ -180,6 +180,54 @@ func TestNotesRepository(t *testing.T) {
 		t.Fatalf("ListNotes expected 1 note, got: %+v", notesList)
 	}
 
+	// Create second note to test batch loading across multiple notes
+	note2, err := repo.CreateNote(ctx, notes.Note{
+		UserID: userID,
+		Title:  "Second Note",
+		Kind:   notes.KindList,
+	})
+	if err != nil {
+		t.Fatalf("CreateNote note2 failed: %v", err)
+	}
+	defer repo.DeleteNote(ctx, note2.ID)
+
+	_, err = repo.AddItem(ctx, notes.NoteItem{
+		NoteID:  note2.ID,
+		Content: "Note 2 Item",
+	})
+	if err != nil {
+		t.Fatalf("AddItem note2 failed: %v", err)
+	}
+	err = repo.SetNoteTags(ctx, note2.ID, userID, []string{"personal"})
+	if err != nil {
+		t.Fatalf("SetNoteTags note2 failed: %v", err)
+	}
+
+	allNotes, err := repo.ListNotes(ctx, userID, false, "")
+	if err != nil {
+		t.Fatalf("ListNotes all failed: %v", err)
+	}
+	if len(allNotes) != 2 {
+		t.Fatalf("expected 2 notes, got %d", len(allNotes))
+	}
+	for _, n := range allNotes {
+		if n.ID == note1.ID {
+			if len(n.Items) != 2 {
+				t.Errorf("expected 2 items for note1 in batch load, got %d", len(n.Items))
+			}
+			if len(n.Tags) != 2 {
+				t.Errorf("expected 2 tags for note1 in batch load, got %d", len(n.Tags))
+			}
+		} else if n.ID == note2.ID {
+			if len(n.Items) != 1 || n.Items[0].Content != "Note 2 Item" {
+				t.Errorf("expected 1 item 'Note 2 Item' for note2 in batch load, got %+v", n.Items)
+			}
+			if len(n.Tags) != 1 || n.Tags[0] != "personal" {
+				t.Errorf("expected 1 tag 'personal' for note2 in batch load, got %+v", n.Tags)
+			}
+		}
+	}
+
 	notesListEmpty, err := repo.ListNotes(ctx, userID, false, "nonexistent")
 	if err != nil {
 		t.Fatal(err)

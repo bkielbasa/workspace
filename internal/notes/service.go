@@ -35,9 +35,10 @@ func (s *Service) CreateNote(ctx context.Context, userID uuid.UUID, n Note) (*No
 		return nil, err
 	}
 	s.broker.Publish(Event{
-		Type:   "note_created",
-		NoteID: created.ID,
-		UserID: userID,
+		Type:           "note_created",
+		NoteID:         created.ID,
+		UserID:         created.UserID,
+		IsFamilyShared: created.IsFamilyShared,
 	})
 	return created, nil
 }
@@ -78,9 +79,10 @@ func (s *Service) UpdateNote(ctx context.Context, userID uuid.UUID, isAdmin bool
 		return nil, err
 	}
 	s.broker.Publish(Event{
-		Type:   "note_updated",
-		NoteID: updated.ID,
-		UserID: userID,
+		Type:           "note_updated",
+		NoteID:         updated.ID,
+		UserID:         updated.UserID,
+		IsFamilyShared: updated.IsFamilyShared,
 	})
 	return updated, nil
 }
@@ -100,9 +102,10 @@ func (s *Service) DeleteNote(ctx context.Context, userID uuid.UUID, isAdmin bool
 		return err
 	}
 	s.broker.Publish(Event{
-		Type:   "note_deleted",
-		NoteID: id,
-		UserID: userID,
+		Type:           "note_deleted",
+		NoteID:         id,
+		UserID:         existing.UserID,
+		IsFamilyShared: existing.IsFamilyShared,
 	})
 	return nil
 }
@@ -112,7 +115,7 @@ func (s *Service) AddItem(ctx context.Context, userID uuid.UUID, noteID uuid.UUI
 }
 
 func (s *Service) AddItemWithID(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, content string) (*NoteItem, error) {
-	_, err := s.GetNote(ctx, userID, noteID)
+	note, err := s.GetNote(ctx, userID, noteID)
 	if err != nil {
 		return nil, err
 	}
@@ -126,17 +129,18 @@ func (s *Service) AddItemWithID(ctx context.Context, userID uuid.UUID, noteID, i
 		return nil, err
 	}
 	s.broker.Publish(Event{
-		Type:      "item_added",
-		NoteID:    noteID,
-		ItemID:    item.ID,
-		Completed: item.Completed,
-		UserID:    userID,
+		Type:           "item_added",
+		NoteID:         noteID,
+		ItemID:         item.ID,
+		Completed:      item.Completed,
+		UserID:         note.UserID,
+		IsFamilyShared: note.IsFamilyShared,
 	})
 	return item, nil
 }
 
 func (s *Service) UpdateItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, content string, completed bool) (*NoteItem, error) {
-	_, err := s.GetNote(ctx, userID, noteID)
+	note, err := s.GetNote(ctx, userID, noteID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,17 +172,18 @@ func (s *Service) UpdateItem(ctx context.Context, userID uuid.UUID, noteID, item
 	}
 
 	s.broker.Publish(Event{
-		Type:      "item_updated",
-		NoteID:    noteID,
-		ItemID:    updated.ID,
-		Completed: updated.Completed,
-		UserID:    userID,
+		Type:           "item_updated",
+		NoteID:         noteID,
+		ItemID:         updated.ID,
+		Completed:      updated.Completed,
+		UserID:         note.UserID,
+		IsFamilyShared: note.IsFamilyShared,
 	})
 	return updated, nil
 }
 
 func (s *Service) ToggleItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, completed bool) (*NoteItem, error) {
-	_, err := s.GetNote(ctx, userID, noteID)
+	note, err := s.GetNote(ctx, userID, noteID)
 	if err != nil {
 		return nil, err
 	}
@@ -196,17 +201,18 @@ func (s *Service) ToggleItem(ctx context.Context, userID uuid.UUID, noteID, item
 		return nil, err
 	}
 	s.broker.Publish(Event{
-		Type:      "item_toggled",
-		NoteID:    noteID,
-		ItemID:    updated.ID,
-		Completed: updated.Completed,
-		UserID:    userID,
+		Type:           "item_toggled",
+		NoteID:         noteID,
+		ItemID:         updated.ID,
+		Completed:      updated.Completed,
+		UserID:         note.UserID,
+		IsFamilyShared: note.IsFamilyShared,
 	})
 	return updated, nil
 }
 
 func (s *Service) DeleteItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID) error {
-	_, err := s.GetNote(ctx, userID, noteID)
+	note, err := s.GetNote(ctx, userID, noteID)
 	if err != nil {
 		return err
 	}
@@ -223,10 +229,11 @@ func (s *Service) DeleteItem(ctx context.Context, userID uuid.UUID, noteID, item
 		return err
 	}
 	s.broker.Publish(Event{
-		Type:   "item_deleted",
-		NoteID: noteID,
-		ItemID: itemID,
-		UserID: userID,
+		Type:           "item_deleted",
+		NoteID:         noteID,
+		ItemID:         itemID,
+		UserID:         note.UserID,
+		IsFamilyShared: note.IsFamilyShared,
 	})
 	return nil
 }

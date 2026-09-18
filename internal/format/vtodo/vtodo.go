@@ -65,7 +65,11 @@ func Parse(ics string) (*notes.NoteItem, error) {
 		if len(parts) < 2 {
 			continue
 		}
-		key := strings.ToUpper(strings.TrimSpace(parts[0]))
+		prop := parts[0]
+		if semi := strings.IndexByte(prop, ';'); semi >= 0 {
+			prop = prop[:semi]
+		}
+		key := strings.ToUpper(strings.TrimSpace(prop))
 		val := parts[1]
 
 		switch {
@@ -113,6 +117,7 @@ func escapeText(s string) string {
 	s = strings.ReplaceAll(s, "\\", "\\\\")
 	s = strings.ReplaceAll(s, ";", "\\;")
 	s = strings.ReplaceAll(s, ",", "\\,")
+	s = strings.ReplaceAll(s, "\r", "")
 	s = strings.ReplaceAll(s, "\n", "\\n")
 	return s
 }

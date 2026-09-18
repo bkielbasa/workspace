@@ -61,7 +61,10 @@ func (s *Server) notesPage(w http.ResponseWriter, r *http.Request, user *identit
 		return
 	}
 
-	notesList, err := s.notes.ListNotes(r.Context(), user.ID, false, "")
+	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
+	archived := r.URL.Query().Get("archived") == "true" || r.URL.Query().Get("archived") == "1"
+
+	notesList, err := s.notes.ListNotes(r.Context(), user.ID, archived, tag)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -73,6 +76,8 @@ func (s *Server) notesPage(w http.ResponseWriter, r *http.Request, user *identit
 		"User":      user,
 		"CSRFToken": s.csrfToken(r),
 		"Notes":     notesList,
+		"Tag":       tag,
+		"Archived":  archived,
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
@@ -86,6 +91,15 @@ func (s *Server) notesLiveSSE(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	user := UserFromContext(r.Context())
+	if user == nil {
+		user = s.currentUser(r)
+	}
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -109,6 +123,9 @@ func (s *Server) notesLiveSSE(w http.ResponseWriter, r *http.Request) {
 		case ev, ok := <-ch:
 			if !ok {
 				return
+			}
+			if !ev.IsFamilyShared && ev.UserID != user.ID {
+				continue
 			}
 			fmt.Fprintf(w, "event: note_update\ndata: {\"note_id\":\"%s\",\"type\":\"%s\"}\n\n", ev.NoteID, ev.Type)
 			flusher.Flush()

@@ -264,3 +264,92 @@ func TestServiceAddItemWithIDAndUpdatedItem(t *testing.T) {
 		t.Fatalf("expected completed to be true")
 	}
 }
+
+func TestServiceEventsUserIDAndFamilyShared(t *testing.T) {
+	repo := newMockRepo()
+	broker := NewBroker()
+	svc := NewService(repo, broker)
+
+	eventsCh := broker.Subscribe()
+	defer broker.Unsubscribe(eventsCh)
+
+	alice := uuid.New()
+	bob := uuid.New()
+	ctx := context.Background()
+
+	// 1. Create Note (shared with family)
+	note, err := svc.CreateNote(ctx, alice, Note{
+		Title:          "Family List",
+		Kind:           KindList,
+		IsFamilyShared: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateNote failed: %v", err)
+	}
+	ev := <-eventsCh
+	if ev.Type != "note_created" || ev.UserID != alice || !ev.IsFamilyShared {
+		t.Errorf("note_created: expected alice and shared=true, got %+v", ev)
+	}
+
+	// 2. Bob adds an item to Alice's shared note
+	item, err := svc.AddItem(ctx, bob, note.ID, "Apples")
+	if err != nil {
+		t.Fatalf("AddItem failed: %v", err)
+	}
+	ev = <-eventsCh
+	// Event should carry the note's owner UserID and IsFamilyShared
+	if ev.Type != "item_added" || ev.UserID != alice || !ev.IsFamilyShared {
+		t.Errorf("item_added: expected alice and shared=true, got %+v", ev)
+	}
+
+	// 3. Bob updates item
+	_, err = svc.UpdateItem(ctx, bob, note.ID, item.ID, "Green Apples", false)
+	if err != nil {
+		t.Fatalf("UpdateItem failed: %v", err)
+	}
+	ev = <-eventsCh
+	if ev.Type != "item_updated" || ev.UserID != alice || !ev.IsFamilyShared {
+		t.Errorf("item_updated: expected alice and shared=true, got %+v", ev)
+	}
+
+	// 4. Bob toggles item
+	_, err = svc.ToggleItem(ctx, bob, note.ID, item.ID, true)
+	if err != nil {
+		t.Fatalf("ToggleItem failed: %v", err)
+	}
+	ev = <-eventsCh
+	if ev.Type != "item_toggled" || ev.UserID != alice || !ev.IsFamilyShared {
+		t.Errorf("item_toggled: expected alice and shared=true, got %+v", ev)
+	}
+
+	// 5. Bob deletes item
+	err = svc.DeleteItem(ctx, bob, note.ID, item.ID)
+	if err != nil {
+		t.Fatalf("DeleteItem failed: %v", err)
+	}
+	ev = <-eventsCh
+	if ev.Type != "item_deleted" || ev.UserID != alice || !ev.IsFamilyShared {
+		t.Errorf("item_deleted: expected alice and shared=true, got %+v", ev)
+	}
+
+	// 6. Alice updates note
+	note.Title = "Renamed Family List"
+	_, err = svc.UpdateNote(ctx, alice, false, *note)
+	if err != nil {
+		t.Fatalf("UpdateNote failed: %v", err)
+	}
+	ev = <-eventsCh
+	if ev.Type != "note_updated" || ev.UserID != alice || !ev.IsFamilyShared {
+		t.Errorf("note_updated: expected alice and shared=true, got %+v", ev)
+	}
+
+	// 7. Alice deletes note
+	err = svc.DeleteNote(ctx, alice, false, note.ID)
+	if err != nil {
+		t.Fatalf("DeleteNote failed: %v", err)
+	}
+	ev = <-eventsCh
+	if ev.Type != "note_deleted" || ev.UserID != alice || !ev.IsFamilyShared {
+		t.Errorf("note_deleted: expected alice and shared=true, got %+v", ev)
+	}
+}

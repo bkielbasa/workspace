@@ -48,9 +48,10 @@ type NoteTag struct {
 }
 
 type Event struct {
-	Type      string    `json:"type"`
-	NoteID    uuid.UUID `json:"note_id"`
-	ItemID    uuid.UUID `json:"item_id,omitempty"`
-	Completed bool      `json:"completed,omitempty"`
-	UserID    uuid.UUID `json:"user_id"`
+	Type           string    `json:"type"`
+	NoteID         uuid.UUID `json:"note_id"`
+	ItemID         uuid.UUID `json:"item_id,omitempty"`
+	Completed      bool      `json:"completed,omitempty"`
+	UserID         uuid.UUID `json:"user_id"`
+	IsFamilyShared bool      `json:"is_family_shared"`
 }

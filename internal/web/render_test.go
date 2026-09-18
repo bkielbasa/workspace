@@ -261,6 +261,7 @@ func TestNotesTemplateSyntax(t *testing.T) {
 		Color          string
 		IsPinned       bool
 		IsFamilyShared bool
+		Tags           []string
 		Items          []DummyItem
 	}
 
@@ -276,6 +277,7 @@ func TestNotesTemplateSyntax(t *testing.T) {
 				Color:          "mint",
 				IsPinned:       true,
 				IsFamilyShared: true,
+				Tags:           []string{"errands"},
 				Items: []DummyItem{
 					{ID: "item-1", NoteID: "note-1", Content: "Buy organic milk", Completed: false},
 					{ID: "item-2", NoteID: "note-1", Content: "Clean garage", Completed: true},

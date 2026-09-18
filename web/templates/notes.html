@@ -1,6 +1,6 @@
-{{define "content"}}<section class="notes-page" hx-ext="sse" sse-connect="/notes/live">
+{{define "content"}}<section class="notes-page">
   <div class="notes-topbar card">
-    <form class="notes-quickadd" hx-post="/notes" hx-target="#notes-container" hx-swap="outerHTML">
+    <form class="notes-quickadd" hx-post="/notes" hx-target="#notes-container" hx-swap="outerHTML" hx-on::after-request="if(event.detail.successful) this.reset()">
       <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
       <div class="notes-quickadd-head">
         <input type="text" name="title" placeholder="Title" autocomplete="off" class="notes-input-title">
@@ -27,20 +27,30 @@
     </form>
   </div>
 
-  <div id="notes-container">
-    {{template "notesList" .}}
+  {{if .Tag}}
+  <div class="notes-filter-banner card">
+    <span>Filtered by tag: <strong>#{{.Tag}}</strong></span>
+    <a href="/notes" class="btn btn-ghost btn-sm">Clear filter</a>
   </div>
+  {{end}}
+
+  {{template "notesList" .}}
 </section>
 {{end}}
 
 {{define "notesList"}}
-<div id="notes-container" class="notes-grid" sse-swap="message">
+<div id="notes-container" class="notes-grid" hx-ext="sse" sse-connect="/notes/live" hx-get="/notes" hx-trigger="sse:note_update" hx-swap="outerHTML">
   {{range .Notes}}
   <article class="note-card note-color-{{.Color}}{{if .IsPinned}} note-pinned{{end}}" id="note-{{.ID}}">
     <div class="note-card-head">
       <h3 class="note-card-title">{{if .Title}}{{.Title}}{{else}}Untitled{{end}}</h3>
       <div class="note-card-badges">
-        {{if .IsFamilyShared}}<span class="note-badge-family" title="Shared with family">👨‍👩‍👧‍👦 Family</span>{{end}}
+        <form class="inline-form" hx-post="/notes/{{.ID}}/share" hx-target="#note-{{.ID}}" hx-swap="outerHTML">
+          <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+          <button type="submit" class="btn btn-ghost btn-sm note-badge-family{{if .IsFamilyShared}} is-shared{{end}}" title="{{if .IsFamilyShared}}Shared with family (click to unshare){{else}}Private (click to share with family){{end}}">
+            👨‍👩‍👧‍👦 {{if .IsFamilyShared}}Family{{else}}Share{{end}}
+          </button>
+        </form>
       </div>
     </div>
 
@@ -48,10 +58,14 @@
     <ul class="note-checklist">
       {{range .Items}}
       <li class="note-checkitem{{if .Completed}} completed{{end}}" id="item-{{.ID}}">
-        <form class="inline-form" hx-post="/notes/{{.NoteID}}/items/{{.ID}}/toggle" hx-target="#note-{{.NoteID}}" hx-swap="outerHTML">
+        <form class="inline-form" hx-post="/notes/{{.NoteID}}/items/{{.ID}}/toggle" hx-target="#note-{{.NoteID}}" hx-swap="outerHTML" hx-trigger="change">
           <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-          <input type="checkbox" name="completed" {{if .Completed}}checked{{end}} onchange="this.form.requestSubmit()">
+          <input type="checkbox" name="completed" {{if .Completed}}checked{{end}}>
           <span class="note-item-text">{{.Content}}</span>
+        </form>
+        <form class="inline-form note-item-del-form" hx-post="/notes/{{.NoteID}}/items/{{.ID}}/delete" hx-target="#note-{{.NoteID}}" hx-swap="outerHTML">
+          <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+          <button type="submit" class="btn btn-ghost btn-sm note-item-del" title="Delete item">&times;</button>
         </form>
       </li>
       {{end}}
@@ -63,6 +77,40 @@
     {{else}}
     <div class="note-card-body">{{.Body}}</div>
     {{end}}
+
+    {{if .Tags}}
+    <div class="note-card-tags">
+      {{range .Tags}}
+      <a href="/notes?tag={{.}}" class="note-tag-chip">#{{.}}</a>
+      {{end}}
+    </div>
+    {{end}}
+
+    <details class="note-edit-details">
+      <summary class="btn btn-ghost btn-sm note-edit-summary" title="Edit note">✏️ Edit</summary>
+      <form class="note-edit-form" hx-post="/notes/{{.ID}}" hx-target="#note-{{.ID}}" hx-swap="outerHTML">
+        <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+        <input type="text" name="title" value="{{.Title}}" placeholder="Title" class="notes-input-title">
+        {{if ne .Kind "list"}}
+        <textarea name="body" rows="3" class="notes-input-body">{{.Body}}</textarea>
+        {{end}}
+        <div class="notes-edit-actions">
+          <select name="color" class="notes-color-select">
+            <option value="default" {{if eq .Color "default"}}selected{{end}}>Default</option>
+            <option value="coral" {{if eq .Color "coral"}}selected{{end}}>Coral</option>
+            <option value="peach" {{if eq .Color "peach"}}selected{{end}}>Peach</option>
+            <option value="sand" {{if eq .Color "sand"}}selected{{end}}>Sand</option>
+            <option value="mint" {{if eq .Color "mint"}}selected{{end}}>Mint</option>
+            <option value="sage" {{if eq .Color "sage"}}selected{{end}}>Sage</option>
+            <option value="fog" {{if eq .Color "fog"}}selected{{end}}>Fog</option>
+            <option value="storm" {{if eq .Color "storm"}}selected{{end}}>Storm</option>
+            <option value="blossom" {{if eq .Color "blossom"}}selected{{end}}>Blossom</option>
+            <option value="clay" {{if eq .Color "clay"}}selected{{end}}>Clay</option>
+          </select>
+          <button type="submit" class="btn btn-sm">Save</button>
+        </div>
+      </form>
+    </details>
 
     <div class="note-card-foot">
       <form class="inline-form" hx-post="/notes/{{.ID}}/toggle-pin" hx-target="#notes-container" hx-swap="outerHTML">
@@ -90,7 +138,12 @@
   <div class="note-card-head">
     <h3 class="note-card-title">{{if .Note.Title}}{{.Note.Title}}{{else}}Untitled{{end}}</h3>
     <div class="note-card-badges">
-      {{if .Note.IsFamilyShared}}<span class="note-badge-family" title="Shared with family">👨‍👩‍👧‍👦 Family</span>{{end}}
+      <form class="inline-form" hx-post="/notes/{{.Note.ID}}/share" hx-target="#note-{{.Note.ID}}" hx-swap="outerHTML">
+        <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+        <button type="submit" class="btn btn-ghost btn-sm note-badge-family{{if .Note.IsFamilyShared}} is-shared{{end}}" title="{{if .Note.IsFamilyShared}}Shared with family (click to unshare){{else}}Private (click to share with family){{end}}">
+          👨‍👩‍👧‍👦 {{if .Note.IsFamilyShared}}Family{{else}}Share{{end}}
+        </button>
+      </form>
     </div>
   </div>
 
@@ -98,10 +151,14 @@
   <ul class="note-checklist">
     {{range .Note.Items}}
     <li class="note-checkitem{{if .Completed}} completed{{end}}" id="item-{{.ID}}">
-      <form class="inline-form" hx-post="/notes/{{.NoteID}}/items/{{.ID}}/toggle" hx-target="#note-{{.NoteID}}" hx-swap="outerHTML">
+      <form class="inline-form" hx-post="/notes/{{.NoteID}}/items/{{.ID}}/toggle" hx-target="#note-{{.NoteID}}" hx-swap="outerHTML" hx-trigger="change">
         <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-        <input type="checkbox" name="completed" {{if .Completed}}checked{{end}} onchange="this.form.requestSubmit()">
+        <input type="checkbox" name="completed" {{if .Completed}}checked{{end}}>
         <span class="note-item-text">{{.Content}}</span>
+      </form>
+      <form class="inline-form note-item-del-form" hx-post="/notes/{{.NoteID}}/items/{{.ID}}/delete" hx-target="#note-{{.NoteID}}" hx-swap="outerHTML">
+        <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+        <button type="submit" class="btn btn-ghost btn-sm note-item-del" title="Delete item">&times;</button>
       </form>
     </li>
     {{end}}
@@ -113,6 +170,40 @@
   {{else}}
   <div class="note-card-body">{{.Note.Body}}</div>
   {{end}}
+
+  {{if .Note.Tags}}
+  <div class="note-card-tags">
+    {{range .Note.Tags}}
+    <a href="/notes?tag={{.}}" class="note-tag-chip">#{{.}}</a>
+    {{end}}
+  </div>
+  {{end}}
+
+  <details class="note-edit-details">
+    <summary class="btn btn-ghost btn-sm note-edit-summary" title="Edit note">✏️ Edit</summary>
+    <form class="note-edit-form" hx-post="/notes/{{.Note.ID}}" hx-target="#note-{{.Note.ID}}" hx-swap="outerHTML">
+      <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+      <input type="text" name="title" value="{{.Note.Title}}" placeholder="Title" class="notes-input-title">
+      {{if ne .Note.Kind "list"}}
+      <textarea name="body" rows="3" class="notes-input-body">{{.Note.Body}}</textarea>
+      {{end}}
+      <div class="notes-edit-actions">
+        <select name="color" class="notes-color-select">
+          <option value="default" {{if eq .Note.Color "default"}}selected{{end}}>Default</option>
+          <option value="coral" {{if eq .Note.Color "coral"}}selected{{end}}>Coral</option>
+          <option value="peach" {{if eq .Note.Color "peach"}}selected{{end}}>Peach</option>
+          <option value="sand" {{if eq .Note.Color "sand"}}selected{{end}}>Sand</option>
+          <option value="mint" {{if eq .Note.Color "mint"}}selected{{end}}>Mint</option>
+          <option value="sage" {{if eq .Note.Color "sage"}}selected{{end}}>Sage</option>
+          <option value="fog" {{if eq .Note.Color "fog"}}selected{{end}}>Fog</option>
+          <option value="storm" {{if eq .Note.Color "storm"}}selected{{end}}>Storm</option>
+          <option value="blossom" {{if eq .Note.Color "blossom"}}selected{{end}}>Blossom</option>
+          <option value="clay" {{if eq .Note.Color "clay"}}selected{{end}}>Clay</option>
+        </select>
+        <button type="submit" class="btn btn-sm">Save</button>
+      </div>
+    </form>
+  </details>
 
   <div class="note-card-foot">
     <form class="inline-form" hx-post="/notes/{{.Note.ID}}/toggle-pin" hx-target="#notes-container" hx-swap="outerHTML">

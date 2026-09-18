@@ -134,3 +134,43 @@ func TestVTODO_UnescapingAndLineUnfoldingAndDates(t *testing.T) {
 		t.Errorf("expected UpdatedAt %v, got %v", expectedModified, parsed.UpdatedAt)
 	}
 }
+
+func TestVTODO_PropertyParametersAndCarriageReturns(t *testing.T) {
+	// RFC 5545 parameters on properties, e.g. SUMMARY;LANGUAGE=en:Task title
+	uid := uuid.New()
+	icsWithParams := "BEGIN:VCALENDAR\r\n" +
+		"VERSION:2.0\r\n" +
+		"BEGIN:VTODO\r\n" +
+		"UID;VALUE=TEXT:" + uid.String() + "\r\n" +
+		"SUMMARY;LANGUAGE=en;ENCODING=8BIT:Buy oat milk\r\n" +
+		"STATUS;X-CLIENT=test:COMPLETED\r\n" +
+		"END:VTODO\r\n" +
+		"END:VCALENDAR\r\n"
+
+	parsed, err := Parse(icsWithParams)
+	if err != nil {
+		t.Fatalf("failed to parse VTODO with property parameters: %v", err)
+	}
+	if parsed.ID != uid {
+		t.Errorf("expected UID %v, got %v", uid, parsed.ID)
+	}
+	if parsed.Content != "Buy oat milk" {
+		t.Errorf("expected Content 'Buy oat milk', got %q", parsed.Content)
+	}
+	if !parsed.Completed {
+		t.Errorf("expected Completed = true")
+	}
+
+	// Carriage return stripping in Format
+	item := notes.NoteItem{
+		ID:      uid,
+		Content: "Line 1\r\nLine 2\rLine 3\nLine 4",
+	}
+	formatted := Format(item)
+	if strings.Contains(formatted, "\r\\n") {
+		t.Errorf("formatted text contains bare carriage return before escaped newline: %q", formatted)
+	}
+	if !strings.Contains(formatted, "SUMMARY:Line 1\\nLine 2Line 3\\nLine 4") {
+		t.Errorf("unexpected formatted SUMMARY: %q", formatted)
+	}
+}
