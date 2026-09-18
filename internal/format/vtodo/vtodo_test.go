@@ -99,3 +99,38 @@ func TestVTODOFormatAndParse_EdgeCases(t *testing.T) {
 		t.Errorf("expected content 'No UID', got %q", parsedMissingUID.Content)
 	}
 }
+
+func TestVTODO_UnescapingAndLineUnfoldingAndDates(t *testing.T) {
+	// 1. Literal backslash unescaping and leading space preservation
+	// SUMMARY: leading space and literal backslashes
+	icsFolded := "BEGIN:VCALENDAR\r\n" +
+		"BEGIN:VTODO\r\n" +
+		"SUMMARY:  Some content with a \\\\ literal backslash and\r\n" +
+		"  folded line.\r\n" +
+		"CREATED:20260918T215300Z\r\n" +
+		"LAST-MODIFIED:20260918T225300Z\r\n" +
+		"END:VTODO\r\n" +
+		"END:VCALENDAR\r\n"
+
+	parsed, err := Parse(icsFolded)
+	if err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+
+	// Leading spaces should be preserved, and line unfolding should concatenate "folded line."
+	expectedContent := "  Some content with a \\ literal backslash and folded line."
+	if parsed.Content != expectedContent {
+		t.Errorf("expected Content %q, got %q", expectedContent, parsed.Content)
+	}
+
+	// Dates should be parsed correctly
+	expectedCreated := time.Date(2026, 9, 18, 21, 53, 0, 0, time.UTC)
+	expectedModified := time.Date(2026, 9, 18, 22, 53, 0, 0, time.UTC)
+
+	if !parsed.CreatedAt.Equal(expectedCreated) {
+		t.Errorf("expected CreatedAt %v, got %v", expectedCreated, parsed.CreatedAt)
+	}
+	if !parsed.UpdatedAt.Equal(expectedModified) {
+		t.Errorf("expected UpdatedAt %v, got %v", expectedModified, parsed.UpdatedAt)
+	}
+}

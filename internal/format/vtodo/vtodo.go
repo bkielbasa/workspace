@@ -40,31 +40,65 @@ func Format(item notes.NoteItem) string {
 
 func Parse(ics string) (*notes.NoteItem, error) {
 	scanner := bufio.NewScanner(strings.NewReader(ics))
+	var rawLines []string
+	for scanner.Scan() {
+		rawLines = append(rawLines, scanner.Text())
+	}
+
+	var unfoldedLines []string
+	for _, line := range rawLines {
+		if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
+			if len(unfoldedLines) > 0 {
+				unfoldedLines[len(unfoldedLines)-1] += line[1:]
+			} else {
+				unfoldedLines = append(unfoldedLines, line)
+			}
+		} else {
+			unfoldedLines = append(unfoldedLines, line)
+		}
+	}
+
 	item := &notes.NoteItem{}
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	for _, line := range unfoldedLines {
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) < 2 {
 			continue
 		}
 		key := strings.ToUpper(strings.TrimSpace(parts[0]))
-		val := strings.TrimSpace(parts[1])
+		val := parts[1]
 
 		switch {
 		case key == "UID":
-			if id, err := uuid.Parse(val); err == nil {
+			cleanVal := strings.TrimSpace(val)
+			if id, err := uuid.Parse(cleanVal); err == nil {
 				item.ID = id
 			}
 		case key == "SUMMARY":
 			item.Content = unescapeText(val)
 		case key == "STATUS":
-			if strings.EqualFold(val, "COMPLETED") {
+			cleanVal := strings.TrimSpace(val)
+			if strings.EqualFold(cleanVal, "COMPLETED") {
 				item.Completed = true
 			}
 		case key == "COMPLETED":
-			if t, err := time.Parse(icsTimeFormat, val); err == nil {
+			cleanVal := strings.TrimSpace(val)
+			if t, err := time.Parse(icsTimeFormat, cleanVal); err == nil {
 				item.CompletedAt = &t
+			}
+		case key == "CREATED":
+			cleanVal := strings.TrimSpace(val)
+			if t, err := time.Parse(icsTimeFormat, cleanVal); err == nil {
+				item.CreatedAt = t
+			} else if t, err := time.Parse(time.RFC3339, cleanVal); err == nil {
+				item.CreatedAt = t
+			}
+		case key == "LAST-MODIFIED":
+			cleanVal := strings.TrimSpace(val)
+			if t, err := time.Parse(icsTimeFormat, cleanVal); err == nil {
+				item.UpdatedAt = t
+			} else if t, err := time.Parse(time.RFC3339, cleanVal); err == nil {
+				item.UpdatedAt = t
 			}
 		}
 	}
@@ -84,9 +118,30 @@ func escapeText(s string) string {
 }
 
 func unescapeText(s string) string {
-	s = strings.ReplaceAll(s, "\\n", "\n")
-	s = strings.ReplaceAll(s, "\\,", ",")
-	s = strings.ReplaceAll(s, "\\;", ";")
-	s = strings.ReplaceAll(s, "\\\\", "\\")
-	return s
+	var sb strings.Builder
+	runes := []rune(s)
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == '\\' && i+1 < len(runes) {
+			next := runes[i+1]
+			switch next {
+			case 'n', 'N':
+				sb.WriteRune('\n')
+				i++
+			case ',':
+				sb.WriteRune(',')
+				i++
+			case ';':
+				sb.WriteRune(';')
+				i++
+			case '\\':
+				sb.WriteRune('\\')
+				i++
+			default:
+				sb.WriteRune(runes[i])
+			}
+		} else {
+			sb.WriteRune(runes[i])
+		}
+	}
+	return sb.String()
 }
