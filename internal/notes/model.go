@@ -29,6 +29,10 @@ type Note struct {
 	Tags           []string   `json:"tags,omitempty"`
 }
 
+func (n *Note) AppleNoteFields() (uuid.UUID, string, string, time.Time) {
+	return n.ID, n.Title, n.Body, n.UpdatedAt
+}
+
 type NoteItem struct {
 	ID          uuid.UUID  `json:"id"`
 	NoteID      uuid.UUID  `json:"note_id"`

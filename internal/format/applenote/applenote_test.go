@@ -5,14 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bklimczak/workspace/internal/notes"
 	"github.com/google/uuid"
 )
 
 func TestFormatAndParseAppleNote(t *testing.T) {
 	noteID := uuid.New()
 	now := time.Date(2026, 9, 19, 14, 30, 0, 0, time.UTC)
-	origNote := &notes.Note{
+	origNote := &Note{
 		ID:        noteID,
 		Title:     "Meeting Notes",
 		Body:      "Line 1: Discussion\nLine 2: Action items",
@@ -82,7 +81,7 @@ func TestParseAppleNoteHTMLBody(t *testing.T) {
 func TestRoundtripNonASCIIAndSpacing(t *testing.T) {
 	noteID := uuid.New()
 	now := time.Date(2026, 9, 19, 14, 30, 0, 0, time.UTC)
-	origNote := &notes.Note{
+	origNote := &Note{
 		ID:        noteID,
 		Title:     "🚀 Meeting with Client 🌲",
 		Body:      "   Leading and trailing spaces are preserved.   \nNewlines are kept.\n",

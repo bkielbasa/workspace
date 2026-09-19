@@ -18,7 +18,7 @@ type MailboxRepository interface {
 }
 
 var defaultMailboxes = []string{
-	"INBOX", "Sent", "Drafts", "Trash", "Archive", "Spam", "All", "Important",
+	"INBOX", "Sent", "Drafts", "Trash", "Archive", "Spam", "All", "Important", "Notes",
 }
 
 type Mailboxes struct {

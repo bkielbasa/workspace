@@ -8,13 +8,28 @@ import (
 	"mime"
 	"mime/quotedprintable"
 	"net/mail"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/bklimczak/workspace/internal/notes"
 	"github.com/google/uuid"
 )
+
+type Note struct {
+	ID        uuid.UUID
+	Title     string
+	Body      string
+	UpdatedAt time.Time
+}
+
+type FormattableNote interface {
+	AppleNoteFields() (id uuid.UUID, title, body string, updatedAt time.Time)
+}
+
+func (n *Note) AppleNoteFields() (uuid.UUID, string, string, time.Time) {
+	return n.ID, n.Title, n.Body, n.UpdatedAt
+}
 
 type ParsedNote struct {
 	ID        uuid.UUID
@@ -33,24 +48,64 @@ func isASCII(s string) bool {
 	return true
 }
 
-func Format(note *notes.Note, userEmail string) string {
-	dateStr := note.UpdatedAt.Format(time.RFC1123Z)
+func Format(note any, userEmail string) string {
+	var (
+		id        uuid.UUID
+		title     string
+		body      string
+		updatedAt time.Time
+	)
+
+	if fn, ok := note.(FormattableNote); ok {
+		id, title, body, updatedAt = fn.AppleNoteFields()
+	} else if n, ok := note.(*Note); ok && n != nil {
+		id, title, body, updatedAt = n.ID, n.Title, n.Body, n.UpdatedAt
+	} else if n, ok := note.(Note); ok {
+		id, title, body, updatedAt = n.ID, n.Title, n.Body, n.UpdatedAt
+	} else if note != nil {
+		v := reflect.ValueOf(note)
+		if v.Kind() == reflect.Pointer {
+			v = v.Elem()
+		}
+		if v.Kind() == reflect.Struct {
+			if f := v.FieldByName("ID"); f.IsValid() {
+				if uid, ok := f.Interface().(uuid.UUID); ok {
+					id = uid
+				}
+			}
+			if f := v.FieldByName("Title"); f.IsValid() {
+				title = f.String()
+			}
+			if f := v.FieldByName("Body"); f.IsValid() {
+				body = f.String()
+			}
+			if f := v.FieldByName("UpdatedAt"); f.IsValid() {
+				if t, ok := f.Interface().(time.Time); ok {
+					updatedAt = t
+				}
+			}
+		}
+	}
+
+	if updatedAt.IsZero() {
+		updatedAt = time.Now()
+	}
+	dateStr := updatedAt.Format(time.RFC1123Z)
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("From: %s\r\n", userEmail))
 
-	title := note.Title
 	if !isASCII(title) {
 		title = mime.QEncoding.Encode("utf-8", title)
 	}
 	sb.WriteString(fmt.Sprintf("Subject: %s\r\n", title))
 	sb.WriteString(fmt.Sprintf("Date: %s\r\n", dateStr))
-	sb.WriteString(fmt.Sprintf("Message-ID: <%s@workspace.local>\r\n", note.ID))
+	sb.WriteString(fmt.Sprintf("Message-ID: <%s@workspace.local>\r\n", id))
 	sb.WriteString("X-Uniform-Type-Identifier: com.apple.mail-note\r\n")
-	sb.WriteString(fmt.Sprintf("X-Universally-Unique-Identifier: %s\r\n", note.ID))
+	sb.WriteString(fmt.Sprintf("X-Universally-Unique-Identifier: %s\r\n", id))
 	sb.WriteString("MIME-Version: 1.0\r\n")
 	sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
 	sb.WriteString("Content-Transfer-Encoding: 8bit\r\n\r\n")
-	sb.WriteString(note.Body)
+	sb.WriteString(body)
 	return sb.String()
 }
 
