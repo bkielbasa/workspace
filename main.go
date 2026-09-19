@@ -138,9 +138,11 @@ func main() {
 	}
 
 	imapCleartext, imapTLS, imapNotesBridge := wireIMAPServers(deviceAuth, messages, mailboxes, notesSvc, tlsCfg)
-	go imapNotesBridge.StartEventListener(ctx, func(userID uuid.UUID) (*identity.User, error) {
-		return users.GetByID(ctx, userID)
-	})
+	if imapNotesBridge != nil {
+		go imapNotesBridge.StartEventListener(ctx, func(userID uuid.UUID) (*identity.User, error) {
+			return users.GetByID(ctx, userID)
+		})
+	}
 	go mustListen(imapCleartext)
 	if imapTLS != nil {
 		go mustListen(imapTLS)

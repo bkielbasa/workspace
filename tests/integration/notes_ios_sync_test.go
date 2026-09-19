@@ -640,6 +640,7 @@ func TestE2E_IMAPAppendCreatesNoteAndSSEBroadcast(t *testing.T) {
 		t.Fatalf("net.Dial failed: %v", err)
 	}
 	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	r := bufio.NewReader(conn)
 	readUntilPrefix(t, r, "* OK")

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -131,7 +132,12 @@ func (s *Server) Serve(ln net.Listener) error {
 	for {
 		c, err := ln.Accept()
 		if err != nil {
-			return err
+			if errors.Is(err, net.ErrClosed) {
+				return err
+			}
+			obs.Log(context.Background(), slog.LevelError, "imap accept error", "error", err)
+			time.Sleep(50 * time.Millisecond)
+			continue
 		}
 		// Refuse politely at the cap rather than spawning without limit:
 		// a client stuck in a reconnect loop would otherwise drain the
