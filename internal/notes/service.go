@@ -30,6 +30,7 @@ func (s *Service) Broker() *Broker {
 
 func (s *Service) CreateNote(ctx context.Context, userID uuid.UUID, n Note) (*Note, error) {
 	n.UserID = userID
+	n.IsFamilyShared = false
 	created, err := s.repo.CreateNote(ctx, n)
 	if err != nil {
 		return nil, err
@@ -38,7 +39,7 @@ func (s *Service) CreateNote(ctx context.Context, userID uuid.UUID, n Note) (*No
 		Type:           "note_created",
 		NoteID:         created.ID,
 		UserID:         created.UserID,
-		IsFamilyShared: created.IsFamilyShared,
+		IsFamilyShared: false,
 	})
 	return created, nil
 }
@@ -48,7 +49,7 @@ func (s *Service) GetNote(ctx context.Context, userID uuid.UUID, id uuid.UUID) (
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	if n.UserID != userID && !n.IsFamilyShared {
+	if n.UserID != userID {
 		return nil, ErrNotFound
 	}
 	return n, nil
@@ -64,15 +65,12 @@ func (s *Service) UpdateNote(ctx context.Context, userID uuid.UUID, isAdmin bool
 		return nil, ErrNotFound
 	}
 
-	if existing.UserID != userID && !existing.IsFamilyShared && !isAdmin {
+	if existing.UserID != userID && !isAdmin {
 		return nil, ErrNotFound
 	}
 
-	if existing.IsFamilyShared != n.IsFamilyShared && existing.UserID != userID && !isAdmin {
-		return nil, ErrForbidden
-	}
-
 	n.UserID = existing.UserID // Prevent ownership hijacking
+	n.IsFamilyShared = false
 
 	updated, err := s.repo.UpdateNote(ctx, n)
 	if err != nil {
@@ -82,7 +80,7 @@ func (s *Service) UpdateNote(ctx context.Context, userID uuid.UUID, isAdmin bool
 		Type:           "note_updated",
 		NoteID:         updated.ID,
 		UserID:         updated.UserID,
-		IsFamilyShared: updated.IsFamilyShared,
+		IsFamilyShared: false,
 	})
 	return updated, nil
 }
@@ -92,11 +90,8 @@ func (s *Service) DeleteNote(ctx context.Context, userID uuid.UUID, isAdmin bool
 	if err != nil {
 		return ErrNotFound
 	}
-	if existing.UserID != userID && !existing.IsFamilyShared && !isAdmin {
-		return ErrNotFound
-	}
 	if existing.UserID != userID && !isAdmin {
-		return ErrForbidden
+		return ErrNotFound
 	}
 	if err := s.repo.DeleteNote(ctx, id); err != nil {
 		return err
@@ -105,7 +100,7 @@ func (s *Service) DeleteNote(ctx context.Context, userID uuid.UUID, isAdmin bool
 		Type:           "note_deleted",
 		NoteID:         id,
 		UserID:         existing.UserID,
-		IsFamilyShared: existing.IsFamilyShared,
+		IsFamilyShared: false,
 	})
 	return nil
 }
@@ -134,7 +129,7 @@ func (s *Service) AddItemWithID(ctx context.Context, userID uuid.UUID, noteID, i
 		ItemID:         item.ID,
 		Completed:      item.Completed,
 		UserID:         note.UserID,
-		IsFamilyShared: note.IsFamilyShared,
+		IsFamilyShared: false,
 	})
 	return item, nil
 }
@@ -177,7 +172,7 @@ func (s *Service) UpdateItem(ctx context.Context, userID uuid.UUID, noteID, item
 		ItemID:         updated.ID,
 		Completed:      updated.Completed,
 		UserID:         note.UserID,
-		IsFamilyShared: note.IsFamilyShared,
+		IsFamilyShared: false,
 	})
 	return updated, nil
 }
@@ -206,7 +201,7 @@ func (s *Service) ToggleItem(ctx context.Context, userID uuid.UUID, noteID, item
 		ItemID:         updated.ID,
 		Completed:      updated.Completed,
 		UserID:         note.UserID,
-		IsFamilyShared: note.IsFamilyShared,
+		IsFamilyShared: false,
 	})
 	return updated, nil
 }
@@ -233,7 +228,7 @@ func (s *Service) DeleteItem(ctx context.Context, userID uuid.UUID, noteID, item
 		NoteID:         noteID,
 		ItemID:         itemID,
 		UserID:         note.UserID,
-		IsFamilyShared: note.IsFamilyShared,
+		IsFamilyShared: false,
 	})
 	return nil
 }

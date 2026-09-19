@@ -515,9 +515,8 @@ func TestNotesCreateNoteAndChecklist(t *testing.T) {
 		"_csrf":            {csrfToken},
 		"title":            {"Weekly Chores"},
 		"body":             {"Dishes\nLaundry\nTrash"},
-		"kind":             {"list"},
-		"color":            {"storm"},
-		"is_family_shared": {"true"},
+		"kind":  {"list"},
+		"color": {"storm"},
 	}
 	req = httptest.NewRequest(http.MethodPost, "/notes", strings.NewReader(formChecklist.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -542,9 +541,6 @@ func TestNotesCreateNoteAndChecklist(t *testing.T) {
 	}
 	if !strings.Contains(resBody, "Trash") {
 		t.Errorf("expected response to contain checklist item 'Trash'")
-	}
-	if !strings.Contains(resBody, "Family") {
-		t.Errorf("expected response to contain Family badge")
 	}
 }
 
@@ -776,24 +772,16 @@ func TestNotesLiveSSEFiltering(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// 1. Bob's private event -> should NOT be received by Alice
-	bobPrivateID := uuid.New()
+	// 1. Bob's event -> should NOT be received by Alice
+	bobEventID := uuid.New()
 	notesSvc.Broker().Publish(notes.Event{
 		Type:           "note_created",
-		NoteID:         bobPrivateID,
+		NoteID:         bobEventID,
 		UserID:         userBob.ID,
 		IsFamilyShared: false,
 	})
 
-	// 2. Bob's family-shared event -> SHOULD be received by Alice
-	bobSharedID := uuid.New()
-	notesSvc.Broker().Publish(notes.Event{
-		Type:           "note_created",
-		NoteID:         bobSharedID,
-		UserID:         userBob.ID,
-		IsFamilyShared: true,
-	})
-
-	// 3. Alice's own private event -> SHOULD be received by Alice
+	// 2. Alice's own private event -> SHOULD be received by Alice
 	alicePrivateID := uuid.New()
 	notesSvc.Broker().Publish(notes.Event{
 		Type:           "note_created",
@@ -807,11 +795,8 @@ func TestNotesLiveSSEFiltering(t *testing.T) {
 	<-done
 
 	out := w.Body.String()
-	if strings.Contains(out, bobPrivateID.String()) {
-		t.Errorf("Alice received Bob's private note event!")
-	}
-	if !strings.Contains(out, bobSharedID.String()) {
-		t.Errorf("Alice did not receive Bob's family shared note event")
+	if strings.Contains(out, bobEventID.String()) {
+		t.Errorf("Alice received Bob's note event!")
 	}
 	if !strings.Contains(out, alicePrivateID.String()) {
 		t.Errorf("Alice did not receive her own note event")
@@ -914,7 +899,7 @@ func TestNotesDetail(t *testing.T) {
 	}
 }
 
-func TestNotesUpdateAndShare(t *testing.T) {
+func TestNotesUpdate(t *testing.T) {
 	user := &identity.User{
 		ID:      uuid.New(),
 		Email:   "alice@example.com",
@@ -928,7 +913,7 @@ func TestNotesUpdateAndShare(t *testing.T) {
 	_, mux := setupNotesTestServer(t, user, notesSvc)
 	csrfToken := "token-update"
 
-	// 1. Update note via HTMX
+	// Update note via HTMX
 	updateForm := url.Values{
 		"_csrf": {csrfToken},
 		"title": {"Final Note"},
@@ -950,24 +935,5 @@ func TestNotesUpdateAndShare(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "note-color-fog") {
 		t.Errorf("expected updated color class 'note-color-fog'")
-	}
-
-	// 2. Share note with family via HTMX
-	shareForm := url.Values{
-		"_csrf": {csrfToken},
-	}
-	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/notes/%s/share", n.ID), strings.NewReader(shareForm.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("HX-Request", "true")
-	req.AddCookie(&http.Cookie{Name: "session", Value: "test-session-token"})
-	req.AddCookie(&http.Cookie{Name: "csrf", Value: csrfToken})
-	w = httptest.NewRecorder()
-
-	mux.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Family") {
-		t.Errorf("expected family badge after sharing")
 	}
 }

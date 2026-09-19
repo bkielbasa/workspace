@@ -297,7 +297,6 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /notes/{id}", s.RequireAuth(s.notesDetail))
 	mux.HandleFunc("POST /notes/{id}", s.RequireAuth(s.RequireCSRF(s.notesUpdate)))
 	mux.HandleFunc("POST /notes/{id}/delete", s.RequireAuth(s.RequireCSRF(s.notesDelete)))
-	mux.HandleFunc("POST /notes/{id}/share", s.RequireAuth(s.RequireCSRF(s.notesShare)))
 	mux.HandleFunc("POST /notes/{id}/toggle-pin", s.RequireAuth(s.RequireCSRF(s.notesTogglePin)))
 	mux.HandleFunc("POST /notes/{id}/items", s.RequireAuth(s.RequireCSRF(s.notesAddItem)))
 	mux.HandleFunc("POST /notes/{id}/items/{item_id}/toggle", s.RequireAuth(s.RequireCSRF(s.notesToggleItem)))

@@ -19,14 +19,6 @@
             </label>
           </div>
 
-          <label class="notes-family-pill" title="Share with family members">
-            <input type="checkbox" name="is_family_shared" value="true" class="visually-hidden">
-            <span class="family-pill-content">
-              <span class="family-icon">👨‍👩‍👧‍👦</span>
-              <span class="family-label">Share with family</span>
-            </span>
-          </label>
-
           <div class="notes-color-swatches" role="radiogroup" aria-label="Card color">
             <label class="color-swatch swatch-default" title="Default"><input type="radio" name="color" value="default" checked class="visually-hidden"><span class="swatch-circle"></span></label>
             <label class="color-swatch swatch-coral" title="Coral"><input type="radio" name="color" value="coral" class="visually-hidden"><span class="swatch-circle"></span></label>
@@ -88,7 +80,7 @@
         </svg>
       </div>
       <h3 class="notes-empty-title">Notes and lists you add appear here</h3>
-      <p class="notes-empty-subtext">Capture ideas, create checklists, and share grocery lists with your family.</p>
+      <p class="notes-empty-subtext">Capture ideas, create checklists, and stay organized.</p>
     </div>
   {{end}}
 </div>
@@ -99,9 +91,6 @@
   <div class="note-card-head">
     <h3 class="note-card-title">{{if .Note.Title}}{{.Note.Title}}{{else}}Untitled{{end}}</h3>
     <div class="note-card-badges">
-      {{if .Note.IsFamilyShared}}
-      <span class="note-badge-family" title="Shared with family">👨‍👩‍👧‍👦 Family</span>
-      {{end}}
       <form class="inline-form" hx-post="/notes/{{.Note.ID}}/toggle-pin" hx-target="#notes-container" hx-swap="outerHTML">
         <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
         <button type="submit" class="note-pin-btn{{if .Note.IsPinned}} is-pinned{{end}}" title="{{if .Note.IsPinned}}Unpin note{{else}}Pin note{{end}}">
@@ -173,13 +162,6 @@
   </details>
 
   <div class="note-card-foot">
-    <form class="inline-form" hx-post="/notes/{{.Note.ID}}/share" hx-target="#note-{{.Note.ID}}" hx-swap="outerHTML">
-      <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-      <button type="submit" class="note-foot-btn{{if .Note.IsFamilyShared}} is-shared{{end}}" title="{{if .Note.IsFamilyShared}}Shared with family (click to unshare){{else}}Private (click to share with family){{end}}">
-        👨‍👩‍👧‍👦 {{if .Note.IsFamilyShared}}Family{{else}}Share{{end}}
-      </button>
-    </form>
-
     <form class="inline-form" hx-post="/notes/{{.Note.ID}}/delete" hx-target="#notes-container" hx-swap="outerHTML" hx-confirm="Delete this note?">
       <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
       <button type="submit" class="note-foot-btn note-foot-del" title="Delete note">

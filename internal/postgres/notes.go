@@ -91,7 +91,7 @@ func (r *notesRepository) ListNotes(ctx context.Context, userID uuid.UUID, archi
 		FROM notes n
 		LEFT JOIN notes_tags nt ON n.id = nt.note_id
 		LEFT JOIN note_tags t ON nt.tag_id = t.id
-		WHERE (n.user_id = $1 OR n.is_family_shared = TRUE)
+		WHERE n.user_id = $1
 		  AND n.is_archived = $2
 		  AND ($3 = '' OR t.name = $3)
 		ORDER BY n.is_pinned DESC, n.updated_at DESC

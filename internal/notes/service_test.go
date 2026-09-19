@@ -120,29 +120,25 @@ func TestServiceAuthorization(t *testing.T) {
 	// 2. Bob attempts to get Alice's private note -> should be ErrNotFound (hidden)
 	_, err = svc.GetNote(ctx, userBob, note.ID)
 	if !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expected ErrNotFound for non-owner private note, got: %v", err)
+		t.Fatalf("expected ErrNotFound for non-owner note, got: %v", err)
 	}
 
-	// 3. Alice makes note family shared
-	note.IsFamilyShared = true
-	_, err = svc.UpdateNote(ctx, userAlice, false, *note)
-	if err != nil {
-		t.Fatalf("failed to update note: %v", err)
+	// 3. Bob attempts to update Alice's note -> should be ErrNotFound
+	_, err = svc.UpdateNote(ctx, userBob, false, *note)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for non-owner updating note, got: %v", err)
 	}
 
-	// 4. Bob can now view and add items to the shared note
-	got, err := svc.GetNote(ctx, userBob, note.ID)
-	if err != nil {
-		t.Fatalf("expected Bob to view family shared note, got: %v", err)
-	}
-	if got.Title != "Secret Diary" {
-		t.Fatalf("expected title match, got %s", got.Title)
-	}
-
-	// 5. Bob tries to delete Alice's note -> should be ErrForbidden (only owner or admin can delete)
+	// 4. Bob tries to delete Alice's note -> should be ErrNotFound
 	err = svc.DeleteNote(ctx, userBob, false, note.ID)
-	if !errors.Is(err, ErrForbidden) {
-		t.Fatalf("expected ErrForbidden for non-owner deleting note, got: %v", err)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for non-owner deleting note, got: %v", err)
+	}
+
+	// 5. Admin can delete Alice's note
+	err = svc.DeleteNote(ctx, userBob, true, note.ID)
+	if err != nil {
+		t.Fatalf("expected admin to delete note, got: %v", err)
 	}
 }
 
@@ -158,50 +154,39 @@ func TestServiceSecurityConstraints(t *testing.T) {
 
 	// 1. Alice creates a private note
 	noteAlice, err := svc.CreateNote(ctx, userAlice, Note{
-		Title:          "Alice's Secret",
-		IsFamilyShared: false,
+		Title: "Alice's Secret",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// 2. Alice creates a shared note
-	noteShared, err := svc.CreateNote(ctx, userAlice, Note{
-		Title:          "Shared List",
-		IsFamilyShared: true,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// 3. Bob attempts to delete Alice's private note -> should return ErrNotFound (information leak prevention)
+	// 2. Bob attempts to delete Alice's private note -> should return ErrNotFound (information leak prevention)
 	err = svc.DeleteNote(ctx, userBob, false, noteAlice.ID)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for unauthorized delete of private note, got: %v", err)
 	}
 
-	// 4. Bob attempts to delete Alice's shared note -> should return ErrForbidden (since it exists and is shared, but Bob is not the owner)
-	err = svc.DeleteNote(ctx, userBob, false, noteShared.ID)
-	if !errors.Is(err, ErrForbidden) {
-		t.Fatalf("expected ErrForbidden for unauthorized delete of shared note, got: %v", err)
-	}
-
-	// 5. Test ownership preservation on update
-	// Alice's shared note updated by Bob (who tries to hijack it by setting user_id to Bob)
-	hijackedNote := *noteShared
+	// 3. Bob attempts to update Alice's note -> should return ErrNotFound
+	hijackedNote := *noteAlice
 	hijackedNote.UserID = userBob
 	hijackedNote.Title = "Hijacked Title"
-	updated, err := svc.UpdateNote(ctx, userBob, false, hijackedNote)
+	_, err = svc.UpdateNote(ctx, userBob, false, hijackedNote)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for non-owner update, got: %v", err)
+	}
+
+	// 4. Admin updates Alice's note -> verify ownership is preserved
+	adminUser := uuid.New()
+	updated, err := svc.UpdateNote(ctx, adminUser, true, hijackedNote)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("unexpected error on admin update: %v", err)
 	}
 	if updated.UserID != userAlice {
 		t.Fatalf("expected note owner to remain Alice, but changed to: %s", updated.UserID)
 	}
 
-	// 6. Test item verification belonging to note
-	// Let's add an item to Alice's shared note
-	item, err := svc.AddItem(ctx, userAlice, noteShared.ID, "Buy Milk")
+	// 5. Test item verification belonging to note
+	item, err := svc.AddItem(ctx, userAlice, noteAlice.ID, "Buy Milk")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -253,15 +238,16 @@ func TestServiceAddItemWithIDAndUpdatedItem(t *testing.T) {
 		t.Fatalf("expected content 'Item 1', got '%s'", item.Content)
 	}
 
-	updated, err := svc.UpdateItem(ctx, userID, note.ID, customID, "Item 1 Modified", true)
+	// UpdateItem content and completion status
+	updatedItem, err := svc.UpdateItem(ctx, userID, note.ID, item.ID, "Item 1 Updated", true)
 	if err != nil {
 		t.Fatalf("unexpected error updating item: %v", err)
 	}
-	if updated.Content != "Item 1 Modified" {
-		t.Fatalf("expected updated content 'Item 1 Modified', got '%s'", updated.Content)
+	if updatedItem.Content != "Item 1 Updated" {
+		t.Fatalf("expected content 'Item 1 Updated', got '%s'", updatedItem.Content)
 	}
-	if !updated.Completed {
-		t.Fatalf("expected completed to be true")
+	if !updatedItem.Completed {
+		t.Fatalf("expected item to be completed")
 	}
 }
 
@@ -274,73 +260,70 @@ func TestServiceEventsUserIDAndFamilyShared(t *testing.T) {
 	defer broker.Unsubscribe(eventsCh)
 
 	alice := uuid.New()
-	bob := uuid.New()
 	ctx := context.Background()
 
-	// 1. Create Note (shared with family)
+	// 1. Create Note
 	note, err := svc.CreateNote(ctx, alice, Note{
-		Title:          "Family List",
-		Kind:           KindList,
-		IsFamilyShared: true,
+		Title: "Personal List",
+		Kind:  KindList,
 	})
 	if err != nil {
 		t.Fatalf("CreateNote failed: %v", err)
 	}
 	ev := <-eventsCh
-	if ev.Type != "note_created" || ev.UserID != alice || !ev.IsFamilyShared {
-		t.Errorf("note_created: expected alice and shared=true, got %+v", ev)
+	if ev.Type != "note_created" || ev.UserID != alice || ev.IsFamilyShared {
+		t.Errorf("note_created: expected alice and shared=false, got %+v", ev)
 	}
 
-	// 2. Bob adds an item to Alice's shared note
-	item, err := svc.AddItem(ctx, bob, note.ID, "Apples")
+	// 2. Alice adds an item
+	item, err := svc.AddItem(ctx, alice, note.ID, "Apples")
 	if err != nil {
 		t.Fatalf("AddItem failed: %v", err)
 	}
 	ev = <-eventsCh
-	// Event should carry the note's owner UserID and IsFamilyShared
-	if ev.Type != "item_added" || ev.UserID != alice || !ev.IsFamilyShared {
-		t.Errorf("item_added: expected alice and shared=true, got %+v", ev)
+	if ev.Type != "item_added" || ev.UserID != alice || ev.IsFamilyShared {
+		t.Errorf("item_added: expected alice and shared=false, got %+v", ev)
 	}
 
-	// 3. Bob updates item
-	_, err = svc.UpdateItem(ctx, bob, note.ID, item.ID, "Green Apples", false)
+	// 3. Alice updates item
+	_, err = svc.UpdateItem(ctx, alice, note.ID, item.ID, "Green Apples", false)
 	if err != nil {
 		t.Fatalf("UpdateItem failed: %v", err)
 	}
 	ev = <-eventsCh
-	if ev.Type != "item_updated" || ev.UserID != alice || !ev.IsFamilyShared {
-		t.Errorf("item_updated: expected alice and shared=true, got %+v", ev)
+	if ev.Type != "item_updated" || ev.UserID != alice || ev.IsFamilyShared {
+		t.Errorf("item_updated: expected alice and shared=false, got %+v", ev)
 	}
 
-	// 4. Bob toggles item
-	_, err = svc.ToggleItem(ctx, bob, note.ID, item.ID, true)
+	// 4. Alice toggles item
+	_, err = svc.ToggleItem(ctx, alice, note.ID, item.ID, true)
 	if err != nil {
 		t.Fatalf("ToggleItem failed: %v", err)
 	}
 	ev = <-eventsCh
-	if ev.Type != "item_toggled" || ev.UserID != alice || !ev.IsFamilyShared {
-		t.Errorf("item_toggled: expected alice and shared=true, got %+v", ev)
+	if ev.Type != "item_toggled" || ev.UserID != alice || ev.IsFamilyShared {
+		t.Errorf("item_toggled: expected alice and shared=false, got %+v", ev)
 	}
 
-	// 5. Bob deletes item
-	err = svc.DeleteItem(ctx, bob, note.ID, item.ID)
+	// 5. Alice deletes item
+	err = svc.DeleteItem(ctx, alice, note.ID, item.ID)
 	if err != nil {
 		t.Fatalf("DeleteItem failed: %v", err)
 	}
 	ev = <-eventsCh
-	if ev.Type != "item_deleted" || ev.UserID != alice || !ev.IsFamilyShared {
-		t.Errorf("item_deleted: expected alice and shared=true, got %+v", ev)
+	if ev.Type != "item_deleted" || ev.UserID != alice || ev.IsFamilyShared {
+		t.Errorf("item_deleted: expected alice and shared=false, got %+v", ev)
 	}
 
 	// 6. Alice updates note
-	note.Title = "Renamed Family List"
+	note.Title = "Renamed List"
 	_, err = svc.UpdateNote(ctx, alice, false, *note)
 	if err != nil {
 		t.Fatalf("UpdateNote failed: %v", err)
 	}
 	ev = <-eventsCh
-	if ev.Type != "note_updated" || ev.UserID != alice || !ev.IsFamilyShared {
-		t.Errorf("note_updated: expected alice and shared=true, got %+v", ev)
+	if ev.Type != "note_updated" || ev.UserID != alice || ev.IsFamilyShared {
+		t.Errorf("note_updated: expected alice and shared=false, got %+v", ev)
 	}
 
 	// 7. Alice deletes note
@@ -349,7 +332,7 @@ func TestServiceEventsUserIDAndFamilyShared(t *testing.T) {
 		t.Fatalf("DeleteNote failed: %v", err)
 	}
 	ev = <-eventsCh
-	if ev.Type != "note_deleted" || ev.UserID != alice || !ev.IsFamilyShared {
-		t.Errorf("note_deleted: expected alice and shared=true, got %+v", ev)
+	if ev.Type != "note_deleted" || ev.UserID != alice || ev.IsFamilyShared {
+		t.Errorf("note_deleted: expected alice and shared=false, got %+v", ev)
 	}
 }

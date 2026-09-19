@@ -140,7 +140,7 @@ func (s *Server) notesLiveSSE(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			if !ev.IsFamilyShared && ev.UserID != user.ID {
+			if ev.UserID != user.ID {
 				continue
 			}
 			fmt.Fprintf(w, "event: note_update\ndata: {\"note_id\":\"%s\",\"type\":\"%s\"}\n\n", ev.NoteID, ev.Type)
@@ -175,14 +175,13 @@ func (s *Server) notesCreate(w http.ResponseWriter, r *http.Request) {
 	if color == "" {
 		color = "default"
 	}
-	isShared := r.FormValue("is_family_shared") == "true" || r.FormValue("is_family_shared") == "on"
 
 	n := notes.Note{
 		Title:          title,
 		Body:           body,
 		Kind:           notes.Kind(kind),
 		Color:          color,
-		IsFamilyShared: isShared,
+		IsFamilyShared: false,
 	}
 
 	created, err := s.notes.CreateNote(r.Context(), user.ID, n)
@@ -296,9 +295,6 @@ func (s *Server) notesUpdate(w http.ResponseWriter, r *http.Request) {
 	if r.Form.Has("is_archived") {
 		existing.IsArchived = r.FormValue("is_archived") == "true" || r.FormValue("is_archived") == "on"
 	}
-	if r.Form.Has("is_family_shared") {
-		existing.IsFamilyShared = r.FormValue("is_family_shared") == "true" || r.FormValue("is_family_shared") == "on"
-	}
 
 	updated, err := s.notes.UpdateNote(r.Context(), user.ID, user.IsAdmin, *existing)
 	if err != nil {
@@ -365,62 +361,6 @@ func (s *Server) notesDelete(w http.ResponseWriter, r *http.Request) {
 		}
 		data := notesListData(s.csrfToken(r), notesList, "", false)
 		s.render(w, "notesList", data)
-		return
-	}
-
-	http.Redirect(w, r, "/notes", http.StatusSeeOther)
-}
-
-func (s *Server) notesShare(w http.ResponseWriter, r *http.Request) {
-	user := UserFromContext(r.Context())
-	if user == nil {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
-	if s.notes == nil {
-		http.Error(w, "notes service unavailable", http.StatusServiceUnavailable)
-		return
-	}
-
-	id, err := parseNoteID(r)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
-	note, err := s.notes.GetNote(r.Context(), user.ID, id)
-	if err != nil {
-		if errors.Is(err, notes.ErrNotFound) {
-			http.NotFound(w, r)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	_ = r.ParseForm()
-	if r.Form.Has("is_family_shared") {
-		note.IsFamilyShared = r.FormValue("is_family_shared") == "true" || r.FormValue("is_family_shared") == "on"
-	} else {
-		note.IsFamilyShared = !note.IsFamilyShared
-	}
-
-	updated, err := s.notes.UpdateNote(r.Context(), user.ID, user.IsAdmin, *note)
-	if err != nil {
-		if errors.Is(err, notes.ErrForbidden) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if r.Header.Get("HX-Request") == "true" {
-		data := map[string]any{
-			"Note":      updated,
-			"CSRFToken": s.csrfToken(r),
-		}
-		s.render(w, "noteCard", data)
 		return
 	}
 

@@ -3297,34 +3297,6 @@ input[readonly] {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
-/* Family Sharing Pill */
-.notes-family-pill {
-  cursor: pointer;
-  margin: 0;
-  display: inline-flex;
-}
-
-.notes-family-pill .family-pill-content {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.2rem 0.6rem;
-  font-size: 0.8rem;
-  font-weight: 500;
-  border-radius: 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  user-select: none;
-  transition: all 0.15s ease;
-}
-
-.notes-family-pill input:checked + .family-pill-content {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-
 /* Color Swatches */
 .notes-color-swatches {
   display: flex;
@@ -3453,16 +3425,6 @@ input[readonly] {
   gap: 0.35rem;
   margin-top: -2px;
   margin-right: -4px;
-}
-
-.note-badge-family {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-weight: 500;
-  padding: 0.15rem 0.45rem;
-  border-radius: 999px;
-  white-space: nowrap;
 }
 
 /* Top-right Pin Button */
@@ -3700,11 +3662,6 @@ input[readonly] {
 .note-foot-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: var(--text);
-}
-
-.note-foot-btn.is-shared {
-  color: var(--accent-text);
-  background: var(--accent-soft);
 }
 
 .note-foot-del:hover {

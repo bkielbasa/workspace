@@ -319,7 +319,6 @@ func TestNotesTemplateSyntax(t *testing.T) {
 		"note-color-storm",
 		"notes-color-swatches",
 		"notes-kind-pills",
-		"notes-family-pill",
 	}
 
 	for _, s := range expectedStrings {
