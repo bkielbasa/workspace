@@ -12,6 +12,7 @@ import (
 
 	"github.com/bklimczak/workspace/internal/identity"
 	"github.com/bklimczak/workspace/internal/mail"
+	"github.com/bklimczak/workspace/internal/notes"
 	"github.com/bklimczak/workspace/internal/obs"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
@@ -78,11 +79,17 @@ type MessageStore interface {
 	Copy(ctx context.Context, id, mailboxID uuid.UUID) (*mail.Message, error)
 }
 
+type NotesBridge interface {
+	HandleIMAPAppend(ctx context.Context, userID uuid.UUID, mailboxName, raw string) (*notes.Note, error)
+	HandleIMAPExpunge(ctx context.Context, userID uuid.UUID, mailboxName string, messageIDs []uuid.UUID) error
+}
+
 type Server struct {
 	addr      string
 	users     Authenticator
 	mail      MessageStore
 	mboxes    MailboxStore
+	notes     NotesBridge
 	tlsConfig *tls.Config
 	tracer    trace.Tracer
 	// slots bounds concurrent sessions; each handler holds one.
@@ -110,6 +117,10 @@ func NewTLSServer(addr string, users Authenticator, messages MessageStore, mailb
 		tracer:    otel.Tracer("imap"),
 		slots:     make(chan struct{}, maxConnections),
 	}
+}
+
+func (s *Server) SetNotesBridge(b NotesBridge) {
+	s.notes = b
 }
 
 func (s *Server) ListenAndServe() error {
@@ -425,6 +436,9 @@ func (s *Server) handle(conn net.Conn) {
 				write(tag + " NO could not append message")
 				continue
 			}
+			if s.notes != nil && (strings.EqualFold(mailbox.Name, "Notes") || strings.Contains(strings.ToLower(raw), "com.apple.mail-note")) {
+				_, _ = s.notes.HandleIMAPAppend(ctx, authed.ID, mailbox.Name, raw)
+			}
 			write(fmt.Sprintf("%s OK [APPENDUID %d %d] APPEND completed", tag, mailbox.UIDValidity, message.UID))
 
 		case "SEARCH":
@@ -671,19 +685,32 @@ func (s *Server) handle(conn net.Conn) {
 					write(tag + " BAD invalid UID EXPUNGE")
 					continue
 				}
+				type toExpungeItem struct {
+					id     uuid.UUID
+					seqOut int
+				}
+				var expungedList []toExpungeItem
+				var expungedIDs []uuid.UUID
 				remaining := make([]mail.Message, 0, len(selectedMsgs))
 				expunged := 0
 				maxUID := int(nextUID(selectedMsgs) - 1)
 				for seq, message := range selectedMsgs {
 					full, err := s.mail.Get(ctx, message.ID)
 					if err == nil && full.Deleted && messageSetContains(parts[3], int(message.UID), maxUID) {
-						if s.mail.Delete(ctx, message.ID) == nil {
-							write(fmt.Sprintf("* %d EXPUNGE", seq+1-expunged))
-							expunged++
-							continue
-						}
+						expungedIDs = append(expungedIDs, message.ID)
+						expungedList = append(expungedList, toExpungeItem{id: message.ID, seqOut: seq + 1 - expunged})
+						expunged++
+						continue
 					}
 					remaining = append(remaining, message)
+				}
+				if s.notes != nil && strings.EqualFold(selected.Name, "Notes") && len(expungedIDs) > 0 {
+					_ = s.notes.HandleIMAPExpunge(ctx, authed.ID, selected.Name, expungedIDs)
+				}
+				for _, item := range expungedList {
+					if s.mail.Delete(ctx, item.id) == nil {
+						write(fmt.Sprintf("* %d EXPUNGE", item.seqOut))
+					}
 				}
 				selectedMsgs = remaining
 				write(tag + " OK UID EXPUNGE completed")
@@ -802,6 +829,12 @@ func (s *Server) handle(conn net.Conn) {
 				continue
 			}
 
+			type toExpungeItem struct {
+				id     uuid.UUID
+				seqOut int
+			}
+			var expungedList []toExpungeItem
+			var expungedIDs []uuid.UUID
 			var remaining []mail.Message
 			seqNum := 1
 
@@ -812,13 +845,22 @@ func (s *Server) handle(conn net.Conn) {
 				}
 
 				if full.Deleted {
-					_ = s.mail.Delete(ctx, full.ID)
-					write(fmt.Sprintf("* %d EXPUNGE", seqNum))
+					expungedIDs = append(expungedIDs, full.ID)
+					expungedList = append(expungedList, toExpungeItem{id: full.ID, seqOut: seqNum})
 					continue
 				}
 
 				remaining = append(remaining, m)
 				seqNum++
+			}
+
+			if s.notes != nil && strings.EqualFold(selected.Name, "Notes") && len(expungedIDs) > 0 {
+				_ = s.notes.HandleIMAPExpunge(ctx, authed.ID, selected.Name, expungedIDs)
+			}
+
+			for _, item := range expungedList {
+				_ = s.mail.Delete(ctx, item.id)
+				write(fmt.Sprintf("* %d EXPUNGE", item.seqOut))
 			}
 
 			selectedMsgs = remaining
