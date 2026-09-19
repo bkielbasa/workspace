@@ -2,6 +2,8 @@ package notes
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -501,5 +503,144 @@ func TestIMAPBridgeStartEventListener(t *testing.T) {
 	}
 	if len(mailboxMsgs) != 0 {
 		t.Errorf("expected 0 messages in IMAP after delete, got: %d", len(mailboxMsgs))
+	}
+}
+
+func TestIMAPBridgeAppleNotesUpdateWorkflow(t *testing.T) {
+	notesRepo := newMockRepo()
+	broker := NewBroker()
+	notesSvc := NewService(notesRepo, broker)
+
+	mboxes := &mockMailboxes{mailboxes: make(map[string]*mail.Mailbox)}
+	msgs := &mockMessages{messages: make(map[uuid.UUID]*mail.Message)}
+
+	bridge := NewIMAPBridge(notesSvc, msgs, mboxes)
+	user := &identity.User{ID: uuid.New(), Email: "alice@example.com"}
+	ctx := context.Background()
+
+	notesBox, err := bridge.EnsureNotesMailbox(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("EnsureNotesMailbox failed: %v", err)
+	}
+
+	noteUUID := uuid.New()
+
+	// 1. Apple Notes app appends v1 of note
+	rawV1 := applenote.Format(&Note{
+		ID:    noteUUID,
+		Title: "Note V1",
+		Body:  "First version of note",
+	}, user.Email)
+
+	syncedNote1, err := bridge.HandleIMAPAppend(ctx, user.ID, "Notes", rawV1)
+	if err != nil {
+		t.Fatalf("HandleIMAPAppend v1 failed: %v", err)
+	}
+	if syncedNote1.Title != "Note V1" {
+		t.Fatalf("expected title 'Note V1', got %q", syncedNote1.Title)
+	}
+
+	// In IMAP, appending created message 1 in mailbox
+	msg1 := &mail.Message{
+		ID:         uuid.New(),
+		MailboxID:  notesBox.ID,
+		MessageID:  fmt.Sprintf("<%s@workspace.local>", noteUUID),
+		Sender:     user.Email,
+		Recipients: []string{user.Email},
+		Subject:    "Note V1",
+		RawMessage: rawV1,
+	}
+	if err := msgs.Append(ctx, msg1); err != nil {
+		t.Fatalf("append msg1 failed: %v", err)
+	}
+
+	// 2. Apple Notes app edits note: appends v2 with SAME noteUUID
+	rawV2 := applenote.Format(&Note{
+		ID:    noteUUID,
+		Title: "Note V2",
+		Body:  "Second revised version of note",
+	}, user.Email)
+
+	syncedNote2, err := bridge.HandleIMAPAppend(ctx, user.ID, "Notes", rawV2)
+	if err != nil {
+		t.Fatalf("HandleIMAPAppend v2 failed: %v", err)
+	}
+	if syncedNote2.Title != "Note V2" {
+		t.Fatalf("expected title 'Note V2', got %q", syncedNote2.Title)
+	}
+
+	// In IMAP, appending created message 2 in mailbox
+	msg2 := &mail.Message{
+		ID:         uuid.New(),
+		MailboxID:  notesBox.ID,
+		MessageID:  fmt.Sprintf("<%s@workspace.local>", noteUUID),
+		Sender:     user.Email,
+		Recipients: []string{user.Email},
+		Subject:    "Note V2",
+		RawMessage: rawV2,
+	}
+	if err := msgs.Append(ctx, msg2); err != nil {
+		t.Fatalf("append msg2 failed: %v", err)
+	}
+
+	// 3. Apple Notes client expunges message 1
+	_ = msgs.UpdateFlags(ctx, msg1.ID, true, false, false, true, false)
+
+	err = bridge.HandleIMAPExpunge(ctx, user.ID, "Notes", []uuid.UUID{msg1.ID})
+	if err != nil {
+		t.Fatalf("HandleIMAPExpunge failed: %v", err)
+	}
+
+	// In IMAP server, EXPUNGE permanently removes msg1
+	_ = msgs.Delete(ctx, msg1.ID)
+
+	// CRUCIAL: Note in notesSvc must NOT be deleted! It must have V2 content!
+	dbNote, err := notesSvc.GetNote(ctx, user.ID, noteUUID)
+	if err != nil {
+		t.Fatalf("expected note to remain intact in notesSvc, but got err: %v", err)
+	}
+	if dbNote.Title != "Note V2" || dbNote.Body != "Second revised version of note" {
+		t.Errorf("expected note to have V2 content, got title=%q body=%q", dbNote.Title, dbNote.Body)
+	}
+
+	// 4. Finally, when message 2 is actually expunged and no other active message remains
+	_ = msgs.UpdateFlags(ctx, msg2.ID, true, false, false, true, false)
+	err = bridge.HandleIMAPExpunge(ctx, user.ID, "Notes", []uuid.UUID{msg2.ID})
+	if err != nil {
+		t.Fatalf("HandleIMAPExpunge for msg2 failed: %v", err)
+	}
+	_ = msgs.Delete(ctx, msg2.ID)
+
+	// Now note should be deleted from notesSvc
+	_, err = notesSvc.GetNote(ctx, user.ID, noteUUID)
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound after final expunge, got: %v", err)
+	}
+}
+
+func TestIMAPBridgeNotePrivacy(t *testing.T) {
+	notesRepo := newMockRepo()
+	broker := NewBroker()
+	notesSvc := NewService(notesRepo, broker)
+
+	mboxes := &mockMailboxes{mailboxes: make(map[string]*mail.Mailbox)}
+	msgs := &mockMessages{messages: make(map[uuid.UUID]*mail.Message)}
+
+	bridge := NewIMAPBridge(notesSvc, msgs, mboxes)
+	userA := &identity.User{ID: uuid.New(), Email: "alice@example.com"}
+	userB := &identity.User{ID: uuid.New(), Email: "bob@example.com"}
+	ctx := context.Background()
+
+	noteOfUserB := &Note{
+		ID:     uuid.New(),
+		UserID: userB.ID,
+		Title:  "Bob's Private Note",
+		Body:   "Secret",
+	}
+
+	// Attempting to sync Bob's note to Alice's IMAP mailbox must fail with ErrForbidden
+	err := bridge.SyncNoteToIMAP(ctx, userA, noteOfUserB)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden, got: %v", err)
 	}
 }

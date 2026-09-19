@@ -15,7 +15,7 @@ import (
 )
 
 var defaultMailboxNames = []string{
-	"INBOX", "Sent", "Drafts", "Trash", "Archive", "Spam", "All", "Important",
+	"INBOX", "Sent", "Drafts", "Trash", "Archive", "Spam", "All", "Important", "Notes",
 }
 
 type userRepository struct{ db *sql.DB }

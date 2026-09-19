@@ -17,6 +17,8 @@ import (
 
 var uuidPattern = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 
+const maxSuppressionEntries = 1000
+
 type NotesBridge interface {
 	SyncNoteToIMAP(ctx context.Context, user *identity.User, n *Note) error
 	DeleteNoteFromIMAP(ctx context.Context, userID, noteID uuid.UUID) error
@@ -50,7 +52,16 @@ func (b *IMAPBridge) suppressNote(id uuid.UUID) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.suppress[id] = time.Now().Add(10 * time.Second)
+
+	now := time.Now()
+	if len(b.suppress) > maxSuppressionEntries {
+		for k, exp := range b.suppress {
+			if now.After(exp) {
+				delete(b.suppress, k)
+			}
+		}
+	}
+	b.suppress[id] = now.Add(10 * time.Second)
 }
 
 func (b *IMAPBridge) isSuppressed(id uuid.UUID) bool {
@@ -118,7 +129,8 @@ func messageMatchesNote(msg *mail.Message, noteID uuid.UUID) bool {
 	if strings.Contains(msg.MessageID, idStr) {
 		return true
 	}
-	if strings.Contains(msg.RawMessage, "X-Universally-Unique-Identifier: "+idStr) {
+	rawLower := strings.ToLower(msg.RawMessage)
+	if strings.Contains(rawLower, "x-universally-unique-identifier: "+idStr) {
 		return true
 	}
 	if strings.Contains(msg.RawMessage, "<"+idStr+"@") {
@@ -145,21 +157,13 @@ func (b *IMAPBridge) SyncNoteToIMAP(ctx context.Context, user *identity.User, n 
 	if user == nil || n == nil {
 		return errors.New("user and note cannot be nil")
 	}
+	if n.UserID != uuid.Nil && n.UserID != user.ID {
+		return ErrForbidden
+	}
 
 	notesBox, err := b.EnsureNotesMailbox(ctx, user.ID)
 	if err != nil {
 		return fmt.Errorf("ensure notes mailbox: %w", err)
-	}
-
-	existingMsgs, err := b.listAllMessages(ctx, notesBox.ID)
-	if err != nil {
-		return fmt.Errorf("list existing notes messages: %w", err)
-	}
-
-	for _, msg := range existingMsgs {
-		if messageMatchesNote(&msg, n.ID) {
-			_ = b.mail.Delete(ctx, msg.ID)
-		}
 	}
 
 	raw := applenote.Format(n, user.Email)
@@ -184,7 +188,22 @@ func (b *IMAPBridge) SyncNoteToIMAP(ctx context.Context, user *identity.User, n 
 		SentAt:     &now,
 	}
 
-	return b.mail.Append(ctx, newMsg)
+	// Append new message before deleting old messages to prevent data loss
+	if err := b.mail.Append(ctx, newMsg); err != nil {
+		return fmt.Errorf("append note message: %w", err)
+	}
+
+	// Delete old message(s) for this note in Notes mailbox (excluding newly appended message)
+	existingMsgs, err := b.listAllMessages(ctx, notesBox.ID)
+	if err == nil {
+		for _, msg := range existingMsgs {
+			if msg.ID != newMsg.ID && messageMatchesNote(&msg, n.ID) {
+				_ = b.mail.Delete(ctx, msg.ID)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (b *IMAPBridge) DeleteNoteFromIMAP(ctx context.Context, userID, noteID uuid.UUID) error {
@@ -285,20 +304,60 @@ func (b *IMAPBridge) HandleIMAPExpunge(ctx context.Context, userID uuid.UUID, ma
 		return nil
 	}
 
-	for _, id := range messageIDs {
-		var targetNoteID uuid.UUID
-		msg, err := b.mail.Get(ctx, id)
-		if err == nil && msg != nil {
-			parsed, parseErr := applenote.Parse(msg.RawMessage)
-			if parseErr == nil && parsed.ID != uuid.Nil {
-				targetNoteID = parsed.ID
-			} else {
-				targetNoteID = extractUUIDFromRaw(msg.RawMessage)
+	notesBox, err := b.mboxes.GetByName(ctx, userID, "Notes")
+	if err != nil {
+		mbs, listErr := b.mboxes.List(ctx, userID)
+		if listErr == nil {
+			for _, m := range mbs {
+				if strings.EqualFold(m.Name, "Notes") {
+					notesBox = &m
+					break
+				}
 			}
+		}
+	}
+
+	expungedSet := make(map[uuid.UUID]bool, len(messageIDs))
+	for _, id := range messageIDs {
+		expungedSet[id] = true
+	}
+
+	var activeMsgs []mail.Message
+	if notesBox != nil {
+		activeMsgs, _ = b.listAllMessages(ctx, notesBox.ID)
+	}
+
+	for _, id := range messageIDs {
+		msg, err := b.mail.Get(ctx, id)
+		if err != nil || msg == nil {
+			continue
+		}
+
+		var targetNoteID uuid.UUID
+		parsed, parseErr := applenote.Parse(msg.RawMessage)
+		if parseErr == nil && parsed.ID != uuid.Nil {
+			targetNoteID = parsed.ID
+		} else {
+			targetNoteID = extractUUIDFromRaw(msg.RawMessage)
 		}
 
 		if targetNoteID == uuid.Nil {
-			targetNoteID = id
+			continue
+		}
+
+		// Check if an active (non-deleted and not being expunged) message for that note UUID still exists
+		hasActiveMessage := false
+		for _, m := range activeMsgs {
+			if !m.Deleted && !expungedSet[m.ID] && messageMatchesNote(&m, targetNoteID) {
+				hasActiveMessage = true
+				break
+			}
+		}
+
+		if hasActiveMessage {
+			// An active version of the note remains in the mailbox (e.g. following an update).
+			// Do not delete the note from notesSvc.
+			continue
 		}
 
 		b.suppressNote(targetNoteID)

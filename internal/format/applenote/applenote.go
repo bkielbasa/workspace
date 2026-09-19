@@ -28,6 +28,9 @@ type FormattableNote interface {
 }
 
 func (n *Note) AppleNoteFields() (uuid.UUID, string, string, time.Time) {
+	if n == nil {
+		return uuid.Nil, "", "", time.Time{}
+	}
 	return n.ID, n.Title, n.Body, n.UpdatedAt
 }
 
