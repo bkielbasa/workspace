@@ -104,7 +104,7 @@ func (m *mockNotesService) DeleteNote(ctx context.Context, userID uuid.UUID, isA
 func (m *mockNotesService) ListNotes(ctx context.Context, userID uuid.UUID, archived bool, tag string) ([]notes.Note, error) {
 	var result []notes.Note
 	for _, n := range m.notes {
-		if n.IsArchived == archived {
+		if n.UserID == userID && n.IsArchived == archived {
 			result = append(result, *n)
 		}
 	}
@@ -264,6 +264,16 @@ func TestCalDAVListsDiscovery(t *testing.T) {
 		UpdatedAt: now,
 	}
 
+	otherListID := uuid.New()
+	notesMock.notes[otherListID] = &notes.Note{
+		ID:        otherListID,
+		UserID:    uuid.New(),
+		Title:     "Other User List",
+		Kind:      notes.KindList,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
 	// 1. PROPFIND on /cal/
 	req := httptest.NewRequest("PROPFIND", "/cal/", nil)
 	req.SetBasicAuth("alice@example.com", "secret")
@@ -296,6 +306,9 @@ func TestCalDAVListsDiscovery(t *testing.T) {
 	if strings.Contains(body, fmt.Sprintf("/cal/lists/%s/", noteID)) {
 		t.Fatalf("Depth: 1 should not contain text note %s", noteID)
 	}
+	if strings.Contains(body, fmt.Sprintf("/cal/lists/%s/", otherListID)) {
+		t.Fatalf("Depth: 1 should not contain other user list %s", otherListID)
+	}
 
 	// 3. PROPFIND on /cal/lists/ with Depth: 1
 	req = httptest.NewRequest("PROPFIND", "/cal/lists/", nil)
@@ -325,6 +338,17 @@ func TestCalDAVHomeSetCollectionDiscovery(t *testing.T) {
 	userID := uuid.New()
 	handler := NewWithTasks(calSvc, notesSvc, &mockAuth{user: &identity.User{ID: userID, Email: "user@example.com"}})
 
+	// Unauthenticated request must return 401 Unauthorized with Basic realm="workspace"
+	unauthReq := httptest.NewRequest("PROPFIND", "/cal/", nil)
+	unauthW := httptest.NewRecorder()
+	handler.ServeHTTP(unauthW, unauthReq)
+	if unauthW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized, got %d", unauthW.Code)
+	}
+	if authHdr := unauthW.Header().Get("WWW-Authenticate"); authHdr != `Basic realm="workspace"` {
+		t.Fatalf("expected WWW-Authenticate Basic realm=\"workspace\", got %q", authHdr)
+	}
+
 	// Create a list note
 	listNote, err := notesSvc.CreateNote(context.Background(), userID, notes.Note{
 		Title: "Groceries",
@@ -341,6 +365,7 @@ func TestCalDAVHomeSetCollectionDiscovery(t *testing.T) {
 		</d:propfind>
 	`))
 	req.Header.Set("Depth", "0")
+	req.SetBasicAuth("user@example.com", "pass")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 	if w.Code != http.StatusMultiStatus {
@@ -355,6 +380,7 @@ func TestCalDAVHomeSetCollectionDiscovery(t *testing.T) {
 	// 2. PROPFIND Depth: 1 on /cal/{userID}/ - should return default calendar AND list collections
 	req = httptest.NewRequest("PROPFIND", fmt.Sprintf("/cal/%s/", userID), nil)
 	req.Header.Set("Depth", "1")
+	req.SetBasicAuth("user@example.com", "pass")
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 	if w.Code != http.StatusMultiStatus {
@@ -394,10 +420,20 @@ func TestCalDAVMKCalendarAndListDeletion(t *testing.T) {
 	</C:mkcalendar>`
 
 	req := httptest.NewRequest("MKCALENDAR", fmt.Sprintf("/cal/lists/%s/", newListID), strings.NewReader(mkBody))
+	req.SetBasicAuth("user@example.com", "pass")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201 Created on MKCALENDAR, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Duplicate MKCALENDAR on existing list ID must return 409 Conflict
+	dupReq := httptest.NewRequest("MKCALENDAR", fmt.Sprintf("/cal/lists/%s/", newListID), strings.NewReader(mkBody))
+	dupReq.SetBasicAuth("user@example.com", "pass")
+	dupW := httptest.NewRecorder()
+	handler.ServeHTTP(dupW, dupReq)
+	if dupW.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict on duplicate MKCALENDAR, got %d", dupW.Code)
 	}
 
 	// Verify note exists in service
@@ -414,6 +450,7 @@ func TestCalDAVMKCalendarAndListDeletion(t *testing.T) {
 
 	// Delete collection via DELETE /cal/lists/{id}/
 	delReq := httptest.NewRequest("DELETE", fmt.Sprintf("/cal/lists/%s/", newListID), nil)
+	delReq.SetBasicAuth("user@example.com", "pass")
 	delW := httptest.NewRecorder()
 	handler.ServeHTTP(delW, delReq)
 	if delW.Code != http.StatusNoContent {
@@ -450,6 +487,7 @@ func TestCalDAVListCollectionPROPPATCH(t *testing.T) {
 	</D:propertyupdate>`
 
 	req := httptest.NewRequest("PROPPATCH", fmt.Sprintf("/cal/lists/%s/", listNote.ID), strings.NewReader(patchBody))
+	req.SetBasicAuth("user@example.com", "pass")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 

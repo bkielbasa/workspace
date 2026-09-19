@@ -76,19 +76,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email, password, ok := r.BasicAuth()
-	var user *identity.User
-	var err error
-	if ok {
-		user, err = h.users.Authenticate(r.Context(), email, password)
-	} else {
-		user, err = h.users.Authenticate(r.Context(), "", "")
+	if !ok {
+		w.Header().Set("WWW-Authenticate", `Basic realm="workspace"`)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
 	}
+
+	user, err := h.users.Authenticate(r.Context(), email, password)
 	if err != nil {
-		if !ok {
-			w.Header().Set("WWW-Authenticate", "Basic realm=caldav")
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -910,6 +905,11 @@ func (h *handler) putTask(w http.ResponseWriter, r *http.Request, userID uuid.UU
 func (h *handler) mkCalendarTask(w http.ResponseWriter, r *http.Request, userID uuid.UUID, target listTarget) {
 	if h.notes == nil || target.noteID == uuid.Nil || target.isItem {
 		http.Error(w, "bad list path", http.StatusBadRequest)
+		return
+	}
+
+	if existing, err := h.notes.GetNote(r.Context(), userID, target.noteID); err == nil && existing != nil {
+		w.WriteHeader(http.StatusConflict)
 		return
 	}
 
