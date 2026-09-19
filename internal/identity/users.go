@@ -271,6 +271,11 @@ func (u *Users) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 	return u.repo.Get(ctx, id)
 }
 
+// GetByID returns the user by their ID, matching Get(ctx, id).
+func (u *Users) GetByID(ctx context.Context, id uuid.UUID) (*User, error) {
+	return u.Get(ctx, id)
+}
+
 func (u *Users) GetByEmail(ctx context.Context, email string) (*User, error) {
 	ctx, span := u.tracer.Start(ctx, "users.get_by_email")
 	defer span.End()

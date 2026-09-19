@@ -26,6 +26,7 @@ import (
 	"github.com/bklimczak/workspace/internal/smb"
 	"github.com/bklimczak/workspace/internal/smtp"
 	"github.com/bklimczak/workspace/internal/web"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -136,9 +137,13 @@ func main() {
 		go mustListen(smtp.NewTLSServer(":2465", mailHostname, delivery, deviceAuth, mailboxes, messages, tlsCfg))
 	}
 
-	go mustListen(imap.NewServer(":1143", deviceAuth, messages, mailboxes))
-	if tlsCfg != nil {
-		go mustListen(imap.NewTLSServer(":1993", deviceAuth, messages, mailboxes, tlsCfg))
+	imapCleartext, imapTLS, imapNotesBridge := wireIMAPServers(deviceAuth, messages, mailboxes, notesSvc, tlsCfg)
+	go imapNotesBridge.StartEventListener(ctx, func(userID uuid.UUID) (*identity.User, error) {
+		return users.GetByID(ctx, userID)
+	})
+	go mustListen(imapCleartext)
+	if imapTLS != nil {
+		go mustListen(imapTLS)
 	}
 
 	webUI, err := web.New(webFS, contactSvc, calendarSvc, mailSvc, sessions, users, cfg.cookieSecure)
@@ -231,6 +236,37 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		obs.Fatal(ctx, "http server stopped", "error", err)
 	}
+}
+
+type imapMessageStore interface {
+	imap.MessageStore
+	mail.MessageRepository
+}
+
+type imapMailboxStore interface {
+	imap.MailboxStore
+	mail.MailboxRepository
+}
+
+func wireIMAPServers(deviceAuth imap.Authenticator, messages imapMessageStore, mailboxes imapMailboxStore, notesSvc *notes.Service, tlsCfg *tls.Config) (*imap.Server, *imap.Server, *notes.IMAPBridge) {
+	var bridge *notes.IMAPBridge
+	if notesSvc != nil && messages != nil && mailboxes != nil {
+		bridge = notes.NewIMAPBridge(notesSvc, messages, mailboxes)
+	}
+
+	cleartext := imap.NewServer(":1143", deviceAuth, messages, mailboxes)
+	if bridge != nil {
+		cleartext.SetNotesBridge(bridge)
+	}
+
+	var tlsServer *imap.Server
+	if tlsCfg != nil {
+		tlsServer = imap.NewTLSServer(":1993", deviceAuth, messages, mailboxes, tlsCfg)
+		if bridge != nil {
+			tlsServer.SetNotesBridge(bridge)
+		}
+	}
+	return cleartext, tlsServer, bridge
 }
 
 type listener interface {

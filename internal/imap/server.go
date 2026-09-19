@@ -123,25 +123,15 @@ func (s *Server) SetNotesBridge(b NotesBridge) {
 	s.notes = b
 }
 
-func (s *Server) ListenAndServe() error {
-	var ln net.Listener
-	var err error
+func (s *Server) NotesBridge() NotesBridge {
+	return s.notes
+}
 
-	if s.tlsConfig != nil {
-		ln, err = tls.Listen("tcp", s.addr, s.tlsConfig)
-	} else {
-		ln, err = net.Listen("tcp", s.addr)
-	}
-	if err != nil {
-		return err
-	}
-	obs.Log(context.Background(), slog.LevelInfo, "imap listening", "addr", s.addr)
-
+func (s *Server) Serve(ln net.Listener) error {
 	for {
 		c, err := ln.Accept()
 		if err != nil {
-			obs.Log(context.Background(), slog.LevelError, "imap accept error", "error", err)
-			continue
+			return err
 		}
 		// Refuse politely at the cap rather than spawning without limit:
 		// a client stuck in a reconnect loop would otherwise drain the
@@ -162,6 +152,22 @@ func (s *Server) ListenAndServe() error {
 			_ = c.Close()
 		}
 	}
+}
+
+func (s *Server) ListenAndServe() error {
+	var ln net.Listener
+	var err error
+
+	if s.tlsConfig != nil {
+		ln, err = tls.Listen("tcp", s.addr, s.tlsConfig)
+	} else {
+		ln, err = net.Listen("tcp", s.addr)
+	}
+	if err != nil {
+		return err
+	}
+	obs.Log(context.Background(), slog.LevelInfo, "imap listening", "addr", s.addr)
+	return s.Serve(ln)
 }
 
 func (s *Server) handle(conn net.Conn) {

@@ -29,6 +29,9 @@ func (s *Service) Broker() *Broker {
 }
 
 func (s *Service) CreateNote(ctx context.Context, userID uuid.UUID, n Note) (*Note, error) {
+	if n.ID == uuid.Nil {
+		n.ID = uuid.New()
+	}
 	n.UserID = userID
 	n.IsFamilyShared = false
 	created, err := s.repo.CreateNote(ctx, n)

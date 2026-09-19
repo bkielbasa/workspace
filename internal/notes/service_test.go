@@ -336,3 +336,23 @@ func TestServiceEventsUserIDAndFamilyShared(t *testing.T) {
 		t.Errorf("note_deleted: expected alice and shared=false, got %+v", ev)
 	}
 }
+
+func TestCreateNotePreservesID(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewService(repo, NewBroker())
+	ctx := context.Background()
+	user := uuid.New()
+	noteID := uuid.New()
+
+	created, err := svc.CreateNote(ctx, user, Note{
+		ID:    noteID,
+		Title: "Preserved ID Note",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if created.ID != noteID {
+		t.Errorf("created note ID = %v, want %v", created.ID, noteID)
+	}
+}
+
