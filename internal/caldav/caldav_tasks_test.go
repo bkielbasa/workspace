@@ -2,6 +2,7 @@ package caldav
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,16 +17,18 @@ import (
 	"github.com/google/uuid"
 )
 
-type dummyAuth struct {
+type mockAuth struct {
 	user *identity.User
 }
 
-func (d *dummyAuth) Authenticate(ctx context.Context, email, password string) (*identity.User, error) {
-	if email == d.user.Email && password == "secret" {
-		return d.user, nil
+func (m *mockAuth) Authenticate(ctx context.Context, email, password string) (*identity.User, error) {
+	if m.user != nil {
+		return m.user, nil
 	}
 	return nil, fmt.Errorf("invalid auth")
 }
+
+type dummyAuth = mockAuth
 
 type dummyCalendar struct{}
 
@@ -42,6 +45,10 @@ func (d *dummyCalendar) DeleteByResource(ctx context.Context, userID uuid.UUID, 
 	return nil
 }
 
+func newMockCalendarService() calendarService {
+	return &dummyCalendar{}
+}
+
 type mockNotesService struct {
 	notes map[uuid.UUID]*notes.Note
 }
@@ -50,6 +57,48 @@ func newMockNotesService() *mockNotesService {
 	return &mockNotesService{
 		notes: make(map[uuid.UUID]*notes.Note),
 	}
+}
+
+func (m *mockNotesService) CreateNote(ctx context.Context, userID uuid.UUID, n notes.Note) (*notes.Note, error) {
+	if n.ID == uuid.Nil {
+		n.ID = uuid.New()
+	}
+	n.UserID = userID
+	now := time.Now().UTC()
+	n.CreatedAt = now
+	n.UpdatedAt = now
+	cp := n
+	m.notes[n.ID] = &cp
+	ret := cp
+	return &ret, nil
+}
+
+func (m *mockNotesService) UpdateNote(ctx context.Context, userID uuid.UUID, isAdmin bool, n notes.Note) (*notes.Note, error) {
+	existing, ok := m.notes[n.ID]
+	if !ok {
+		return nil, notes.ErrNotFound
+	}
+	if existing.UserID != userID && !isAdmin {
+		return nil, notes.ErrNotFound
+	}
+	n.UserID = existing.UserID
+	n.UpdatedAt = time.Now().UTC()
+	cp := n
+	m.notes[n.ID] = &cp
+	ret := cp
+	return &ret, nil
+}
+
+func (m *mockNotesService) DeleteNote(ctx context.Context, userID uuid.UUID, isAdmin bool, id uuid.UUID) error {
+	existing, ok := m.notes[id]
+	if !ok {
+		return notes.ErrNotFound
+	}
+	if existing.UserID != userID && !isAdmin {
+		return notes.ErrNotFound
+	}
+	delete(m.notes, id)
+	return nil
 }
 
 func (m *mockNotesService) ListNotes(ctx context.Context, userID uuid.UUID, archived bool, tag string) ([]notes.Note, error) {
@@ -65,7 +114,10 @@ func (m *mockNotesService) ListNotes(ctx context.Context, userID uuid.UUID, arch
 func (m *mockNotesService) GetNote(ctx context.Context, userID uuid.UUID, id uuid.UUID) (*notes.Note, error) {
 	n, ok := m.notes[id]
 	if !ok {
-		return nil, fmt.Errorf("note not found: %s", id)
+		return nil, notes.ErrNotFound
+	}
+	if n.UserID != userID {
+		return nil, notes.ErrNotFound
 	}
 	cp := *n
 	cp.Items = make([]notes.NoteItem, len(n.Items))
@@ -222,15 +274,14 @@ func TestCalDAVListsDiscovery(t *testing.T) {
 		t.Fatalf("expected 207, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, fmt.Sprintf("/cal/lists/%s/", listID)) {
-		t.Fatalf("expected calendar-home-set to contain list %s, body:\n%s", listID, body)
-	}
-	if strings.Contains(body, fmt.Sprintf("/cal/lists/%s/", noteID)) {
-		t.Fatalf("calendar-home-set should not contain text note %s", noteID)
+	expectedHomeSet := fmt.Sprintf("<cal:calendar-home-set><d:href>/cal/%s/</d:href></cal:calendar-home-set>", user.ID)
+	if !strings.Contains(body, expectedHomeSet) {
+		t.Fatalf("expected calendar-home-set to contain %q, body:\n%s", expectedHomeSet, body)
 	}
 
-	// 2. PROPFIND on /cal/{user}/
+	// 2. PROPFIND on /cal/{user}/ with Depth: 1
 	req = httptest.NewRequest("PROPFIND", fmt.Sprintf("/cal/%s/", user.ID), nil)
+	req.Header.Set("Depth", "1")
 	req.SetBasicAuth("alice@example.com", "secret")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -240,7 +291,10 @@ func TestCalDAVListsDiscovery(t *testing.T) {
 	}
 	body = w.Body.String()
 	if !strings.Contains(body, fmt.Sprintf("/cal/lists/%s/", listID)) {
-		t.Fatalf("expected calendar-home-set to contain list %s", listID)
+		t.Fatalf("expected /cal/%s/ to contain list %s", user.ID, listID)
+	}
+	if strings.Contains(body, fmt.Sprintf("/cal/lists/%s/", noteID)) {
+		t.Fatalf("Depth: 1 should not contain text note %s", noteID)
 	}
 
 	// 3. PROPFIND on /cal/lists/ with Depth: 1
@@ -262,6 +316,153 @@ func TestCalDAVListsDiscovery(t *testing.T) {
 	}
 	if !strings.Contains(body, "Groceries") {
 		t.Fatalf("expected displayname Groceries, got:\n%s", body)
+	}
+}
+
+func TestCalDAVHomeSetCollectionDiscovery(t *testing.T) {
+	notesSvc := newMockNotesService()
+	calSvc := newMockCalendarService()
+	userID := uuid.New()
+	handler := NewWithTasks(calSvc, notesSvc, &mockAuth{user: &identity.User{ID: userID, Email: "user@example.com"}})
+
+	// Create a list note
+	listNote, err := notesSvc.CreateNote(context.Background(), userID, notes.Note{
+		Title: "Groceries",
+		Kind:  notes.KindList,
+	})
+	if err != nil {
+		t.Fatalf("failed to create list note: %v", err)
+	}
+
+	// 1. PROPFIND Depth: 0 on /cal/ - check calendar-home-set points to /cal/{userID}/
+	req := httptest.NewRequest("PROPFIND", "/cal/", strings.NewReader(`
+		<d:propfind xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+			<d:prop><cal:calendar-home-set/></d:prop>
+		</d:propfind>
+	`))
+	req.Header.Set("Depth", "0")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusMultiStatus {
+		t.Fatalf("expected 207 Multi-Status, got %d", w.Code)
+	}
+	body := w.Body.String()
+	expectedHomeSet := fmt.Sprintf("<cal:calendar-home-set><d:href>/cal/%s/</d:href></cal:calendar-home-set>", userID)
+	if !strings.Contains(body, expectedHomeSet) {
+		t.Fatalf("expected calendar-home-set to contain %q, got body:\n%s", expectedHomeSet, body)
+	}
+
+	// 2. PROPFIND Depth: 1 on /cal/{userID}/ - should return default calendar AND list collections
+	req = httptest.NewRequest("PROPFIND", fmt.Sprintf("/cal/%s/", userID), nil)
+	req.Header.Set("Depth", "1")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusMultiStatus {
+		t.Fatalf("expected 207 Multi-Status on Depth 1, got %d", w.Code)
+	}
+	depthBody := w.Body.String()
+	defaultCalHref := fmt.Sprintf("<d:href>/cal/%s/default/</d:href>", userID)
+	listCalHref := fmt.Sprintf("<d:href>/cal/lists/%s/</d:href>", listNote.ID)
+	if !strings.Contains(depthBody, defaultCalHref) {
+		t.Errorf("expected Depth: 1 to contain default calendar %q", defaultCalHref)
+	}
+	if !strings.Contains(depthBody, listCalHref) {
+		t.Errorf("expected Depth: 1 to contain list collection %q", listCalHref)
+	}
+	if !strings.Contains(depthBody, "<C:comp name=\"VTODO\"/>") {
+		t.Errorf("expected Depth: 1 to advertise VTODO for list collection")
+	}
+}
+
+func TestCalDAVMKCalendarAndListDeletion(t *testing.T) {
+	notesSvc := newMockNotesService()
+	calSvc := newMockCalendarService()
+	userID := uuid.New()
+	handler := NewWithTasks(calSvc, notesSvc, &mockAuth{user: &identity.User{ID: userID, Email: "user@example.com"}})
+
+	newListID := uuid.New()
+	mkBody := `<?xml version="1.0" encoding="utf-8" ?>
+	<C:mkcalendar xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+		<D:set>
+			<D:prop>
+				<D:displayname>Packing List</D:displayname>
+				<C:supported-calendar-component-set>
+					<C:comp name="VTODO"/>
+				</C:supported-calendar-component-set>
+			</D:prop>
+		</D:set>
+	</C:mkcalendar>`
+
+	req := httptest.NewRequest("MKCALENDAR", fmt.Sprintf("/cal/lists/%s/", newListID), strings.NewReader(mkBody))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on MKCALENDAR, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify note exists in service
+	createdNote, err := notesSvc.GetNote(context.Background(), userID, newListID)
+	if err != nil {
+		t.Fatalf("expected note to be created with ID %s, got err: %v", newListID, err)
+	}
+	if createdNote.Title != "Packing List" {
+		t.Errorf("expected title 'Packing List', got %q", createdNote.Title)
+	}
+	if createdNote.Kind != notes.KindList {
+		t.Errorf("expected KindList, got %s", createdNote.Kind)
+	}
+
+	// Delete collection via DELETE /cal/lists/{id}/
+	delReq := httptest.NewRequest("DELETE", fmt.Sprintf("/cal/lists/%s/", newListID), nil)
+	delW := httptest.NewRecorder()
+	handler.ServeHTTP(delW, delReq)
+	if delW.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content on list DELETE, got %d", delW.Code)
+	}
+
+	_, err = notesSvc.GetNote(context.Background(), userID, newListID)
+	if !errors.Is(err, notes.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after deletion, got %v", err)
+	}
+}
+
+func TestCalDAVListCollectionPROPPATCH(t *testing.T) {
+	notesSvc := newMockNotesService()
+	calSvc := newMockCalendarService()
+	userID := uuid.New()
+	handler := NewWithTasks(calSvc, notesSvc, &mockAuth{user: &identity.User{ID: userID, Email: "user@example.com"}})
+
+	listNote, err := notesSvc.CreateNote(context.Background(), userID, notes.Note{
+		Title: "Old Title",
+		Kind:  notes.KindList,
+	})
+	if err != nil {
+		t.Fatalf("failed to create list note: %v", err)
+	}
+
+	patchBody := `<?xml version="1.0" encoding="utf-8" ?>
+	<D:propertyupdate xmlns:D="DAV:">
+		<D:set>
+			<D:prop>
+				<D:displayname>New Title</D:displayname>
+			</D:prop>
+		</D:set>
+	</D:propertyupdate>`
+
+	req := httptest.NewRequest("PROPPATCH", fmt.Sprintf("/cal/lists/%s/", listNote.ID), strings.NewReader(patchBody))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMultiStatus {
+		t.Fatalf("expected 207 MultiStatus on PROPPATCH, got %d: %s", w.Code, w.Body.String())
+	}
+
+	updated, err := notesSvc.GetNote(context.Background(), userID, listNote.ID)
+	if err != nil {
+		t.Fatalf("failed to get note: %v", err)
+	}
+	if updated.Title != "New Title" {
+		t.Fatalf("expected title 'New Title', got %q", updated.Title)
 	}
 }
 

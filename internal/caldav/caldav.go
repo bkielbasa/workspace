@@ -33,6 +33,9 @@ type calendarService interface {
 type notesService interface {
 	ListNotes(ctx context.Context, userID uuid.UUID, archived bool, tag string) ([]notes.Note, error)
 	GetNote(ctx context.Context, userID uuid.UUID, id uuid.UUID) (*notes.Note, error)
+	CreateNote(ctx context.Context, userID uuid.UUID, n notes.Note) (*notes.Note, error)
+	UpdateNote(ctx context.Context, userID uuid.UUID, isAdmin bool, n notes.Note) (*notes.Note, error)
+	DeleteNote(ctx context.Context, userID uuid.UUID, isAdmin bool, id uuid.UUID) error
 	AddItem(ctx context.Context, userID uuid.UUID, noteID uuid.UUID, content string) (*notes.NoteItem, error)
 	AddItemWithID(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, content string) (*notes.NoteItem, error)
 	UpdateItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID, content string, completed bool) (*notes.NoteItem, error)
@@ -67,20 +70,25 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("DAV", "1, 2, 3, calendar-access")
-		w.Header().Set("Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, REPORT")
+		w.Header().Set("Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, REPORT, MKCALENDAR, MKCOL, PROPPATCH")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
 	email, password, ok := r.BasicAuth()
-	if !ok {
-		w.Header().Set("WWW-Authenticate", "Basic realm=caldav")
-		w.WriteHeader(http.StatusUnauthorized)
-		return
+	var user *identity.User
+	var err error
+	if ok {
+		user, err = h.users.Authenticate(r.Context(), email, password)
+	} else {
+		user, err = h.users.Authenticate(r.Context(), "", "")
 	}
-
-	user, err := h.users.Authenticate(r.Context(), email, password)
 	if err != nil {
+		if !ok {
+			w.Header().Set("WWW-Authenticate", "Basic realm=caldav")
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -97,6 +105,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.listTasks(w, r, user.ID, target)
 		case "REPORT":
 			h.reportTasks(w, r, user.ID, target)
+		case "MKCALENDAR", "MKCOL":
+			h.mkCalendarTask(w, r, user.ID, target)
+		case "PROPPATCH":
+			h.propPatchTask(w, r, user.ID, target)
 		case http.MethodPut:
 			h.putTask(w, r, user.ID, target)
 		case http.MethodGet:
@@ -130,16 +142,6 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request, userID uuid.UUID)
 	w.WriteHeader(http.StatusMultiStatus)
 
 	if r.URL.Path == "/cal/" || r.URL.Path == "/cal" {
-		var listHrefs strings.Builder
-		if h.notes != nil {
-			if allNotes, err := h.notes.ListNotes(r.Context(), userID, false, ""); err == nil {
-				for _, n := range allNotes {
-					if n.Kind == notes.KindList {
-						listHrefs.WriteString(fmt.Sprintf("\n          <d:href>/cal/lists/%s/</d:href>", n.ID))
-					}
-				}
-			}
-		}
 		fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
 <d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:C="urn:ietf:params:xml:ns:caldav">
   <d:response>
@@ -149,9 +151,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request, userID uuid.UUID)
         <d:current-user-principal>
           <d:href>/cal/%s/</d:href>
         </d:current-user-principal>
-        <cal:calendar-home-set>
-          <d:href>/cal/%s/default/</d:href>%s
-        </cal:calendar-home-set>
+        <cal:calendar-home-set><d:href>/cal/%s/</d:href></cal:calendar-home-set>
         <d:resourcetype>
           <d:collection/>
         </d:resourcetype>
@@ -161,23 +161,56 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request, userID uuid.UUID)
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
   </d:response>
-</d:multistatus>`, userID, userID, listHrefs.String(), userID)
+</d:multistatus>`, userID, userID, userID)
 		return
 	}
 
 	if segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/"); len(segments) == 2 {
-		var listHrefs strings.Builder
-		if h.notes != nil {
-			if allNotes, err := h.notes.ListNotes(r.Context(), userID, false, ""); err == nil {
-				for _, n := range allNotes {
-					if n.Kind == notes.KindList {
-						listHrefs.WriteString(fmt.Sprintf("\n          <d:href>/cal/lists/%s/</d:href>", n.ID))
+		depth := r.Header.Get("Depth")
+		if depth == "1" {
+			var listResponses strings.Builder
+			if h.notes != nil {
+				if allNotes, err := h.notes.ListNotes(r.Context(), userID, false, ""); err == nil {
+					for _, n := range allNotes {
+						if n.Kind == notes.KindList {
+							token := noteToken(&n)
+							displayName := n.Title
+							if displayName == "" {
+								displayName = "List"
+							}
+							listResponses.WriteString(fmt.Sprintf(`
+  <d:response>
+    <d:href>/cal/lists/%s/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype>
+          <d:collection/>
+          <cal:calendar/>
+        </d:resourcetype>
+        <C:supported-calendar-component-set>
+          <C:comp name="VTODO"/>
+        </C:supported-calendar-component-set>
+        <d:displayname>%s</d:displayname>
+        <cs:getctag>%s</cs:getctag>
+        <d:sync-token>%s</d:sync-token>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>`, n.ID, escapeXML(displayName), token, token))
+						}
 					}
 				}
 			}
-		}
-		fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
-<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:C="urn:ietf:params:xml:ns:caldav">
+
+			events, _ := h.calendar.List(r.Context(), userID)
+			etags := make([]string, 0, len(events))
+			for _, event := range events {
+				etags = append(etags, event.ETag)
+			}
+			calToken := listToken(etags)
+
+			fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/">
   <d:response>
     <d:href>/cal/%s/</d:href>
     <d:propstat>
@@ -185,9 +218,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request, userID uuid.UUID)
         <d:current-user-principal>
           <d:href>/cal/%s/</d:href>
         </d:current-user-principal>
-        <cal:calendar-home-set>
-          <d:href>/cal/%s/default/</d:href>%s
-        </cal:calendar-home-set>
+        <cal:calendar-home-set><d:href>/cal/%s/</d:href></cal:calendar-home-set>
         <d:resourcetype>
           <d:collection/>
           <d:principal/>
@@ -197,7 +228,48 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request, userID uuid.UUID)
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
   </d:response>
-</d:multistatus>`, userID, userID, userID, listHrefs.String())
+  <d:response>
+    <d:href>/cal/%s/default/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype>
+          <d:collection/>
+          <cal:calendar/>
+        </d:resourcetype>
+        <cal:supported-calendar-component-set>
+          <cal:comp name="VEVENT"/>
+        </cal:supported-calendar-component-set>
+        <d:displayname>Default Calendar</d:displayname>
+        <cs:getctag>%s</cs:getctag>
+        <d:sync-token>%s</d:sync-token>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>%s
+</d:multistatus>`, userID, userID, userID, userID, calToken, calToken, listResponses.String())
+			return
+		}
+
+		fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/cal/%s/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:current-user-principal>
+          <d:href>/cal/%s/</d:href>
+        </d:current-user-principal>
+        <cal:calendar-home-set><d:href>/cal/%s/</d:href></cal:calendar-home-set>
+        <d:resourcetype>
+          <d:collection/>
+          <d:principal/>
+        </d:resourcetype>
+        <d:displayname>Calendar principal</d:displayname>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`, userID, userID, userID)
 		return
 	}
 
@@ -835,11 +907,86 @@ func (h *handler) putTask(w http.ResponseWriter, r *http.Request, userID uuid.UU
 	w.WriteHeader(http.StatusCreated)
 }
 
-func (h *handler) deleteTask(w http.ResponseWriter, r *http.Request, userID uuid.UUID, target listTarget) {
-	if h.notes == nil || target.noteID == uuid.Nil || !target.isItem {
+func (h *handler) mkCalendarTask(w http.ResponseWriter, r *http.Request, userID uuid.UUID, target listTarget) {
+	if h.notes == nil || target.noteID == uuid.Nil || target.isItem {
+		http.Error(w, "bad list path", http.StatusBadRequest)
+		return
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	displayName := parseDisplayName(body)
+	if displayName == "" {
+		displayName = "List"
+	}
+
+	newNote := notes.Note{
+		ID:     target.noteID,
+		UserID: userID,
+		Title:  displayName,
+		Kind:   notes.KindList,
+	}
+
+	if _, err := h.notes.CreateNote(r.Context(), userID, newNote); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (h *handler) propPatchTask(w http.ResponseWriter, r *http.Request, userID uuid.UUID, target listTarget) {
+	if h.notes == nil || target.noteID == uuid.Nil || target.isItem {
 		http.NotFound(w, r)
 		return
 	}
+
+	note, err := h.notes.GetNote(r.Context(), userID, target.noteID)
+	if err != nil || note.Kind != notes.KindList {
+		http.NotFound(w, r)
+		return
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	displayName := parseDisplayName(body)
+	if displayName != "" {
+		note.Title = displayName
+		if _, err := h.notes.UpdateNote(r.Context(), userID, false, *note); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.WriteHeader(http.StatusMultiStatus)
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/cal/lists/%s/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:displayname>%s</d:displayname>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`, target.noteID, escapeXML(note.Title))
+}
+
+func (h *handler) deleteTask(w http.ResponseWriter, r *http.Request, userID uuid.UUID, target listTarget) {
+	if h.notes == nil || target.noteID == uuid.Nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if !target.isItem {
+		if err := h.notes.DeleteNote(r.Context(), userID, false, target.noteID); err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	itemID, err := uuid.Parse(target.resource)
 	if err != nil {
 		http.NotFound(w, r)
@@ -850,6 +997,25 @@ func (h *handler) deleteTask(w http.ResponseWriter, r *http.Request, userID uuid
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func parseDisplayName(body []byte) string {
+	decoder := xml.NewDecoder(bytes.NewReader(body))
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			break
+		}
+		if se, ok := tok.(xml.StartElement); ok {
+			if strings.EqualFold(se.Name.Local, "displayname") {
+				var val string
+				if err := decoder.DecodeElement(&val, &se); err == nil {
+					return strings.TrimSpace(val)
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func itemETag(item notes.NoteItem) string {
