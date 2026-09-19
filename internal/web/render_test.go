@@ -269,7 +269,8 @@ func TestNotesTemplateSyntax(t *testing.T) {
 		Title:     "Notes",
 		Section:   "notes",
 		CSRFToken: "dummy-csrf",
-		Notes: []DummyNote{
+		HasPinned: true,
+		PinnedNotes: []DummyNote{
 			{
 				ID:             "note-1",
 				Title:          "Family Errands",
@@ -283,6 +284,8 @@ func TestNotesTemplateSyntax(t *testing.T) {
 					{ID: "item-2", NoteID: "note-1", Content: "Clean garage", Completed: true},
 				},
 			},
+		},
+		OtherNotes: []DummyNote{
 			{
 				ID:             "note-2",
 				Title:          "Project Idea",
@@ -303,6 +306,8 @@ func TestNotesTemplateSyntax(t *testing.T) {
 	html := buf.String()
 	// Quick assertions to confirm elements are rendering
 	expectedStrings := []string{
+		"PINNED",
+		"OTHERS",
 		"Family Errands",
 		"Buy organic milk",
 		"Clean garage",
@@ -312,12 +317,33 @@ func TestNotesTemplateSyntax(t *testing.T) {
 		"note-pinned",
 		"note-color-mint",
 		"note-color-storm",
+		"notes-color-swatches",
+		"notes-kind-pills",
+		"notes-family-pill",
 	}
 
 	for _, s := range expectedStrings {
 		if !strings.Contains(html, s) {
 			t.Errorf("Expected rendered template to contain %q, but it didn't", s)
 		}
+	}
+
+	// Verify empty state
+	buf.Reset()
+	emptyData := viewData{
+		Title:     "Notes",
+		Section:   "notes",
+		CSRFToken: "dummy-csrf",
+	}
+	if err := tpl.ExecuteTemplate(&buf, "layout", emptyData); err != nil {
+		t.Fatalf("Failed to execute empty notes template: %v", err)
+	}
+	emptyHTML := buf.String()
+	if !strings.Contains(emptyHTML, "notes-empty-state") {
+		t.Errorf("Expected empty notes template to contain notes-empty-state")
+	}
+	if !strings.Contains(emptyHTML, "Notes and lists you add appear here") {
+		t.Errorf("Expected empty notes template to contain friendly empty title")
 	}
 }
 

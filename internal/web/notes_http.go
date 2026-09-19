@@ -47,6 +47,26 @@ func parseItemID(r *http.Request) (uuid.UUID, error) {
 	return uuid.Parse(val)
 }
 
+func notesListData(csrfToken string, notesList []notes.Note, tag string, archived bool) map[string]any {
+	var pinned, others []notes.Note
+	for _, n := range notesList {
+		if n.IsPinned {
+			pinned = append(pinned, n)
+		} else {
+			others = append(others, n)
+		}
+	}
+	return map[string]any{
+		"CSRFToken":   csrfToken,
+		"Notes":       notesList,
+		"PinnedNotes": pinned,
+		"OtherNotes":  others,
+		"HasPinned":   len(pinned) > 0,
+		"Tag":         tag,
+		"Archived":    archived,
+	}
+}
+
 func (s *Server) notesPage(w http.ResponseWriter, r *http.Request, user *identity.User) {
 	if user == nil {
 		user = s.currentUser(r)
@@ -70,15 +90,11 @@ func (s *Server) notesPage(w http.ResponseWriter, r *http.Request, user *identit
 		return
 	}
 
-	data := map[string]any{
-		"Title":     "Notes",
-		"Section":   "notes",
-		"User":      user,
-		"CSRFToken": s.csrfToken(r),
-		"Notes":     notesList,
-		"Tag":       tag,
-		"Archived":  archived,
-	}
+	data := notesListData(s.csrfToken(r), notesList, tag, archived)
+	data["Title"] = "Notes"
+	data["Section"] = "notes"
+	data["Wide"] = true
+	data["User"] = user
 
 	if r.Header.Get("HX-Request") == "true" {
 		s.render(w, "notesList", data)
@@ -191,10 +207,7 @@ func (s *Server) notesCreate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		data := map[string]any{
-			"CSRFToken": s.csrfToken(r),
-			"Notes":     notesList,
-		}
+		data := notesListData(s.csrfToken(r), notesList, "", false)
 		s.render(w, "notesList", data)
 		return
 	}
@@ -350,10 +363,7 @@ func (s *Server) notesDelete(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		data := map[string]any{
-			"CSRFToken": s.csrfToken(r),
-			"Notes":     notesList,
-		}
+		data := notesListData(s.csrfToken(r), notesList, "", false)
 		s.render(w, "notesList", data)
 		return
 	}
@@ -461,10 +471,7 @@ func (s *Server) notesTogglePin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		data := map[string]any{
-			"CSRFToken": s.csrfToken(r),
-			"Notes":     notesList,
-		}
+		data := notesListData(s.csrfToken(r), notesList, "", false)
 		s.render(w, "notesList", data)
 		return
 	}

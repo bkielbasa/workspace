@@ -1,28 +1,47 @@
 {{define "content"}}<section class="notes-page">
   <div class="notes-topbar card">
-    <form class="notes-quickadd" hx-post="/notes" hx-target="#notes-container" hx-swap="outerHTML" hx-on::after-request="if(event.detail.successful) this.reset()">
+    <form class="notes-quickadd" hx-post="/notes" hx-target="#notes-container" hx-swap="outerHTML" hx-on::after-request="if(event.detail.successful) { this.reset(); }">
       <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
-      <div class="notes-quickadd-head">
+      <div class="notes-quickadd-main">
         <input type="text" name="title" placeholder="Title" autocomplete="off" class="notes-input-title">
-        <button type="submit" class="btn btn-sm">Save</button>
+        <textarea name="body" placeholder="Take a note or list items (one per line)..." rows="2" class="notes-input-body"></textarea>
       </div>
-      <textarea name="body" placeholder="Take a note or list item..." rows="2" class="notes-input-body"></textarea>
-      <div class="notes-quickadd-actions">
-        <label><input type="radio" name="kind" value="note" checked> Note</label>
-        <label><input type="radio" name="kind" value="list"> Checklist</label>
-        <label class="notes-family-toggle"><input type="checkbox" name="is_family_shared" value="true"> 👨‍👩‍👧‍👦 Share with family</label>
-        <select name="color" class="notes-color-select">
-          <option value="default">Default</option>
-          <option value="coral">Coral</option>
-          <option value="peach">Peach</option>
-          <option value="sand">Sand</option>
-          <option value="mint">Mint</option>
-          <option value="sage">Sage</option>
-          <option value="fog">Fog</option>
-          <option value="storm">Storm</option>
-          <option value="blossom">Blossom</option>
-          <option value="clay">Clay</option>
-        </select>
+      <div class="notes-quickadd-footer">
+        <div class="notes-quickadd-controls">
+          <div class="notes-kind-pills" role="radiogroup" aria-label="Note type">
+            <label class="notes-kind-pill" title="Text note">
+              <input type="radio" name="kind" value="note" checked class="visually-hidden">
+              <span>📝 Note</span>
+            </label>
+            <label class="notes-kind-pill" title="Checklist (one item per line)">
+              <input type="radio" name="kind" value="list" class="visually-hidden">
+              <span>☑️ Checklist</span>
+            </label>
+          </div>
+
+          <label class="notes-family-pill" title="Share with family members">
+            <input type="checkbox" name="is_family_shared" value="true" class="visually-hidden">
+            <span class="family-pill-content">
+              <span class="family-icon">👨‍👩‍👧‍👦</span>
+              <span class="family-label">Share with family</span>
+            </span>
+          </label>
+
+          <div class="notes-color-swatches" role="radiogroup" aria-label="Card color">
+            <label class="color-swatch swatch-default" title="Default"><input type="radio" name="color" value="default" checked class="visually-hidden"><span class="swatch-circle"></span></label>
+            <label class="color-swatch swatch-coral" title="Coral"><input type="radio" name="color" value="coral" class="visually-hidden"><span class="swatch-circle"></span></label>
+            <label class="color-swatch swatch-peach" title="Peach"><input type="radio" name="color" value="peach" class="visually-hidden"><span class="swatch-circle"></span></label>
+            <label class="color-swatch swatch-sand" title="Sand"><input type="radio" name="color" value="sand" class="visually-hidden"><span class="swatch-circle"></span></label>
+            <label class="color-swatch swatch-mint" title="Mint"><input type="radio" name="color" value="mint" class="visually-hidden"><span class="swatch-circle"></span></label>
+            <label class="color-swatch swatch-sage" title="Sage"><input type="radio" name="color" value="sage" class="visually-hidden"><span class="swatch-circle"></span></label>
+            <label class="color-swatch swatch-fog" title="Fog"><input type="radio" name="color" value="fog" class="visually-hidden"><span class="swatch-circle"></span></label>
+            <label class="color-swatch swatch-storm" title="Storm"><input type="radio" name="color" value="storm" class="visually-hidden"><span class="swatch-circle"></span></label>
+            <label class="color-swatch swatch-blossom" title="Blossom"><input type="radio" name="color" value="blossom" class="visually-hidden"><span class="swatch-circle"></span></label>
+            <label class="color-swatch swatch-clay" title="Clay"><input type="radio" name="color" value="clay" class="visually-hidden"><span class="swatch-circle"></span></label>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-sm btn-primary notes-save-btn">Save</button>
       </div>
     </form>
   </div>
@@ -39,96 +58,38 @@
 {{end}}
 
 {{define "notesList"}}
-<div id="notes-container" class="notes-grid" hx-ext="sse" sse-connect="/notes/live" hx-get="/notes" hx-trigger="sse:note_update" hx-swap="outerHTML">
-  {{range .Notes}}
-  <article class="note-card note-color-{{.Color}}{{if .IsPinned}} note-pinned{{end}}" id="note-{{.ID}}">
-    <div class="note-card-head">
-      <h3 class="note-card-title">{{if .Title}}{{.Title}}{{else}}Untitled{{end}}</h3>
-      <div class="note-card-badges">
-        <form class="inline-form" hx-post="/notes/{{.ID}}/share" hx-target="#note-{{.ID}}" hx-swap="outerHTML">
-          <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-          <button type="submit" class="btn btn-ghost btn-sm note-badge-family{{if .IsFamilyShared}} is-shared{{end}}" title="{{if .IsFamilyShared}}Shared with family (click to unshare){{else}}Private (click to share with family){{end}}">
-            👨‍👩‍👧‍👦 {{if .IsFamilyShared}}Family{{else}}Share{{end}}
-          </button>
-        </form>
-      </div>
-    </div>
-
-    {{if eq .Kind "list"}}
-    <ul class="note-checklist">
-      {{range .Items}}
-      <li class="note-checkitem{{if .Completed}} completed{{end}}" id="item-{{.ID}}">
-        <form class="inline-form" hx-post="/notes/{{.NoteID}}/items/{{.ID}}/toggle" hx-target="#note-{{.NoteID}}" hx-swap="outerHTML" hx-trigger="change">
-          <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-          <input type="checkbox" name="completed" {{if .Completed}}checked{{end}}>
-          <span class="note-item-text">{{.Content}}</span>
-        </form>
-        <form class="inline-form note-item-del-form" hx-post="/notes/{{.NoteID}}/items/{{.ID}}/delete" hx-target="#note-{{.NoteID}}" hx-swap="outerHTML">
-          <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-          <button type="submit" class="btn btn-ghost btn-sm note-item-del" title="Delete item">&times;</button>
-        </form>
-      </li>
-      {{end}}
-    </ul>
-    <form class="note-additem-form" hx-post="/notes/{{.ID}}/items" hx-target="#note-{{.ID}}" hx-swap="outerHTML">
-      <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-      <input type="text" name="content" placeholder="+ Add item" autocomplete="off" class="note-input-additem">
-    </form>
-    {{else}}
-    <div class="note-card-body">{{.Body}}</div>
-    {{end}}
-
-    {{if .Tags}}
-    <div class="note-card-tags">
-      {{range .Tags}}
-      <a href="/notes?tag={{.}}" class="note-tag-chip">#{{.}}</a>
+<div id="notes-container" class="notes-container" hx-ext="sse" sse-connect="/notes/live" hx-get="/notes" hx-trigger="sse:note_update" hx-swap="outerHTML">
+  {{if .HasPinned}}
+    <div class="notes-section-heading">PINNED</div>
+    <div class="notes-grid">
+      {{range .PinnedNotes}}
+        {{template "noteCard" (dict "Note" . "CSRFToken" $.CSRFToken)}}
       {{end}}
     </div>
-    {{end}}
-
-    <details class="note-edit-details">
-      <summary class="btn btn-ghost btn-sm note-edit-summary" title="Edit note">✏️ Edit</summary>
-      <form class="note-edit-form" hx-post="/notes/{{.ID}}" hx-target="#note-{{.ID}}" hx-swap="outerHTML">
-        <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-        <input type="text" name="title" value="{{.Title}}" placeholder="Title" class="notes-input-title">
-        {{if ne .Kind "list"}}
-        <textarea name="body" rows="3" class="notes-input-body">{{.Body}}</textarea>
-        {{end}}
-        <div class="notes-edit-actions">
-          <select name="color" class="notes-color-select">
-            <option value="default" {{if eq .Color "default"}}selected{{end}}>Default</option>
-            <option value="coral" {{if eq .Color "coral"}}selected{{end}}>Coral</option>
-            <option value="peach" {{if eq .Color "peach"}}selected{{end}}>Peach</option>
-            <option value="sand" {{if eq .Color "sand"}}selected{{end}}>Sand</option>
-            <option value="mint" {{if eq .Color "mint"}}selected{{end}}>Mint</option>
-            <option value="sage" {{if eq .Color "sage"}}selected{{end}}>Sage</option>
-            <option value="fog" {{if eq .Color "fog"}}selected{{end}}>Fog</option>
-            <option value="storm" {{if eq .Color "storm"}}selected{{end}}>Storm</option>
-            <option value="blossom" {{if eq .Color "blossom"}}selected{{end}}>Blossom</option>
-            <option value="clay" {{if eq .Color "clay"}}selected{{end}}>Clay</option>
-          </select>
-          <button type="submit" class="btn btn-sm">Save</button>
-        </div>
-      </form>
-    </details>
-
-    <div class="note-card-foot">
-      <form class="inline-form" hx-post="/notes/{{.ID}}/toggle-pin" hx-target="#notes-container" hx-swap="outerHTML">
-        <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-        <button type="submit" class="btn btn-ghost btn-sm" title="Pin / Unpin">{{if .IsPinned}}📌 Pinned{{else}}📍 Pin{{end}}</button>
-      </form>
-      <form class="inline-form" hx-post="/notes/{{.ID}}/delete" hx-target="#notes-container" hx-swap="outerHTML" hx-confirm="Delete this note?">
-        <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-        <button type="submit" class="btn btn-ghost btn-sm" title="Delete">&times;</button>
-      </form>
+    <div class="notes-section-heading">OTHERS</div>
+    <div class="notes-grid">
+      {{range .OtherNotes}}
+        {{template "noteCard" (dict "Note" . "CSRFToken" $.CSRFToken)}}
+      {{end}}
     </div>
-  </article>
+  {{else if .Notes}}
+    <div class="notes-grid">
+      {{range .Notes}}
+        {{template "noteCard" (dict "Note" . "CSRFToken" $.CSRFToken)}}
+      {{end}}
+    </div>
   {{else}}
-  <div class="mail-empty-state card">
-    <div class="mail-empty-icon">📝</div>
-    <h3 class="mail-empty-title">No notes or lists yet</h3>
-    <p class="mail-empty-subtext">Add a note or grocery list above. Toggle "Share with family" so everyone sees it!</p>
-  </div>
+    <div class="notes-empty-state">
+      <div class="notes-empty-icon" aria-hidden="true">
+        <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a7 7 0 0 0-7 7c0 2.5 1.5 4.5 3 6h8c1.5-1.5 3-3.5 3-6a7 7 0 0 0-7-7z"/>
+          <path d="M9 18h6"/>
+          <path d="M10 21h4"/>
+        </svg>
+      </div>
+      <h3 class="notes-empty-title">Notes and lists you add appear here</h3>
+      <p class="notes-empty-subtext">Capture ideas, create checklists, and share grocery lists with your family.</p>
+    </div>
   {{end}}
 </div>
 {{end}}
@@ -138,10 +99,16 @@
   <div class="note-card-head">
     <h3 class="note-card-title">{{if .Note.Title}}{{.Note.Title}}{{else}}Untitled{{end}}</h3>
     <div class="note-card-badges">
-      <form class="inline-form" hx-post="/notes/{{.Note.ID}}/share" hx-target="#note-{{.Note.ID}}" hx-swap="outerHTML">
+      {{if .Note.IsFamilyShared}}
+      <span class="note-badge-family" title="Shared with family">👨‍👩‍👧‍👦 Family</span>
+      {{end}}
+      <form class="inline-form" hx-post="/notes/{{.Note.ID}}/toggle-pin" hx-target="#notes-container" hx-swap="outerHTML">
         <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-        <button type="submit" class="btn btn-ghost btn-sm note-badge-family{{if .Note.IsFamilyShared}} is-shared{{end}}" title="{{if .Note.IsFamilyShared}}Shared with family (click to unshare){{else}}Private (click to share with family){{end}}">
-          👨‍👩‍👧‍👦 {{if .Note.IsFamilyShared}}Family{{else}}Share{{end}}
+        <button type="submit" class="note-pin-btn{{if .Note.IsPinned}} is-pinned{{end}}" title="{{if .Note.IsPinned}}Unpin note{{else}}Pin note{{end}}">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="{{if .Note.IsPinned}}currentColor{{else}}none{{end}}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="17" x2="12" y2="22"/>
+            <path d="M5 17h14v-2l-2-2V5h1V3H6v2h1v8l-2 2v2z"/>
+          </svg>
         </button>
       </form>
     </div>
@@ -151,14 +118,14 @@
   <ul class="note-checklist">
     {{range .Note.Items}}
     <li class="note-checkitem{{if .Completed}} completed{{end}}" id="item-{{.ID}}">
-      <form class="inline-form" hx-post="/notes/{{.NoteID}}/items/{{.ID}}/toggle" hx-target="#note-{{.NoteID}}" hx-swap="outerHTML" hx-trigger="change">
+      <form class="inline-form note-checkitem-form" hx-post="/notes/{{$.Note.ID}}/items/{{.ID}}/toggle" hx-target="#note-{{$.Note.ID}}" hx-swap="outerHTML" hx-trigger="change">
         <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
         <input type="checkbox" name="completed" {{if .Completed}}checked{{end}}>
         <span class="note-item-text">{{.Content}}</span>
       </form>
-      <form class="inline-form note-item-del-form" hx-post="/notes/{{.NoteID}}/items/{{.ID}}/delete" hx-target="#note-{{.NoteID}}" hx-swap="outerHTML">
+      <form class="inline-form note-item-del-form" hx-post="/notes/{{$.Note.ID}}/items/{{.ID}}/delete" hx-target="#note-{{$.Note.ID}}" hx-swap="outerHTML">
         <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-        <button type="submit" class="btn btn-ghost btn-sm note-item-del" title="Delete item">&times;</button>
+        <button type="submit" class="note-item-del" title="Delete item">&times;</button>
       </form>
     </li>
     {{end}}
@@ -180,7 +147,7 @@
   {{end}}
 
   <details class="note-edit-details">
-    <summary class="btn btn-ghost btn-sm note-edit-summary" title="Edit note">✏️ Edit</summary>
+    <summary class="note-edit-summary" title="Edit note">✏️ Edit</summary>
     <form class="note-edit-form" hx-post="/notes/{{.Note.ID}}" hx-target="#note-{{.Note.ID}}" hx-swap="outerHTML">
       <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
       <input type="text" name="title" value="{{.Note.Title}}" placeholder="Title" class="notes-input-title">
@@ -188,31 +155,39 @@
       <textarea name="body" rows="3" class="notes-input-body">{{.Note.Body}}</textarea>
       {{end}}
       <div class="notes-edit-actions">
-        <select name="color" class="notes-color-select">
-          <option value="default" {{if eq .Note.Color "default"}}selected{{end}}>Default</option>
-          <option value="coral" {{if eq .Note.Color "coral"}}selected{{end}}>Coral</option>
-          <option value="peach" {{if eq .Note.Color "peach"}}selected{{end}}>Peach</option>
-          <option value="sand" {{if eq .Note.Color "sand"}}selected{{end}}>Sand</option>
-          <option value="mint" {{if eq .Note.Color "mint"}}selected{{end}}>Mint</option>
-          <option value="sage" {{if eq .Note.Color "sage"}}selected{{end}}>Sage</option>
-          <option value="fog" {{if eq .Note.Color "fog"}}selected{{end}}>Fog</option>
-          <option value="storm" {{if eq .Note.Color "storm"}}selected{{end}}>Storm</option>
-          <option value="blossom" {{if eq .Note.Color "blossom"}}selected{{end}}>Blossom</option>
-          <option value="clay" {{if eq .Note.Color "clay"}}selected{{end}}>Clay</option>
-        </select>
-        <button type="submit" class="btn btn-sm">Save</button>
+        <div class="notes-color-swatches" role="radiogroup" aria-label="Color">
+          <label class="color-swatch swatch-default" title="Default"><input type="radio" name="color" value="default" {{if eq .Note.Color "default"}}checked{{end}} class="visually-hidden"><span class="swatch-circle"></span></label>
+          <label class="color-swatch swatch-coral" title="Coral"><input type="radio" name="color" value="coral" {{if eq .Note.Color "coral"}}checked{{end}} class="visually-hidden"><span class="swatch-circle"></span></label>
+          <label class="color-swatch swatch-peach" title="Peach"><input type="radio" name="color" value="peach" {{if eq .Note.Color "peach"}}checked{{end}} class="visually-hidden"><span class="swatch-circle"></span></label>
+          <label class="color-swatch swatch-sand" title="Sand"><input type="radio" name="color" value="sand" {{if eq .Note.Color "sand"}}checked{{end}} class="visually-hidden"><span class="swatch-circle"></span></label>
+          <label class="color-swatch swatch-mint" title="Mint"><input type="radio" name="color" value="mint" {{if eq .Note.Color "mint"}}checked{{end}} class="visually-hidden"><span class="swatch-circle"></span></label>
+          <label class="color-swatch swatch-sage" title="Sage"><input type="radio" name="color" value="sage" {{if eq .Note.Color "sage"}}checked{{end}} class="visually-hidden"><span class="swatch-circle"></span></label>
+          <label class="color-swatch swatch-fog" title="Fog"><input type="radio" name="color" value="fog" {{if eq .Note.Color "fog"}}checked{{end}} class="visually-hidden"><span class="swatch-circle"></span></label>
+          <label class="color-swatch swatch-storm" title="Storm"><input type="radio" name="color" value="storm" {{if eq .Note.Color "storm"}}checked{{end}} class="visually-hidden"><span class="swatch-circle"></span></label>
+          <label class="color-swatch swatch-blossom" title="Blossom"><input type="radio" name="color" value="blossom" {{if eq .Note.Color "blossom"}}checked{{end}} class="visually-hidden"><span class="swatch-circle"></span></label>
+          <label class="color-swatch swatch-clay" title="Clay"><input type="radio" name="color" value="clay" {{if eq .Note.Color "clay"}}checked{{end}} class="visually-hidden"><span class="swatch-circle"></span></label>
+        </div>
+        <button type="submit" class="btn btn-sm">Done</button>
       </div>
     </form>
   </details>
 
   <div class="note-card-foot">
-    <form class="inline-form" hx-post="/notes/{{.Note.ID}}/toggle-pin" hx-target="#notes-container" hx-swap="outerHTML">
+    <form class="inline-form" hx-post="/notes/{{.Note.ID}}/share" hx-target="#note-{{.Note.ID}}" hx-swap="outerHTML">
       <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-      <button type="submit" class="btn btn-ghost btn-sm" title="Pin / Unpin">{{if .Note.IsPinned}}📌 Pinned{{else}}📍 Pin{{end}}</button>
+      <button type="submit" class="note-foot-btn{{if .Note.IsFamilyShared}} is-shared{{end}}" title="{{if .Note.IsFamilyShared}}Shared with family (click to unshare){{else}}Private (click to share with family){{end}}">
+        👨‍👩‍👧‍👦 {{if .Note.IsFamilyShared}}Family{{else}}Share{{end}}
+      </button>
     </form>
+
     <form class="inline-form" hx-post="/notes/{{.Note.ID}}/delete" hx-target="#notes-container" hx-swap="outerHTML" hx-confirm="Delete this note?">
       <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-      <button type="submit" class="btn btn-ghost btn-sm" title="Delete">&times;</button>
+      <button type="submit" class="note-foot-btn note-foot-del" title="Delete note">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        </svg>
+      </button>
     </form>
   </div>
 </article>

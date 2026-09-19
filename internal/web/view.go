@@ -44,6 +44,20 @@ var templateFuncs = template.FuncMap{
 	"formatDetailDate":         formatDetailDate,
 	"formatBytes":              formatBytes,
 	"fmtDateOpt":               fmtDateOpt,
+	"dict": func(values ...any) (map[string]any, error) {
+		if len(values)%2 != 0 {
+			return nil, errors.New("invalid dict call: odd number of arguments")
+		}
+		dict := make(map[string]any, len(values)/2)
+		for i := 0; i < len(values); i += 2 {
+			key, ok := values[i].(string)
+			if !ok {
+				return nil, errors.New("dict keys must be strings")
+			}
+			dict[key] = values[i+1]
+		}
+		return dict, nil
+	},
 }
 
 type viewData struct {
@@ -108,9 +122,12 @@ type viewData struct {
 	// AlbumsReady reports whether the album store is wired.
 	AlbumsReady bool
 	// Notes dashboard state.
-	Notes    any
-	Tag      string
-	Archived bool
+	Notes       any
+	PinnedNotes any
+	OtherNotes  any
+	HasPinned   bool
+	Tag         string
+	Archived    bool
 }
 
 type views struct {
