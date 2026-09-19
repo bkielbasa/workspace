@@ -116,6 +116,22 @@ func readUntilOK(t *testing.T, r *bufio.Reader, tag string) []string {
 	}
 }
 
+func waitForContinuation(t *testing.T, r *bufio.Reader) {
+	t.Helper()
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			t.Fatalf("failed reading continuation: %v", err)
+		}
+		if strings.HasPrefix(line, "+") {
+			return
+		}
+		if strings.Contains(line, "BAD") || strings.Contains(line, "NO") {
+			t.Fatalf("server rejected append before continuation: %s", line)
+		}
+	}
+}
+
 func startSyncTestServer(t *testing.T, user *identity.User, store *syncTestStore, bridge NotesBridge) (string, *Server) {
 	t.Helper()
 	srv := NewServer("127.0.0.1:0", fakeAuth{user: user}, store, fakeMailboxes{store: &store.fakeStore})
@@ -185,13 +201,8 @@ func TestIMAPServerNotesAppendHook(t *testing.T) {
 		Body:  "Note text",
 	}, testUser.Email)
 
-	fmt.Fprintf(conn, "A2 APPEND \"Notes\" (%d)\r\n", len(rawNote))
-	for {
-		line, _ := r.ReadString('\n')
-		if strings.HasPrefix(line, "+") {
-			break
-		}
-	}
+	fmt.Fprintf(conn, "A2 APPEND \"Notes\" {%d}\r\n", len(rawNote))
+	waitForContinuation(t, r)
 	fmt.Fprintf(conn, "%s\r\n", rawNote)
 	readUntilOK(t, r, "A2")
 
@@ -216,13 +227,8 @@ func TestIMAPServerNotesAppendHook(t *testing.T) {
 		Body:  "Should trigger hook",
 	}, testUser.Email)
 
-	fmt.Fprintf(conn, "A3 APPEND \"INBOX\" (%d)\r\n", len(rawAppleNoteToInbox))
-	for {
-		line, _ := r.ReadString('\n')
-		if strings.HasPrefix(line, "+") {
-			break
-		}
-	}
+	fmt.Fprintf(conn, "A3 APPEND \"INBOX\" {%d}\r\n", len(rawAppleNoteToInbox))
+	waitForContinuation(t, r)
 	fmt.Fprintf(conn, "%s\r\n", rawAppleNoteToInbox)
 	readUntilOK(t, r, "A3")
 
@@ -236,13 +242,8 @@ func TestIMAPServerNotesAppendHook(t *testing.T) {
 	bridge.mu.Unlock()
 
 	normalEmail := "Subject: Plain Email\r\nFrom: bob@example.com\r\n\r\nHello world\r\n"
-	fmt.Fprintf(conn, "A4 APPEND \"INBOX\" (%d)\r\n", len(normalEmail))
-	for {
-		line, _ := r.ReadString('\n')
-		if strings.HasPrefix(line, "+") {
-			break
-		}
-	}
+	fmt.Fprintf(conn, "A4 APPEND \"INBOX\" {%d}\r\n", len(normalEmail))
+	waitForContinuation(t, r)
 	fmt.Fprintf(conn, "%s\r\n", normalEmail)
 	readUntilOK(t, r, "A4")
 
@@ -268,6 +269,12 @@ func TestIMAPServerNotesExpungeHook(t *testing.T) {
 		UID:        2,
 		RawMessage: "Subject: Note 2\r\nX-Uniform-Type-Identifier: com.apple.mail-note\r\n\r\nBody 2",
 	}
+	noteMsg3 := mail.Message{
+		ID:         uuid.New(),
+		MailboxID:  notesBox.ID,
+		UID:        3,
+		RawMessage: "Subject: Note 3\r\nX-Uniform-Type-Identifier: com.apple.mail-note\r\n\r\nBody 3",
+	}
 	inboxMsg := mail.Message{
 		ID:         uuid.New(),
 		MailboxID:  inboxBox.ID,
@@ -278,7 +285,7 @@ func TestIMAPServerNotesExpungeHook(t *testing.T) {
 	store := &syncTestStore{
 		fakeStore: fakeStore{
 			mailboxes: []mail.Mailbox{notesBox, inboxBox},
-			messages:  []mail.Message{noteMsg1, noteMsg2, inboxMsg},
+			messages:  []mail.Message{noteMsg1, noteMsg2, noteMsg3, inboxMsg},
 		},
 	}
 	bridge := &mockNotesBridge{}
@@ -354,6 +361,25 @@ func TestIMAPServerNotesExpungeHook(t *testing.T) {
 
 	if len(bridge.getExpungedIDs()) != 0 {
 		t.Fatalf("expected bridge to NOT be called for INBOX expunge, got: %v", bridge.getExpungedIDs())
+	}
+
+	// Select Notes again, mark remaining message 3 (\Deleted), issue CLOSE -> verify bridge receives noteMsg3.ID
+	fmt.Fprintf(conn, "A10 SELECT \"Notes\"\r\n")
+	readUntilOK(t, r, "A10")
+
+	fmt.Fprintf(conn, "A11 STORE 1 +FLAGS (\\Deleted)\r\n")
+	readUntilOK(t, r, "A11")
+
+	bridge.mu.Lock()
+	bridge.expungedIDs = nil
+	bridge.mu.Unlock()
+
+	fmt.Fprintf(conn, "A12 CLOSE\r\n")
+	readUntilOK(t, r, "A12")
+
+	expunged = bridge.getExpungedIDs()
+	if len(expunged) != 1 || expunged[0] != noteMsg3.ID {
+		t.Fatalf("expected bridge to receive CLOSE expunged ID %s, got: %v", noteMsg3.ID, expunged)
 	}
 }
 

@@ -437,7 +437,9 @@ func (s *Server) handle(conn net.Conn) {
 				continue
 			}
 			if s.notes != nil && (strings.EqualFold(mailbox.Name, "Notes") || strings.Contains(strings.ToLower(raw), "com.apple.mail-note")) {
-				_, _ = s.notes.HandleIMAPAppend(ctx, authed.ID, mailbox.Name, raw)
+				if _, err := s.notes.HandleIMAPAppend(ctx, authed.ID, mailbox.Name, raw); err != nil {
+					obs.Log(ctx, slog.LevelError, "notes bridge error", "err", err)
+				}
 			}
 			write(fmt.Sprintf("%s OK [APPENDUID %d %d] APPEND completed", tag, mailbox.UIDValidity, message.UID))
 
@@ -705,12 +707,13 @@ func (s *Server) handle(conn net.Conn) {
 					remaining = append(remaining, message)
 				}
 				if s.notes != nil && strings.EqualFold(selected.Name, "Notes") && len(expungedIDs) > 0 {
-					_ = s.notes.HandleIMAPExpunge(ctx, authed.ID, selected.Name, expungedIDs)
+					if err := s.notes.HandleIMAPExpunge(ctx, authed.ID, selected.Name, expungedIDs); err != nil {
+						obs.Log(ctx, slog.LevelError, "notes bridge error", "err", err)
+					}
 				}
 				for _, item := range expungedList {
-					if s.mail.Delete(ctx, item.id) == nil {
-						write(fmt.Sprintf("* %d EXPUNGE", item.seqOut))
-					}
+					_ = s.mail.Delete(ctx, item.id)
+					write(fmt.Sprintf("* %d EXPUNGE", item.seqOut))
 				}
 				selectedMsgs = remaining
 				write(tag + " OK UID EXPUNGE completed")
@@ -855,7 +858,9 @@ func (s *Server) handle(conn net.Conn) {
 			}
 
 			if s.notes != nil && strings.EqualFold(selected.Name, "Notes") && len(expungedIDs) > 0 {
-				_ = s.notes.HandleIMAPExpunge(ctx, authed.ID, selected.Name, expungedIDs)
+				if err := s.notes.HandleIMAPExpunge(ctx, authed.ID, selected.Name, expungedIDs); err != nil {
+					obs.Log(ctx, slog.LevelError, "notes bridge error", "err", err)
+				}
 			}
 
 			for _, item := range expungedList {
@@ -871,11 +876,20 @@ func (s *Server) handle(conn net.Conn) {
 				write(tag + " NO no mailbox selected")
 				continue
 			}
+			var expungedIDs []uuid.UUID
 			for _, message := range selectedMsgs {
 				full, err := s.mail.Get(ctx, message.ID)
 				if err == nil && full.Deleted {
-					_ = s.mail.Delete(ctx, message.ID)
+					expungedIDs = append(expungedIDs, message.ID)
 				}
+			}
+			if s.notes != nil && strings.EqualFold(selected.Name, "Notes") && len(expungedIDs) > 0 {
+				if err := s.notes.HandleIMAPExpunge(ctx, authed.ID, selected.Name, expungedIDs); err != nil {
+					obs.Log(ctx, slog.LevelError, "notes bridge error", "err", err)
+				}
+			}
+			for _, id := range expungedIDs {
+				_ = s.mail.Delete(ctx, id)
 			}
 			selected = nil
 			selectedMsgs = nil
