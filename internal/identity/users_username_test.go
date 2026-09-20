@@ -79,6 +79,19 @@ func TestSetUsername(t *testing.T) {
 		t.Fatalf("expected no-op for same username, got %v", err)
 	}
 
+	// Setting a username that is already taken by another user returns ErrUserAlreadyExists
+	_, err = store.Create(ctx, "other@cloudlift.run", "otheruser", "hash", "Other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy2, err := store.Create(ctx, "legacy2@cloudlift.run", "", "hash", "Legacy 2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := users.SetUsername(ctx, legacy2.ID, "otheruser"); !errors.Is(err, ErrUserAlreadyExists) {
+		t.Fatalf("expected ErrUserAlreadyExists, got %v", err)
+	}
+
 	// Invalid username is rejected
 	if err := users.SetUsername(ctx, legacy.ID, "bad name!"); err == nil {
 		t.Fatal("invalid username accepted")
@@ -133,4 +146,12 @@ func TestUsersUsernameImmutability(t *testing.T) {
 		t.Errorf("expected ErrUsernameImmutable, got %v", err)
 	}
 }
+
+func TestUsersPrimaryDomainDefault(t *testing.T) {
+	users := NewUsers(newMemUserStore(), nil, "")
+	if got := users.PrimaryDomain(); got != "cloudlift.run" {
+		t.Errorf("expected default primary domain 'cloudlift.run', got %q", got)
+	}
+}
+
 

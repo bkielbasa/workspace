@@ -70,7 +70,7 @@ func main() {
 			pwSync = append(pwSync, mgr)
 		}
 	}
-	users := identity.NewUsers(postgres.NewUserRepository(db), sessions, pwSync...)
+	users := identity.NewUsers(postgres.NewUserRepository(db), sessions, cfg.primaryDomain, pwSync...)
 	appPasswords := identity.NewAppPasswords(postgres.NewAppPasswordRepository(db), users)
 	// Device protocols accept master passwords and per-device app passwords.
 	// The web UI keeps master-only login (see web.New below).
