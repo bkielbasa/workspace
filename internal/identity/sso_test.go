@@ -86,7 +86,7 @@ func newSSOTest(t *testing.T, users map[string]*User) (*SSO, *memSSORepo, *memUs
 	t.Helper()
 	urepo := &memUsersRepo{users: users}
 	links := &memSSORepo{}
-	return NewSSO(links, NewUsers(urepo, nil)), links, urepo
+	return NewSSO(links, NewUsers(urepo, nil, "cloudlift.run")), links, urepo
 }
 
 func TestSSOAuthenticateReusesExistingLink(t *testing.T) {
@@ -142,7 +142,7 @@ func TestSSOAutoCreateProvisionsNewAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Email != "new@example.com" || !got.Enabled {
+	if got.Email != "new@cloudlift.run" || got.Username != "new" || !got.Enabled {
 		t.Fatalf("provisioned user wrong: %+v", got)
 	}
 	// SSO-only accounts must not be usable with a password they never set:

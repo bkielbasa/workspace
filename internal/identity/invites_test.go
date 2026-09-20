@@ -99,7 +99,7 @@ func (m *memInviteRepo) DeleteForUser(_ context.Context, userID uuid.UUID) error
 func setupInvites(t *testing.T) (*Invites, *Users) {
 	t.Helper()
 	store := newMemUserStore()
-	users := NewUsers(store, nil)
+	users := NewUsers(store, nil, "cloudlift.run")
 	return NewInvites(newMemInviteRepo(store), users), users
 }
 

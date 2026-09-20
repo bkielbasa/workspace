@@ -120,7 +120,7 @@ func setupAppPasswords(t *testing.T) (*AppPasswords, *DeviceAuth, *User, *memApp
 	hash, _ := bcrypt.GenerateFromPassword([]byte("master-secret"), bcrypt.DefaultCost)
 	users := NewUsers(memUserRepo{users: map[string]*User{
 		"alice@example.com": {ID: userID, Email: "alice@example.com", PasswordHash: string(hash), Enabled: true},
-	}}, nil)
+	}}, nil, "cloudlift.run")
 	repo := newMemAppRepo()
 	apps := NewAppPasswords(repo, users)
 	user, err := users.GetByEmail(context.Background(), "alice@example.com")

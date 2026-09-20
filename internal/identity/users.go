@@ -2,7 +2,9 @@ package identity
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -28,10 +30,11 @@ type UserRepository interface {
 }
 
 type Users struct {
-	repo     UserRepository
-	sessions SessionRepository
-	sync     []PasswordSync
-	tracer   trace.Tracer
+	repo          UserRepository
+	sessions      SessionRepository
+	primaryDomain string
+	sync          []PasswordSync
+	tracer        trace.Tracer
 }
 
 // PasswordSync mirrors account lifecycle into external credential stores
@@ -42,8 +45,26 @@ type PasswordSync interface {
 	RemoveUser(email string) error
 }
 
-func NewUsers(repo UserRepository, sessions SessionRepository, sync ...PasswordSync) *Users {
-	return &Users{repo: repo, sessions: sessions, sync: sync, tracer: otel.Tracer("users")}
+func NewUsers(repo UserRepository, sessions SessionRepository, primaryDomain string, sync ...PasswordSync) *Users {
+	domain := strings.ToLower(strings.TrimSpace(primaryDomain))
+	if domain == "" {
+		domain = "cloudlift.run"
+	}
+	return &Users{
+		repo:          repo,
+		sessions:      sessions,
+		primaryDomain: domain,
+		sync:          sync,
+		tracer:        otel.Tracer("users"),
+	}
+}
+
+func (u *Users) PrimaryDomain() string {
+	return u.primaryDomain
+}
+
+func (u *Users) FormatEmail(username string) string {
+	return fmt.Sprintf("%s@%s", NormalizeUsername(username), u.primaryDomain)
 }
 
 // NormalizeUsername lowercases and trims a login name.
@@ -65,6 +86,14 @@ func ValidateUsername(name string) error {
 		default:
 			return fmt.Errorf("username may only contain letters, digits, dot, underscore, plus and dash")
 		}
+	}
+	return nil
+}
+
+// ValidatePassword enforces password rules: at least 8 characters.
+func ValidatePassword(password string) error {
+	if len(password) < 8 {
+		return fmt.Errorf("password must be at least 8 characters")
 	}
 	return nil
 }
@@ -150,24 +179,35 @@ func (u *Users) syncRemoveUser(email string) {
 	}
 }
 
-func (u *Users) Create(ctx context.Context, email, password, displayName string) (*User, error) {
+func (u *Users) Create(ctx context.Context, loginOrUsername, password, displayName string) (*User, error) {
 	ctx, span := u.tracer.Start(ctx, "users.create")
 	defer span.End()
 
-	email = strings.ToLower(strings.TrimSpace(email))
-	parts := strings.SplitN(email, "@", 2)
-	if len(parts) != 2 || parts[1] == "" {
-		return nil, fmt.Errorf("invalid email address")
+	loginOrUsername = strings.TrimSpace(loginOrUsername)
+	var username string
+	if strings.Contains(loginOrUsername, "@") {
+		var err error
+		username, err = u.deriveUsername(ctx, loginOrUsername)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		username = NormalizeUsername(loginOrUsername)
 	}
 
-	username, err := u.deriveUsername(ctx, email)
-	if err != nil {
+	if err := ValidateUsername(username); err != nil {
 		return nil, err
 	}
+	if err := ValidatePassword(password); err != nil {
+		return nil, err
+	}
+
 	passwordHashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
+
+	email := u.FormatEmail(username)
 	user, err := u.repo.Create(ctx, email, username, string(passwordHashBytes), displayName)
 	if err != nil {
 		return nil, err
@@ -213,32 +253,34 @@ func (u *Users) CreateDisabled(ctx context.Context, email, displayName string) (
 // Provision creates an enabled account with no working password, for
 // SSO-only users created on first sign-in. Unlike Create it never mirrors
 // anything into password stores (Samba): the account has no password.
-func (u *Users) Provision(ctx context.Context, email, displayName string) (*User, error) {
+func (u *Users) Provision(ctx context.Context, claimedEmail, displayName string) (*User, error) {
 	ctx, span := u.tracer.Start(ctx, "users.provision")
 	defer span.End()
 
-	email = strings.ToLower(strings.TrimSpace(email))
-	parts := strings.SplitN(email, "@", 2)
-	if len(parts) != 2 || parts[1] == "" {
-		return nil, fmt.Errorf("invalid email address")
-	}
-	bootstrap, err := GeneratePassword()
+	username, err := u.deriveUsername(ctx, claimedEmail)
 	if err != nil {
 		return nil, err
 	}
-	passwordHashBytes, err := bcrypt.GenerateFromPassword([]byte(bootstrap), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, fmt.Errorf("hash password: %w", err)
-	}
-	username, err := u.deriveUsername(ctx, email)
-	if err != nil {
+	if err := ValidateUsername(username); err != nil {
 		return nil, err
+	}
+
+	email := u.FormatEmail(username)
+	var raw [24]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return nil, fmt.Errorf("generate bootstrap password: %w", err)
+	}
+	password := hex.EncodeToString(raw[:])
+	passwordHashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash bootstrap password: %w", err)
 	}
 	return u.repo.Create(ctx, email, username, string(passwordHashBytes), displayName)
 }
 
-// SetUsername renames a login alias. Emails, DAV principals and share paths
-// all keep using the email address, so this is safe to change any time.
+// SetUsername sets the username for a user who does not have one yet.
+// Usernames are immutable once set: changing a non-empty username returns
+// ErrUsernameImmutable, while setting the identical username is a no-op.
 func (u *Users) SetUsername(ctx context.Context, id uuid.UUID, username string) error {
 	ctx, span := u.tracer.Start(ctx, "users.set_username")
 	defer span.End()
@@ -247,10 +289,25 @@ func (u *Users) SetUsername(ctx context.Context, id uuid.UUID, username string) 
 	if err := ValidateUsername(username); err != nil {
 		return err
 	}
-	if existing, err := u.repo.GetByUsername(ctx, username); err == nil && existing != nil && existing.ID != id {
+
+	existing, err := u.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if existing.Username != "" && existing.Username != username {
+		return ErrUsernameImmutable
+	}
+	if existing.Username == username {
+		return nil
+	}
+	if other, err := u.repo.GetByUsername(ctx, username); err == nil && other != nil && other.ID != id {
 		return ErrUserAlreadyExists
 	}
-	return u.repo.SetUsername(ctx, id, username)
+
+	if err := u.repo.SetUsername(ctx, id, username); err != nil {
+		return err
+	}
+	return nil
 }
 
 // GetByLogin resolves an email address or a username, for sign-in forms.

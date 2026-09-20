@@ -121,14 +121,14 @@ func (m *memSync) RemoveUser(email string) error {
 func TestSyncLifecycle(t *testing.T) {
 	ctx := context.Background()
 	syncer := &memSync{}
-	users := NewUsers(newMemUserStore(), nil, syncer)
+	users := NewUsers(newMemUserStore(), nil, "cloudlift.run", syncer)
 
 	created, err := users.Create(ctx, "bob@example.com", "s3cret-pw", "Bob")
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantHash, _ := NTHash("s3cret-pw")
-	if syncer.passwords["bob@example.com"] != wantHash {
+	if syncer.passwords[created.Email] != wantHash {
 		t.Errorf("create did not sync NT hash")
 	}
 
@@ -136,28 +136,28 @@ func TestSyncLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantHash, _ = NTHash("n3w-pw")
-	if syncer.passwords["bob@example.com"] != wantHash {
+	if syncer.passwords[created.Email] != wantHash {
 		t.Errorf("change did not re-sync NT hash")
 	}
 
 	if err := users.Update(ctx, created.ID, "Bob", false); err != nil {
 		t.Fatal(err)
 	}
-	if syncer.enabled["bob@example.com"] {
+	if syncer.enabled[created.Email] {
 		t.Errorf("disable not synced")
 	}
 
 	if err := users.Delete(ctx, created.ID); err != nil {
 		t.Fatal(err)
 	}
-	if len(syncer.removed) != 1 || syncer.removed[0] != "bob@example.com" {
+	if len(syncer.removed) != 1 || syncer.removed[0] != created.Email {
 		t.Errorf("delete not synced: %v", syncer.removed)
 	}
 }
 
 func TestSyncAbsentIsNoop(t *testing.T) {
 	ctx := context.Background()
-	users := NewUsers(newMemUserStore(), nil)
+	users := NewUsers(newMemUserStore(), nil, "cloudlift.run")
 	if _, err := users.Create(ctx, "solo@example.com", "s3cret-pw", "Solo"); err != nil {
 		t.Fatalf("create without syncer: %v", err)
 	}

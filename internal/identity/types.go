@@ -10,6 +10,7 @@ import (
 var (
 	ErrUserNotFound        = errors.New("user not found")
 	ErrUserAlreadyExists   = errors.New("user already exists")
+	ErrUsernameImmutable   = errors.New("username cannot be changed once set")
 	ErrDomainNotAllowed    = errors.New("domain not allowed")
 	ErrSessionNotFound     = errors.New("session not found")
 	ErrSessionExpired      = errors.New("session expired")
