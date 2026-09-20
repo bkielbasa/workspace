@@ -16,6 +16,14 @@
       <form method="post" action="/invite/accept" class="profile-form">
         <input type="hidden" name="token" value="{{.InviteLink}}">
 
+        <label for="invite-username">Username
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <input id="invite-username" name="username" type="text" required minlength="2" maxlength="32" placeholder="username" autocomplete="username" style="flex: 1;">
+            <span class="field-suffix" style="font-weight: 500; color: var(--text-muted, #666);">@{{if .PrimaryDomain}}{{.PrimaryDomain}}{{else}}cloudlift.run{{end}}</span>
+          </div>
+          <span class="field-hint">This will be your permanent account login and email address.</span>
+        </label>
+
         <label for="invite-name">Display name
           <input id="invite-name" name="display_name" type="text" maxlength="100" placeholder="e.g. Alice Smith" autocomplete="name">
           <span class="field-hint">How your name appears to others</span>

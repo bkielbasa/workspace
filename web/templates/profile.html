@@ -32,8 +32,8 @@
           </label>
 
           <label for="profile-username">Username
-            <input id="profile-username" name="username" type="text" value="{{.User.Username}}" maxlength="32" placeholder="username" autocomplete="username">
-            <span class="field-hint">Alternative sign-in name (letters, digits, dot, underscore, plus, dash)</span>
+            <input id="profile-username" type="text" value="{{.User.Username}}" disabled readonly title="Username cannot be changed">
+            <span class="field-hint">Usernames are permanent and define your primary email address.</span>
           </label>
 
           <label for="display-name">Display name

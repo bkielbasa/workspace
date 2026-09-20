@@ -734,27 +734,214 @@ func TestInviteAcceptFlow(t *testing.T) {
 	}
 }
 
-func TestProfileUsernameUpdate(t *testing.T) {
-	mux, userSvc, _, _, token := setupProfileTestServer(t)
+type testWebServer struct {
+	mux    *http.ServeMux
+	server *web.Server
+}
 
+type mockInvitesService struct {
+	invites map[string]*identity.Invite
+}
+
+func (m *mockInvitesService) CreateInvite(ctx context.Context, email, displayName string) (string, *identity.Invite, error) {
+	token := "tok-" + uuid.New().String()
+	inv := &identity.Invite{
+		ID:           uuid.New(),
+		InvitedEmail: email,
+		Email:        email,
+		DisplayName:  displayName,
+		ExpiresAt:    time.Now().Add(24 * time.Hour),
+	}
+	m.invites[token] = inv
+	return token, inv, nil
+}
+
+func (m *mockInvitesService) Lookup(ctx context.Context, token string) (*identity.Invite, error) {
+	inv, ok := m.invites[token]
+	if !ok {
+		return nil, identity.ErrInviteNotFound
+	}
+	return inv, nil
+}
+
+func (m *mockInvitesService) Accept(ctx context.Context, token, username, displayName, password string) (*identity.User, error) {
+	if _, ok := m.invites[token]; !ok {
+		return nil, identity.ErrInviteNotFound
+	}
+	u := &identity.User{
+		ID:          uuid.New(),
+		Email:       username + "@cloudlift.run",
+		Username:    username,
+		DisplayName: displayName,
+		Enabled:     true,
+	}
+	return u, nil
+}
+
+func (m *mockInvitesService) List(ctx context.Context) ([]identity.Invite, error) {
+	var list []identity.Invite
+	for _, inv := range m.invites {
+		list = append(list, *inv)
+	}
+	return list, nil
+}
+
+func (m *mockInvitesService) Revoke(ctx context.Context, id uuid.UUID) error {
+	for k, inv := range m.invites {
+		if inv.ID == id {
+			delete(m.invites, k)
+			break
+		}
+	}
+	return nil
+}
+
+type mockUsersService struct {
+	profileMockUserService
+	users map[uuid.UUID]*identity.User
+}
+
+func (m *mockUsersService) Get(ctx context.Context, id uuid.UUID) (*identity.User, error) {
+	if u, ok := m.users[id]; ok {
+		return u, nil
+	}
+	return m.profileMockUserService.Get(ctx, id)
+}
+
+func (m *mockUsersService) Update(ctx context.Context, id uuid.UUID, displayName string, enabled bool) error {
+	if m.updateErr != nil {
+		return m.updateErr
+	}
+	m.lastUpdatedName = displayName
+	if u, ok := m.users[id]; ok {
+		u.DisplayName = displayName
+	} else if m.user != nil {
+		m.user.DisplayName = displayName
+	}
+	return nil
+}
+
+func (m *mockUsersService) Authenticate(ctx context.Context, email, password string) (*identity.User, error) {
+	for _, u := range m.users {
+		if u.Email == email || u.Username == email {
+			return u, nil
+		}
+	}
+	return m.profileMockUserService.Authenticate(ctx, email, password)
+}
+
+func newTestServerWithInvites(t *testing.T) (*testWebServer, *mockInvitesService, *mockUsersService, *profileMockSessionService) {
+	t.Helper()
+	files := os.DirFS("../..")
+	mockInvites := &mockInvitesService{invites: make(map[string]*identity.Invite)}
+	mockUsers := &mockUsersService{users: make(map[uuid.UUID]*identity.User)}
+	sessSvc := newProfileMockSessionService()
+
+	server, err := web.New(files, contactService{}, calendarService{}, &mailServiceStub{}, sessSvc, mockUsers, false)
+	if err != nil {
+		t.Fatalf("web.New() error = %v", err)
+	}
+	server.SetInvites(mockInvites)
+
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux)
+	return &testWebServer{mux: mux, server: server}, mockInvites, mockUsers, sessSvc
+}
+
+func TestInviteAcceptanceWithUsername(t *testing.T) {
+	srv, mockInvites, _, _ := newTestServerWithInvites(t)
+	// Mock invite with token "tok123"
+	mockInvites.invites["tok123"] = &identity.Invite{
+		InvitedEmail: "guest@example.com",
+		DisplayName:  "Guest",
+		ExpiresAt:    time.Now().Add(24 * time.Hour),
+	}
+
+	// 1. GET /invite/accept?token=tok123 renders username input
+	req := httptest.NewRequest("GET", "/invite/accept?token=tok123", nil)
+	rec := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /invite/accept failed: %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `name="username"`) {
+		t.Errorf("expected invite form to have username field")
+	}
+
+	// 2. POST /invite/accept with username
+	form := url.Values{
+		"token":            {"tok123"},
+		"username":         {"guestuser"},
+		"display_name":     {"Guest User"},
+		"password":         {"password123"},
+		"confirm_password": {"password123"},
+	}
+	req = httptest.NewRequest("POST", "/invite/accept", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+	if loc := rec.Header().Get("Location"); loc != "/profile?success=invite" {
+		t.Errorf("expected redirect to /profile?success=invite, got %q", loc)
+	}
+}
+
+func TestProfileUsernameIsReadOnly(t *testing.T) {
+	srv, _, mockUsers, sessSvc := newTestServerWithInvites(t)
+	testUser := &identity.User{
+		ID:          uuid.New(),
+		Email:       "alice@cloudlift.run",
+		Username:    "alice",
+		DisplayName: "Alice",
+		Enabled:     true,
+	}
+	mockUsers.users[testUser.ID] = testUser
+	sess, _ := sessSvc.Create(context.Background(), testUser.ID, time.Hour)
+
+	// GET /profile renders username as disabled/readonly
+	req := httptest.NewRequest("GET", "/profile", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: sess.Token})
+	rec := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /profile failed: %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "alice@cloudlift.run") {
+		t.Errorf("expected profile to show primary email")
+	}
+	if !strings.Contains(body, "disabled readonly") {
+		t.Errorf("expected username input to be disabled readonly")
+	}
+
+	// POST /profile with username does NOT update username
 	csrfToken := "test-csrf-token"
 	form := url.Values{
 		"_csrf":        {csrfToken},
-		"display_name": {"Test User"},
-		"username":     {"tester"},
+		"display_name": {"Alice Updated"},
+		"username":     {"newalice"},
 	}
-	req := httptest.NewRequest(http.MethodPost, "/profile", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(http.MethodPost, "/profile", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: "session", Value: token})
+	req.AddCookie(&http.Cookie{Name: "session", Value: sess.Token})
 	req.AddCookie(&http.Cookie{Name: "csrf", Value: csrfToken})
 
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	rec = httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("expected redirect 303, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
-	if userSvc.lastUsername != "tester" {
-		t.Errorf("username not saved, got %q", userSvc.lastUsername)
+	if mockUsers.lastUsername != "" {
+		t.Errorf("expected username update to be ignored, got SetUsername called with %q", mockUsers.lastUsername)
 	}
+}
+
+func TestProfileUsernameReadOnly(t *testing.T) {
+	TestProfileUsernameIsReadOnly(t)
 }

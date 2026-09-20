@@ -54,14 +54,6 @@ func (s *Server) profileUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if username := strings.TrimSpace(r.FormValue("username")); username != "" && username != user.Username {
-		if err := s.users.SetUsername(r.Context(), user.ID, username); err != nil {
-			obs.Log(r.Context(), slog.LevelWarn, "invalid username", "user_id", user.ID, "error", err)
-			s.renderProfile(w, r, user, "Could not change username: "+err.Error(), "")
-			return
-		}
-	}
-
 	http.Redirect(w, r, "/profile?success=profile", http.StatusSeeOther)
 }
 
@@ -140,6 +132,7 @@ func (s *Server) renderProfileWithPassword(w http.ResponseWriter, r *http.Reques
 		DevicesReady:       s.appPasswords != nil,
 		NewAppPassword:     plain,
 		NewAppPasswordName: name,
+		PrimaryDomain:      s.primaryDomain,
 	})
 }
 
@@ -163,18 +156,19 @@ func (s *Server) renderProfileWithInvite(w http.ResponseWriter, r *http.Request,
 		}
 	}
 	renderView(w, r, s.views.profileT, "layout", viewData{
-		Title:        "Profile",
-		Section:      "profile",
-		User:         user,
-		CSRFToken:    csrfTokenFromRequest(r),
-		Error:        errMsg,
-		Success:      successMsg,
-		AppPasswords: passwords,
-		DevicesReady: s.appPasswords != nil,
-		AdminUsers:   adminUsers,
-		Invites:      invites,
-		InviteLink:   inviteLink,
-		InviteEmail:  inviteEmail,
+		Title:         "Profile",
+		Section:       "profile",
+		User:          user,
+		CSRFToken:     csrfTokenFromRequest(r),
+		Error:         errMsg,
+		Success:       successMsg,
+		AppPasswords:  passwords,
+		DevicesReady:  s.appPasswords != nil,
+		AdminUsers:    adminUsers,
+		Invites:       invites,
+		InviteLink:    inviteLink,
+		InviteEmail:   inviteEmail,
+		PrimaryDomain: s.primaryDomain,
 	})
 }
 
@@ -431,12 +425,17 @@ func (s *Server) inviteAcceptPage(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	email := invite.InvitedEmail
+	if email == "" {
+		email = invite.Email
+	}
 	renderView(w, r, s.views.inviteT, "layout", viewData{
-		Title:       "Accept invite",
-		Section:     "invite",
-		CSRFToken:   csrfTokenFromRequest(r),
-		InviteEmail: invite.Email,
-		InviteLink:  token,
+		Title:         "Accept invite",
+		Section:       "invite",
+		CSRFToken:     csrfTokenFromRequest(r),
+		InviteEmail:   email,
+		InviteLink:    token,
+		PrimaryDomain: s.primaryDomain,
 	})
 }
 
@@ -453,17 +452,31 @@ func (s *Server) inviteAccept(w http.ResponseWriter, r *http.Request) {
 		invite, _ := s.invites.Lookup(r.Context(), token)
 		email := ""
 		if invite != nil {
-			email = invite.Email
+			email = invite.InvitedEmail
+			if email == "" {
+				email = invite.Email
+			}
 		}
 		renderView(w, r, s.views.inviteT, "layout", viewData{
-			Title: "Accept invite", Section: "invite",
-			CSRFToken:   csrfTokenFromRequest(r),
-			Error:       msg,
-			InviteEmail: email,
-			InviteLink:  token,
+			Title:         "Accept invite",
+			Section:       "invite",
+			CSRFToken:     csrfTokenFromRequest(r),
+			Error:         msg,
+			InviteEmail:   email,
+			InviteLink:    token,
+			PrimaryDomain: s.primaryDomain,
 		})
 	}
 
+	if username == "" {
+		fail("Username is required.")
+		return
+	}
+	username = identity.NormalizeUsername(username)
+	if err := identity.ValidateUsername(username); err != nil {
+		fail("Invalid username: " + err.Error())
+		return
+	}
 	if password == "" || password != confirm {
 		fail("Passwords do not match.")
 		return
@@ -472,6 +485,8 @@ func (s *Server) inviteAccept(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		obs.Log(r.Context(), slog.LevelWarn, "accept invite failed", "error", err)
 		switch {
+		case errors.Is(err, identity.ErrUserAlreadyExists):
+			fail("Username is already taken. Please choose another.")
 		case errors.Is(err, identity.ErrInviteUsed):
 			fail("This invite was already used. Ask for a new one.")
 		case errors.Is(err, identity.ErrInviteExpired):

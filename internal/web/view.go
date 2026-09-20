@@ -96,8 +96,9 @@ type viewData struct {
 	// Invites lists pending family invites for admins.
 	Invites []identity.Invite
 	// InviteLink carries a freshly minted invite URL (shown once).
-	InviteLink  string
-	InviteEmail string
+	InviteLink    string
+	InviteEmail   string
+	PrimaryDomain string
 	// NewAppPassword carries a freshly minted app password (shown once).
 	NewAppPassword     string
 	NewAppPasswordName string
@@ -236,6 +237,16 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 }
 
 func renderView(w http.ResponseWriter, r *http.Request, t *template.Template, name string, data any) {
+	if vd, ok := data.(viewData); ok {
+		if vd.PrimaryDomain == "" {
+			vd.PrimaryDomain = "cloudlift.run"
+		}
+		data = vd
+	} else if vd, ok := data.(*viewData); ok {
+		if vd.PrimaryDomain == "" {
+			vd.PrimaryDomain = "cloudlift.run"
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Authenticated pages are personal and change often; keep browsers
 	// (and any cache between us and them) from serving stale copies.

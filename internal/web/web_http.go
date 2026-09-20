@@ -154,6 +154,16 @@ type Server struct {
 	invites invitesService
 	// notes backs the Keep-style notes and checklists dashboard.
 	notes notesService
+	primaryDomain string
+}
+
+// SetPrimaryDomain configures the primary domain for email addresses and accounts.
+// Defaults to "cloudlift.run" if empty.
+func (s *Server) SetPrimaryDomain(domain string) {
+	if domain == "" {
+		domain = "cloudlift.run"
+	}
+	s.primaryDomain = domain
 }
 
 // SetDeviceSetup enables the iPhone profile flow with embedded per-device
@@ -223,6 +233,7 @@ func New(files fs.FS, contacts contactsService, calendars calendarService, mail 
 		files: files, contacts: contacts, calendar: calendars, mail: mail,
 		sessions: sessions, users: users, secure: secure,
 		limiter: newLoginLimiter(30, 15*time.Minute), views: v,
+		primaryDomain: "cloudlift.run",
 	}, nil
 }
 
