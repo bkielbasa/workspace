@@ -41,13 +41,22 @@ func TestLoginByEmailOrUsername(t *testing.T) {
 		t.Fatalf("uppercase username login: %v", err)
 	}
 
-	// Same local part on another domain gets a suffix.
-	other, err := users.Create(ctx, "alice@other.com", "s3cret-pw", "Other Alice")
-	if err != nil {
-		t.Fatal(err)
+	// Same local part on another domain is rejected because username 'alice' is already taken
+	_, err = users.Create(ctx, "alice@other.com", "s3cret-pw", "Other Alice")
+	if !errors.Is(err, ErrUserAlreadyExists) {
+		t.Fatalf("expected ErrUserAlreadyExists, got %v", err)
 	}
-	if other.Username != "alice2" {
-		t.Fatalf("dedup username = %q", other.Username)
+
+	// SSO Provision with same local part gets auto-suffixed dedup username
+	provisioned, err := users.Provision(ctx, "alice@other.com", "Other Alice")
+	if err != nil {
+		t.Fatalf("Provision failed: %v", err)
+	}
+	if provisioned.Username != "alice2" {
+		t.Fatalf("expected dedup username 'alice2', got %q", provisioned.Username)
+	}
+	if provisioned.Email != "alice2@cloudlift.run" {
+		t.Fatalf("expected primary email 'alice2@cloudlift.run', got %q", provisioned.Email)
 	}
 }
 

@@ -279,3 +279,35 @@ func TestInviteCreateAndAcceptWithUsername(t *testing.T) {
 	}
 }
 
+type failMarkUsedInviteStore struct {
+	*memInviteRepo
+}
+
+func (f *failMarkUsedInviteStore) MarkUsed(ctx context.Context, id, userID uuid.UUID) error {
+	return errors.New("database connection lost")
+}
+
+func TestInviteAcceptRollbackOnMarkUsedFailure(t *testing.T) {
+	ctx := context.Background()
+	userStore := newMemUserStore()
+	users := NewUsers(userStore, nil, "cloudlift.run")
+	baseStore := newMemInviteStore()
+	failStore := &failMarkUsedInviteStore{memInviteRepo: baseStore}
+	invites := NewInvites(failStore, users)
+
+	token, _, err := invites.CreateInvite(ctx, "victim@example.com", "Victim")
+	if err != nil {
+		t.Fatalf("CreateInvite failed: %v", err)
+	}
+
+	_, err = invites.Accept(ctx, token, "victimuser", "Victim", "password123")
+	if err == nil {
+		t.Fatal("expected error from MarkUsed failure, got nil")
+	}
+
+	// Verify user was rolled back from users store
+	if _, err := userStore.GetByUsername(ctx, "victimuser"); !errors.Is(err, ErrUserNotFound) {
+		t.Errorf("expected ErrUserNotFound after rollback, got %v", err)
+	}
+}
+

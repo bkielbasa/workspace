@@ -164,6 +164,9 @@ func (s *Server) SetPrimaryDomain(domain string) {
 		domain = "cloudlift.run"
 	}
 	s.primaryDomain = domain
+	if s.views != nil {
+		s.views.primaryDomain = domain
+	}
 }
 
 // SetDeviceSetup enables the iPhone profile flow with embedded per-device

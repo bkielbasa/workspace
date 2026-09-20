@@ -114,8 +114,7 @@ func (h *DomainHandlers) DeleteHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// CreateUserHandler creates a user scoped to a domain. The user's email is
-// constructed as <local_part>@<domain>.
+// CreateUserHandler creates a user account provisioned with the primary domain email format.
 func (h *DomainHandlers) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	domainID, err := uuid.Parse(r.PathValue("domainID"))
 	if err != nil {
@@ -149,6 +148,10 @@ func (h *DomainHandlers) CreateUserHandler(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		if errors.Is(err, identity.ErrUserAlreadyExists) {
 			writeJSONError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if errors.Is(err, identity.ErrInvalidUsername) || errors.Is(err, identity.ErrInvalidPassword) {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		writeJSONError(w, http.StatusInternalServerError, err.Error())

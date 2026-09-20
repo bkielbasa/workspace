@@ -77,14 +77,14 @@ func NormalizeUsername(name string) string {
 func ValidateUsername(name string) error {
 	name = NormalizeUsername(name)
 	if len(name) < 2 || len(name) > 32 {
-		return fmt.Errorf("username must be 2-32 characters")
+		return fmt.Errorf("%w: username must be 2-32 characters", ErrInvalidUsername)
 	}
 	for _, r := range name {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9',
 			r == '.', r == '_', r == '+', r == '-':
 		default:
-			return fmt.Errorf("username may only contain letters, digits, dot, underscore, plus and dash")
+			return fmt.Errorf("%w: username may only contain letters, digits, dot, underscore, plus and dash", ErrInvalidUsername)
 		}
 	}
 	return nil
@@ -93,7 +93,7 @@ func ValidateUsername(name string) error {
 // ValidatePassword enforces password rules: at least 8 characters.
 func ValidatePassword(password string) error {
 	if len(password) < 8 {
-		return fmt.Errorf("password must be at least 8 characters")
+		return fmt.Errorf("%w: password must be at least 8 characters", ErrInvalidPassword)
 	}
 	return nil
 }
@@ -186,11 +186,8 @@ func (u *Users) Create(ctx context.Context, loginOrUsername, password, displayNa
 	loginOrUsername = strings.TrimSpace(loginOrUsername)
 	var username string
 	if strings.Contains(loginOrUsername, "@") {
-		var err error
-		username, err = u.deriveUsername(ctx, loginOrUsername)
-		if err != nil {
-			return nil, err
-		}
+		parts := strings.Split(loginOrUsername, "@")
+		username = NormalizeUsername(parts[0])
 	} else {
 		username = NormalizeUsername(loginOrUsername)
 	}
@@ -213,40 +210,6 @@ func (u *Users) Create(ctx context.Context, loginOrUsername, password, displayNa
 		return nil, err
 	}
 	u.syncSetPassword(user.Email, password)
-	return user, nil
-}
-
-// CreateDisabled provisions an account that cannot log in yet (invite flow).
-// The password is a random unknown value; Accept replaces it.
-func (u *Users) CreateDisabled(ctx context.Context, email, displayName string) (*User, error) {
-	ctx, span := u.tracer.Start(ctx, "users.create_disabled")
-	defer span.End()
-
-	email = strings.ToLower(strings.TrimSpace(email))
-	parts := strings.SplitN(email, "@", 2)
-	if len(parts) != 2 || parts[1] == "" {
-		return nil, fmt.Errorf("invalid email address")
-	}
-	bootstrap, err := GeneratePassword()
-	if err != nil {
-		return nil, err
-	}
-	username, err := u.deriveUsername(ctx, email)
-	if err != nil {
-		return nil, err
-	}
-	passwordHashBytes, err := bcrypt.GenerateFromPassword([]byte(bootstrap), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, fmt.Errorf("hash password: %w", err)
-	}
-	user, err := u.repo.Create(ctx, email, username, string(passwordHashBytes), displayName)
-	if err != nil {
-		return nil, err
-	}
-	if err := u.repo.Update(ctx, user.ID, displayName, false); err != nil {
-		return nil, err
-	}
-	user.Enabled = false
 	return user, nil
 }
 

@@ -154,6 +154,9 @@ func TestCreateUserReturnsPrimaryEmail(t *testing.T) {
 	if res["email"] != "dave@cloudlift.run" {
 		t.Errorf("expected email 'dave@cloudlift.run', got %v", res["email"])
 	}
+	if res["username"] != "dave" {
+		t.Errorf("expected username 'dave', got %v", res["username"])
+	}
 }
 
 func TestCreateUserReturnsPrimaryEmailWithEmailField(t *testing.T) {
@@ -173,6 +176,9 @@ func TestCreateUserReturnsPrimaryEmailWithEmailField(t *testing.T) {
 	json.NewDecoder(rec.Body).Decode(&res)
 	if res["email"] != "alice@cloudlift.run" {
 		t.Errorf("expected email 'alice@cloudlift.run', got %v", res["email"])
+	}
+	if res["username"] != "alice" {
+		t.Errorf("expected username 'alice', got %v", res["username"])
 	}
 }
 
@@ -194,6 +200,29 @@ func TestCreateUserConflict(t *testing.T) {
 	handlers.CreateHandler(rec2, req2)
 	if rec2.Code != http.StatusConflict {
 		t.Errorf("expected 409 Conflict, got %d", rec2.Code)
+	}
+}
+
+func TestCreateUserValidationErrorsReturnBadRequest(t *testing.T) {
+	users := identity.NewUsers(newMemUserStore(), nil, "cloudlift.run")
+	handlers := NewUserHandlers(users)
+
+	// Password too short (< 8 chars)
+	body := `{"username":"validuser","password":"short","display_name":"User"}`
+	req := httptest.NewRequest("POST", "/users", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handlers.CreateHandler(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for short password, got %d", rec.Code)
+	}
+
+	// Username invalid (spaces/symbols)
+	body2 := `{"username":"invalid name!","password":"valid-password","display_name":"User"}`
+	req2 := httptest.NewRequest("POST", "/users", strings.NewReader(body2))
+	rec2 := httptest.NewRecorder()
+	handlers.CreateHandler(rec2, req2)
+	if rec2.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for invalid username, got %d", rec2.Code)
 	}
 }
 
@@ -236,6 +265,26 @@ func TestDomainCreateUserReturnsPrimaryEmail(t *testing.T) {
 	json.NewDecoder(rec.Body).Decode(&res)
 	if res["email"] != "carol@cloudlift.run" {
 		t.Errorf("expected email 'carol@cloudlift.run', got %v", res["email"])
+	}
+	if res["username"] != "carol" {
+		t.Errorf("expected username 'carol', got %v", res["username"])
+	}
+}
+
+func TestDomainCreateUserValidationErrorsReturnBadRequest(t *testing.T) {
+	users := identity.NewUsers(newMemUserStore(), nil, "cloudlift.run")
+	domainID := uuid.New()
+	domSvc := &mockDomainService{domain: &identity.Domain{ID: domainID, Name: "custom.org"}}
+	handlers := NewDomainHandlers(domSvc, users)
+
+	// Short password
+	body := `{"local_part":"carol","password":"short","display_name":"Carol"}`
+	req := httptest.NewRequest("POST", "/domains/"+domainID.String()+"/users", strings.NewReader(body))
+	req.SetPathValue("domainID", domainID.String())
+	rec := httptest.NewRecorder()
+	handlers.CreateUserHandler(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for short password, got %d", rec.Code)
 	}
 }
 

@@ -20,7 +20,7 @@ func newMemUserStore() *memUserStore {
 func (m *memUserStore) Create(_ context.Context, email, username, hash, name string) (*User, error) {
 	for _, existing := range m.byID {
 		if existing.Username == username || existing.Email == email {
-			return nil, errors.New("user already exists")
+			return nil, ErrUserAlreadyExists
 		}
 	}
 	u := &User{ID: uuid.New(), Email: email, Username: username, PasswordHash: hash, DisplayName: name, Enabled: true}
@@ -33,7 +33,7 @@ func (m *memUserStore) Create(_ context.Context, email, username, hash, name str
 func (m *memUserStore) Get(_ context.Context, id uuid.UUID) (*User, error) {
 	u, ok := m.byID[id]
 	if !ok {
-		return nil, errors.New("not found")
+		return nil, ErrUserNotFound
 	}
 	cp := *u
 	return &cp, nil
@@ -52,7 +52,7 @@ func (m *memUserStore) GetByUsername(_ context.Context, username string) (*User,
 func (m *memUserStore) SetUsername(_ context.Context, id uuid.UUID, username string) error {
 	u, ok := m.byID[id]
 	if !ok {
-		return errors.New("not found")
+		return ErrUserNotFound
 	}
 	u.Username = username
 	return nil

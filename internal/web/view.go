@@ -163,6 +163,7 @@ type views struct {
 	inviteT      *template.Template
 	notesT       *template.Template
 	login        *template.Template
+	primaryDomain string
 }
 
 func newViews(files fs.FS, contactService contactsService, calendarService calendarService, mailService mailService, sessions sessionsService, users usersService) (*views, error) {
@@ -231,6 +232,7 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 		calendarT: calendarT, mailT: mailT, profileT: profileT, driveT: driveT, galleryT: galleryT, login: login,
 		inviteT:      inviteT,
 		notesT:       notesT,
+		primaryDomain: "cloudlift.run",
 		previewSlots: make(chan struct{}, 2),
 		previewing:   map[string]bool{},
 	}, nil

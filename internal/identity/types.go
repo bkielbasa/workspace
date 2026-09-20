@@ -21,6 +21,8 @@ var (
 	ErrInviteNotFound      = errors.New("invite not found")
 	ErrInviteExpired       = errors.New("invite expired")
 	ErrInviteUsed          = errors.New("invite already used")
+	ErrInvalidUsername     = errors.New("invalid username")
+	ErrInvalidPassword     = errors.New("invalid password")
 )
 
 type User struct {

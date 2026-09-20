@@ -50,6 +50,7 @@ type changePasswordRequest struct {
 type userResponse struct {
 	ID          uuid.UUID `json:"id"`
 	Email       string    `json:"email"`
+	Username    string    `json:"username"`
 	DisplayName string    `json:"display_name"`
 	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -60,6 +61,7 @@ func toUserResponse(u *identity.User) userResponse {
 	return userResponse{
 		ID:          u.ID,
 		Email:       u.Email,
+		Username:    u.Username,
 		DisplayName: u.DisplayName,
 		Enabled:     u.Enabled,
 		CreatedAt:   u.CreatedAt,
@@ -95,6 +97,10 @@ func (h *UserHandlers) CreateHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, identity.ErrDomainNotAllowed) {
 			writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		if errors.Is(err, identity.ErrInvalidUsername) || errors.Is(err, identity.ErrInvalidPassword) {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 

@@ -58,7 +58,9 @@ func main() {
 
 	mailboxes := mail.NewMailboxes(postgres.NewMailboxRepository(db))
 	domains := identity.NewDomains(postgres.NewDomainRepository(db))
-	if exists, _ := domains.Exists(ctx, cfg.primaryDomain); !exists {
+	if exists, err := domains.Exists(ctx, cfg.primaryDomain); err != nil {
+		obs.Log(ctx, slog.LevelWarn, "failed to check primary domain existence", "domain", cfg.primaryDomain, "error", err)
+	} else if !exists {
 		if _, err := domains.Create(ctx, cfg.primaryDomain); err != nil {
 			obs.Log(ctx, slog.LevelWarn, "failed to register primary domain", "domain", cfg.primaryDomain, "error", err)
 		}

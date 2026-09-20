@@ -420,8 +420,10 @@ func (s *Server) inviteAcceptPage(w http.ResponseWriter, r *http.Request) {
 	invite, err := s.invites.Lookup(r.Context(), token)
 	if err != nil || invite == nil {
 		renderView(w, r, s.views.inviteT, "layout", viewData{
-			Title: "Invite", Section: "invite",
-			Error: "This invite link is invalid. Ask for a new one.",
+			Title:         "Invite",
+			Section:       "invite",
+			Error:         "This invite link is invalid. Ask for a new one.",
+			PrimaryDomain: s.primaryDomain,
 		})
 		return
 	}

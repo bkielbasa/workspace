@@ -1,7 +1,7 @@
 {{define "content"}}<div class="profile-container">
   <div class="profile-header">
     <h1>{{if .InviteEmail}}Welcome{{else}}Invite{{end}}</h1>
-    <p class="subtitle">{{if .InviteEmail}}Set a password to activate {{.InviteEmail}}{{else}}Family account invitation{{end}}</p>
+    <p class="subtitle">{{if .InviteEmail}}Invitation for {{.InviteEmail}} — choose a username and password to create your account{{else}}Family account invitation{{end}}</p>
   </div>
 
   {{if .Error}}
@@ -18,7 +18,7 @@
 
         <label for="invite-username">Username
           <div style="display: flex; align-items: center; gap: 4px;">
-            <input id="invite-username" name="username" type="text" required minlength="2" maxlength="32" placeholder="username" autocomplete="username" style="flex: 1;">
+            <input id="invite-username" name="username" type="text" required minlength="2" maxlength="32" pattern="[a-zA-Z0-9._+-]{2,32}" placeholder="username" autocomplete="username" style="flex: 1;">
             <span class="field-suffix" style="font-weight: 500; color: var(--text-muted, #666);">@{{if .PrimaryDomain}}{{.PrimaryDomain}}{{else}}cloudlift.run{{end}}</span>
           </div>
           <span class="field-hint">This will be your permanent account login and email address.</span>

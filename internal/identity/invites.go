@@ -145,7 +145,8 @@ func (s *Invites) Accept(ctx context.Context, token, username, displayName, pass
 	}
 
 	if err := s.repo.MarkUsed(ctx, invite.ID, user.ID); err != nil {
-		return nil, err
+		_ = s.users.Delete(ctx, user.ID)
+		return nil, fmt.Errorf("redeem invite: %w", err)
 	}
 	return user, nil
 }
