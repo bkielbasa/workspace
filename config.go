@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 type config struct {
@@ -10,6 +11,7 @@ type config struct {
 	databaseURL   string
 	mailHost      string
 	davHost       string
+	primaryDomain string
 	cookieSecure  bool
 	filesDataDir  string
 	filesQuota    int64
@@ -27,15 +29,21 @@ type config struct {
 var mailHostname = "mail.local"
 
 func loadConfig() config {
+	primaryDomain := strings.ToLower(strings.TrimSpace(getEnv("PRIMARY_DOMAIN", "cloudlift.run")))
+	if primaryDomain == "" {
+		primaryDomain = "cloudlift.run"
+	}
+
 	cfg := config{
-		httpAddr:     getEnv("HTTP_ADDR", ":8080"),
-		databaseURL:  getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/workspace?sslmode=disable"),
-		mailHost:     getEnv("MAIL_HOST", ""),
-		davHost:      getEnv("DAV_HOST", ""),
-		cookieSecure: envBool("COOKIE_SECURE", false),
-		filesDataDir: getEnv("FILES_DATA_DIR", "./data/files"),
-		filesQuota:   envBytes("FILES_QUOTA_BYTES", 10<<30),
-		filesMaxFile: envBytes("FILES_MAX_FILE_BYTES", 1<<30),
+		httpAddr:      getEnv("HTTP_ADDR", ":8080"),
+		databaseURL:   getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/workspace?sslmode=disable"),
+		mailHost:      getEnv("MAIL_HOST", ""),
+		davHost:       getEnv("DAV_HOST", ""),
+		primaryDomain: primaryDomain,
+		cookieSecure:  envBool("COOKIE_SECURE", false),
+		filesDataDir:  getEnv("FILES_DATA_DIR", "./data/files"),
+		filesQuota:    envBytes("FILES_QUOTA_BYTES", 10<<30),
+		filesMaxFile:  envBytes("FILES_MAX_FILE_BYTES", 1<<30),
 		photosDataDir: getEnv("PHOTOS_DATA_DIR", "./data/photos"),
 		// Empty disables Samba credential sync (dev setups without the volume).
 		smbPasswdFile: getEnv("SMB_PASSWD_FILE", "/data/samba/smbpasswd"),
