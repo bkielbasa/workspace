@@ -30,6 +30,7 @@ func NewUserHandlers(users userService) *UserHandlers {
 }
 
 type createUserRequest struct {
+	Username    string `json:"username"`
 	Email       string `json:"email"`
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
@@ -82,7 +83,11 @@ func (h *UserHandlers) CreateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.users.Create(r.Context(), req.Email, req.Password, req.DisplayName)
+	login := req.Username
+	if login == "" {
+		login = req.Email
+	}
+	user, err := h.users.Create(r.Context(), login, req.Password, req.DisplayName)
 	if err != nil {
 		if errors.Is(err, identity.ErrUserAlreadyExists) {
 			writeJSONError(w, http.StatusConflict, err.Error())

@@ -58,6 +58,11 @@ func main() {
 
 	mailboxes := mail.NewMailboxes(postgres.NewMailboxRepository(db))
 	domains := identity.NewDomains(postgres.NewDomainRepository(db))
+	if exists, _ := domains.Exists(ctx, cfg.primaryDomain); !exists {
+		if _, err := domains.Create(ctx, cfg.primaryDomain); err != nil {
+			obs.Log(ctx, slog.LevelWarn, "failed to register primary domain", "domain", cfg.primaryDomain, "error", err)
+		}
+	}
 	aliases := identity.NewAliases(postgres.NewAliasRepository(db), domains)
 	sessions := identity.NewSessions(postgres.NewSessionRepository(db))
 	// Samba credentials mirror the account lifecycle so the file server
@@ -173,6 +178,7 @@ func main() {
 	webUI.SetPhotoAlbums(postgres.NewPhotoAlbumRepository(db))
 	webUI.SetInvites(identity.NewInvites(postgres.NewInviteRepository(db), users))
 	webUI.SetNotes(notesSvc)
+	webUI.SetPrimaryDomain(cfg.primaryDomain)
 	configureSSO(webUI, users, db)
 	(&discovery{mailHost: mailHostname, davHost: davHost, domains: domains}).register(mux)
 
@@ -190,6 +196,7 @@ func main() {
 	mux.HandleFunc("GET /domains/{domainID}/aliases", webUI.RequireAuth(api.Aliases.ListHandler))
 	mux.HandleFunc("DELETE /domains/{domainID}/aliases/{id}", webUI.RequireAuth(webUI.RequireCSRF(api.Aliases.DeleteHandler)))
 	mux.HandleFunc("POST /domains/{domainID}/users", webUI.RequireAuth(webUI.RequireCSRF(api.Domains.CreateUserHandler)))
+	mux.HandleFunc("POST /users", webUI.RequireAuth(webUI.RequireCSRF(api.Users.CreateHandler)))
 	mux.HandleFunc("GET /users", webUI.RequireAuth(api.Users.ListHandler))
 	mux.HandleFunc("GET /users/{id}", webUI.RequireAuth(api.Users.GetHandler))
 	mux.HandleFunc("PATCH /users/{id}", webUI.RequireAuth(webUI.RequireCSRF(api.Users.UpdateHandler)))

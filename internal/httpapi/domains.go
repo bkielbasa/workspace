@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -124,7 +123,7 @@ func (h *DomainHandlers) CreateUserHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	domain, err := h.domains.Get(r.Context(), domainID)
+	_, err = h.domains.Get(r.Context(), domainID)
 	if err != nil {
 		if errors.Is(err, identity.ErrDomainNotFound) {
 			writeJSONError(w, http.StatusNotFound, "domain not found")
@@ -146,9 +145,7 @@ func (h *DomainHandlers) CreateUserHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	email := fmt.Sprintf("%s@%s", localPart, domain.Name)
-
-	user, err := h.users.Create(r.Context(), email, req.Password, req.DisplayName)
+	user, err := h.users.Create(r.Context(), localPart, req.Password, req.DisplayName)
 	if err != nil {
 		if errors.Is(err, identity.ErrUserAlreadyExists) {
 			writeJSONError(w, http.StatusConflict, err.Error())
