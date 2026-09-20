@@ -444,6 +444,7 @@ func (s *Server) inviteAcceptPage(w http.ResponseWriter, r *http.Request) {
 // burns the token, and signs the new member straight in.
 func (s *Server) inviteAccept(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimSpace(r.FormValue("token"))
+	username := strings.TrimSpace(r.FormValue("username"))
 	displayName := strings.TrimSpace(r.FormValue("display_name"))
 	password := r.FormValue("password")
 	confirm := r.FormValue("confirm_password")
@@ -467,7 +468,7 @@ func (s *Server) inviteAccept(w http.ResponseWriter, r *http.Request) {
 		fail("Passwords do not match.")
 		return
 	}
-	user, err := s.invites.Accept(r.Context(), token, displayName, password)
+	user, err := s.invites.Accept(r.Context(), token, username, displayName, password)
 	if err != nil {
 		obs.Log(r.Context(), slog.LevelWarn, "accept invite failed", "error", err)
 		switch {

@@ -110,7 +110,7 @@ type usersService interface {
 type invitesService interface {
 	CreateInvite(ctx context.Context, email, displayName string) (string, *identity.Invite, error)
 	Lookup(ctx context.Context, token string) (*identity.Invite, error)
-	Accept(ctx context.Context, token, displayName, password string) (*identity.User, error)
+	Accept(ctx context.Context, token, username, displayName, password string) (*identity.User, error)
 	List(ctx context.Context) ([]identity.Invite, error)
 	Revoke(ctx context.Context, id uuid.UUID) error
 }

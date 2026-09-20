@@ -16,34 +16,39 @@ func NewInviteRepository(db *sql.DB) identity.InviteRepository {
 	return &inviteRepository{db: db}
 }
 
-const inviteColumns = `t.id, t.user_id, u.email, t.expires_at, t.used_at, t.created_at`
+const inviteColumns = `t.id, t.user_id, COALESCE(t.invited_email, u.email, ''), COALESCE(t.display_name, u.display_name, ''), t.expires_at, t.used_at, t.created_at`
 
 func scanInvite(row scanRow) (identity.Invite, error) {
 	var inv identity.Invite
+	var userID *uuid.UUID
 	var used sql.NullTime
-	err := row.Scan(&inv.ID, &inv.UserID, &inv.Email, &inv.ExpiresAt, &used, &inv.CreatedAt)
+	err := row.Scan(&inv.ID, &userID, &inv.InvitedEmail, &inv.DisplayName, &inv.ExpiresAt, &used, &inv.CreatedAt)
 	if err != nil {
 		return inv, err
+	}
+	if userID != nil {
+		inv.UserID = userID
 	}
 	if used.Valid {
 		t := used.Time
 		inv.UsedAt = &t
 	}
+	inv.Email = inv.InvitedEmail
 	return inv, nil
 }
 
-func (r *inviteRepository) Create(ctx context.Context, userID uuid.UUID, tokenHash string, expiresAt time.Time) (*identity.Invite, error) {
+func (r *inviteRepository) Create(ctx context.Context, invitedEmail, displayName, tokenHash string, expiresAt time.Time) (*identity.Invite, error) {
 	var id uuid.UUID
 	if err := r.db.QueryRowContext(ctx, `
-		INSERT INTO invite_tokens (user_id, token_hash, expires_at)
-		VALUES ($1, $2, $3)
+		INSERT INTO invite_tokens (invited_email, display_name, token_hash, expires_at)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id
-	`, userID, tokenHash, expiresAt).Scan(&id); err != nil {
+	`, invitedEmail, displayName, tokenHash, expiresAt).Scan(&id); err != nil {
 		return nil, err
 	}
 	inv, err := scanInvite(r.db.QueryRowContext(ctx, `
 		SELECT `+inviteColumns+`
-		FROM invite_tokens t JOIN users u ON u.id = t.user_id
+		FROM invite_tokens t LEFT JOIN users u ON u.id = t.user_id
 		WHERE t.id = $1
 	`, id))
 	if err != nil {
@@ -55,7 +60,7 @@ func (r *inviteRepository) Create(ctx context.Context, userID uuid.UUID, tokenHa
 func (r *inviteRepository) GetByHash(ctx context.Context, tokenHash string) (*identity.Invite, error) {
 	inv, err := scanInvite(r.db.QueryRowContext(ctx, `
 		SELECT `+inviteColumns+`
-		FROM invite_tokens t JOIN users u ON u.id = t.user_id
+		FROM invite_tokens t LEFT JOIN users u ON u.id = t.user_id
 		WHERE t.token_hash = $1
 	`, tokenHash))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -67,17 +72,17 @@ func (r *inviteRepository) GetByHash(ctx context.Context, tokenHash string) (*id
 	return &inv, nil
 }
 
-func (r *inviteRepository) MarkUsed(ctx context.Context, id uuid.UUID) error {
+func (r *inviteRepository) MarkUsed(ctx context.Context, id uuid.UUID, userID uuid.UUID) error {
 	_, err := r.db.ExecContext(ctx, `
-		UPDATE invite_tokens SET used_at = NOW() WHERE id = $1
-	`, id)
+		UPDATE invite_tokens SET used_at = NOW(), user_id = $2 WHERE id = $1
+	`, id, userID)
 	return err
 }
 
 func (r *inviteRepository) List(ctx context.Context) ([]identity.Invite, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT `+inviteColumns+`
-		FROM invite_tokens t JOIN users u ON u.id = t.user_id
+		FROM invite_tokens t LEFT JOIN users u ON u.id = t.user_id
 		ORDER BY t.created_at DESC
 	`)
 	if err != nil {
@@ -100,7 +105,11 @@ func (r *inviteRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-func (r *inviteRepository) DeleteForUser(ctx context.Context, userID uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM invite_tokens WHERE user_id = $1`, userID)
+func (r *inviteRepository) DeleteForEmail(ctx context.Context, email string) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM invite_tokens
+		WHERE lower(invited_email) = lower($1)
+		   OR user_id IN (SELECT id FROM users WHERE lower(email) = lower($1))
+	`, email)
 	return err
 }

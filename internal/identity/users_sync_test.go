@@ -18,6 +18,11 @@ func newMemUserStore() *memUserStore {
 }
 
 func (m *memUserStore) Create(_ context.Context, email, username, hash, name string) (*User, error) {
+	for _, existing := range m.byID {
+		if existing.Username == username || existing.Email == email {
+			return nil, errors.New("user already exists")
+		}
+	}
 	u := &User{ID: uuid.New(), Email: email, Username: username, PasswordHash: hash, DisplayName: name, Enabled: true}
 	m.byID[u.ID] = u
 	m.byEmail[email] = u

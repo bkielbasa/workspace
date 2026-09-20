@@ -23,21 +23,23 @@ const InviteTTL = 7 * 24 * time.Hour
 // Invite is a pending family onboarding. The plaintext token is shown once
 // at creation; only its hash is stored.
 type Invite struct {
-	ID        uuid.UUID
-	UserID    uuid.UUID
-	Email     string
-	ExpiresAt time.Time
-	UsedAt    *time.Time
-	CreatedAt time.Time
+	ID           uuid.UUID
+	UserID       *uuid.UUID
+	InvitedEmail string
+	Email        string // backwards compatibility alias for InvitedEmail
+	DisplayName  string
+	ExpiresAt    time.Time
+	UsedAt       *time.Time
+	CreatedAt    time.Time
 }
 
 type InviteRepository interface {
-	Create(ctx context.Context, userID uuid.UUID, tokenHash string, expiresAt time.Time) (*Invite, error)
+	Create(ctx context.Context, invitedEmail, displayName, tokenHash string, expiresAt time.Time) (*Invite, error)
 	GetByHash(ctx context.Context, tokenHash string) (*Invite, error)
-	MarkUsed(ctx context.Context, id uuid.UUID) error
+	MarkUsed(ctx context.Context, id uuid.UUID, userID uuid.UUID) error
 	List(ctx context.Context) ([]Invite, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	DeleteForUser(ctx context.Context, userID uuid.UUID) error
+	DeleteForEmail(ctx context.Context, email string) error
 }
 
 type Invites struct {
@@ -65,41 +67,30 @@ func hashToken(plain string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// CreateInvite provisions a disabled account and returns a one-time token.
-// Re-inviting rotates: old tokens for the user burn.
-func (s *Invites) CreateInvite(ctx context.Context, email, displayName string) (plain string, invite *Invite, err error) {
+// CreateInvite stores an external delivery email without pre-creating a disabled user
+// and returns a one-time token. Re-inviting rotates: old tokens for the email burn.
+func (s *Invites) CreateInvite(ctx context.Context, email, displayName string) (string, *Invite, error) {
 	ctx, span := s.tracer.Start(ctx, "invites.create")
 	defer span.End()
 
 	email = strings.ToLower(strings.TrimSpace(email))
-	user, err := s.users.GetByEmail(ctx, email)
-	if err != nil {
-		if !errors.Is(err, ErrUserNotFound) {
-			return "", nil, err
-		}
-		created, err := s.users.CreateDisabled(ctx, email, displayName)
-		if err != nil {
-			return "", nil, err
-		}
-		user = created
-	} else if user.Enabled {
-		return "", nil, fmt.Errorf("account %s already active", email)
-	} else if strings.TrimSpace(displayName) != "" {
-		if err := s.users.repo.Update(ctx, user.ID, displayName, false); err != nil {
-			return "", nil, err
-		}
+	if !strings.Contains(email, "@") {
+		return "", nil, errors.New("valid email required")
 	}
-	_ = s.repo.DeleteForUser(ctx, user.ID)
+
+	_ = s.repo.DeleteForEmail(ctx, email)
 
 	plain, hash, err := mintToken()
 	if err != nil {
 		return "", nil, err
 	}
-	invite, err = s.repo.Create(ctx, user.ID, hash, time.Now().Add(InviteTTL))
+	invite, err := s.repo.Create(ctx, email, displayName, hash, time.Now().Add(InviteTTL))
 	if err != nil {
 		return "", nil, err
 	}
-	invite.Email = user.Email
+	if invite != nil && invite.Email == "" {
+		invite.Email = invite.InvitedEmail
+	}
 	return plain, invite, nil
 }
 
@@ -112,18 +103,25 @@ func (s *Invites) Lookup(ctx context.Context, plain string) (*Invite, error) {
 	if strings.TrimSpace(plain) == "" {
 		return nil, ErrInviteNotFound
 	}
-	return s.repo.GetByHash(ctx, hashToken(plain))
+	inv, err := s.repo.GetByHash(ctx, hashToken(plain))
+	if err != nil {
+		return nil, err
+	}
+	if inv != nil && inv.Email == "" {
+		inv.Email = inv.InvitedEmail
+	}
+	return inv, nil
 }
 
-// Accept redeems a token: sets name + password, enables the account, burns
-// the token. Returns the activated user for auto-login.
-func (s *Invites) Accept(ctx context.Context, plain, displayName, password string) (*User, error) {
+// Accept redeems a token: validates username, creates user via s.users.Create
+// (which sets primary email to <username>@<primaryDomain>), and calls s.repo.MarkUsed.
+func (s *Invites) Accept(ctx context.Context, token, username, displayName, password string) (*User, error) {
 	ctx, span := s.tracer.Start(ctx, "invites.accept")
 	defer span.End()
 
-	invite, err := s.repo.GetByHash(ctx, hashToken(plain))
+	invite, err := s.Lookup(ctx, token)
 	if err != nil {
-		return nil, ErrInviteNotFound
+		return nil, err
 	}
 	if invite.UsedAt != nil {
 		return nil, ErrInviteUsed
@@ -131,38 +129,44 @@ func (s *Invites) Accept(ctx context.Context, plain, displayName, password strin
 	if time.Now().After(invite.ExpiresAt) {
 		return nil, ErrInviteExpired
 	}
-	if len(password) < 8 {
-		return nil, fmt.Errorf("password must be at least 8 characters")
+
+	username = NormalizeUsername(username)
+	if err := ValidateUsername(username); err != nil {
+		return nil, err
 	}
-	user, err := s.users.GetByEmail(ctx, invite.Email)
+
+	if strings.TrimSpace(displayName) == "" {
+		displayName = invite.DisplayName
+	}
+
+	user, err := s.users.Create(ctx, username, password, displayName)
 	if err != nil {
 		return nil, err
 	}
-	name := strings.TrimSpace(displayName)
-	if name == "" {
-		name = user.DisplayName
-	}
-	if err := s.users.repo.Update(ctx, user.ID, name, true); err != nil {
+
+	if err := s.repo.MarkUsed(ctx, invite.ID, user.ID); err != nil {
 		return nil, err
 	}
-	// No sessions can exist yet, so the session-revoking variant is safe.
-	if err := s.users.ChangePassword(ctx, user.ID, password); err != nil {
-		return nil, err
-	}
-	if err := s.repo.MarkUsed(ctx, invite.ID); err != nil {
-		return nil, err
-	}
-	return s.users.GetByEmail(ctx, invite.Email)
+	return user, nil
 }
 
 // List returns all invites, newest first, for the admin UI.
 func (s *Invites) List(ctx context.Context) ([]Invite, error) {
 	ctx, span := s.tracer.Start(ctx, "invites.list")
 	defer span.End()
-	return s.repo.List(ctx)
+	invites, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range invites {
+		if invites[i].Email == "" {
+			invites[i].Email = invites[i].InvitedEmail
+		}
+	}
+	return invites, nil
 }
 
-// Revoke deletes an invite; the disabled account row stays for re-invite.
+// Revoke deletes an invite.
 func (s *Invites) Revoke(ctx context.Context, id uuid.UUID) error {
 	ctx, span := s.tracer.Start(ctx, "invites.revoke")
 	defer span.End()

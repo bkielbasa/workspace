@@ -591,7 +591,7 @@ func (s *stubInvites) Lookup(_ context.Context, token string) (*identity.Invite,
 	return s.invite, nil
 }
 
-func (s *stubInvites) Accept(_ context.Context, token, _, _ string) (*identity.User, error) {
+func (s *stubInvites) Accept(_ context.Context, token, _, _, _ string) (*identity.User, error) {
 	if s.invite == nil || token != s.token {
 		return nil, identity.ErrInviteNotFound
 	}
@@ -707,7 +707,7 @@ func TestInviteAcceptFlow(t *testing.T) {
 	}
 
 	// Mismatched passwords re-render with an error.
-	form := url.Values{"token": {"test-token-123"}, "display_name": {"Kid"}, "password": {"secret-123"}, "confirm_password": {"other"}}
+	form := url.Values{"token": {"test-token-123"}, "username": {"kid"}, "display_name": {"Kid"}, "password": {"secret-123"}, "confirm_password": {"other"}}
 	rec = invitePost(t, mux, "/invite/accept", form, token)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "do not match") {
 		t.Fatalf("mismatch = %d", rec.Code)
