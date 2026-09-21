@@ -57,14 +57,20 @@
                 <span style="background-color: var(--primary); color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; margin-left: 8px; font-weight: bold;">Default</span>
                 {{end}}
               </div>
-              <div style="display: flex; gap: 8px;">
+              <div style="display: flex; gap: 8px; align-items: center;">
                 {{if not .IsDefault}}
-                <form method="post" action="/mail/settings/signatures/{{.ID}}/default">
+                <form method="post" action="/mail/settings/signatures/{{.ID}}/default" style="margin: 0;">
                   <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
                   <button type="submit" class="btn btn-ghost btn-sm">Set as Default</button>
                 </form>
                 {{end}}
-                <form method="post" action="/mail/settings/signatures/{{.ID}}/delete" onsubmit="return confirm('Delete this signature?');">
+                <button type="button" class="btn btn-ghost btn-sm"
+                  data-sig-id="{{.ID}}"
+                  data-sig-name="{{.Name}}"
+                  data-sig-content="{{.Content}}"
+                  data-sig-default="{{.IsDefault}}"
+                  onclick="editSignature(this)">Edit</button>
+                <form method="post" action="/mail/settings/signatures/{{.ID}}/delete" onsubmit="return confirm('Delete this signature?');" style="margin: 0;">
                   <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
                   <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--error);">Delete</button>
                 </form>
@@ -80,9 +86,10 @@
 
         <hr style="border: 0; border-top: 1px solid var(--border); margin: 32px 0;">
 
-        <h3>Create New Signature</h3>
+        <h3 id="sig-form-heading">Create New Signature</h3>
         <form method="post" action="/mail/settings/signatures" class="profile-form" style="margin-top: 16px;">
           <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+          <input type="hidden" name="id" id="signature-id" value="">
 
           <label for="sig-name">Signature Name
             <input id="sig-name" name="name" type="text" required placeholder="e.g. Work Signature, Personal, Casual" autocomplete="off">
@@ -95,12 +102,13 @@
           </label>
 
           <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;">
-            <input name="is_default" type="checkbox">
+            <input name="is_default" type="checkbox" id="sig-default">
             <span>Set as default signature for new messages</span>
           </label>
 
-          <div class="form-actions" style="margin-top: 24px;">
-            <button type="submit" class="btn">Create signature</button>
+          <div class="form-actions" style="margin-top: 24px; display: flex; gap: 8px;">
+            <button type="submit" class="btn" id="sig-submit-btn">Create signature</button>
+            <button type="button" class="btn btn-ghost" id="sig-cancel-btn" style="display: none;" onclick="cancelEditSignature()">Cancel</button>
           </div>
         </form>
       </div>
@@ -257,6 +265,7 @@
                   <option value="move_to_trash">Move to Trash</option>
                 </select>
                 <select name="action_target[]" class="action-target-select" style="flex: 2; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text);">
+                  <option value="">-- Select Folder --</option>
                   {{range .Mailboxes}}
                   <option value="{{.Name}}">{{mailboxTitle .Name}}</option>
                   {{end}}
@@ -313,7 +322,6 @@
     const targetSelect = newRow.querySelector(".action-target-select");
     targetSelect.selectedIndex = 0;
     targetSelect.style.display = ""; // Reset visibility
-    targetSelect.removeAttribute("disabled");
     
     container.appendChild(newRow);
   }
@@ -323,11 +331,40 @@
     const targetSelect = row.querySelector(".action-target-select");
     if (selectEl.value === "move_to_folder") {
       targetSelect.style.display = "";
-      targetSelect.removeAttribute("disabled");
     } else {
+      targetSelect.value = "";
       targetSelect.style.display = "none";
-      targetSelect.setAttribute("disabled", "true");
     }
+  }
+
+  function editSignature(btn) {
+    const id = btn.getAttribute("data-sig-id");
+    const name = btn.getAttribute("data-sig-name");
+    const content = btn.getAttribute("data-sig-content");
+    const isDefault = btn.getAttribute("data-sig-default") === "true";
+
+    document.getElementById("signature-id").value = id;
+    document.getElementById("sig-name").value = name;
+    document.getElementById("sig-content").value = content;
+    document.getElementById("sig-default").checked = isDefault;
+
+    document.getElementById("sig-form-heading").innerText = "Edit Signature";
+    document.getElementById("sig-submit-btn").innerText = "Save Changes";
+    document.getElementById("sig-cancel-btn").style.display = "inline-block";
+    
+    // Scroll form into view
+    document.getElementById("sig-form-heading").scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function cancelEditSignature() {
+    document.getElementById("signature-id").value = "";
+    document.getElementById("sig-name").value = "";
+    document.getElementById("sig-content").value = "";
+    document.getElementById("sig-default").checked = false;
+
+    document.getElementById("sig-form-heading").innerText = "Create New Signature";
+    document.getElementById("sig-submit-btn").innerText = "Create signature";
+    document.getElementById("sig-cancel-btn").style.display = "none";
   }
 </script>
 {{end}}

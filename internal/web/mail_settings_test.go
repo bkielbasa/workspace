@@ -544,3 +544,59 @@ func TestMailSettings_AuthAndCSRF(t *testing.T) {
 		}
 	}
 }
+
+func TestMailSettings_MultiActionRuleParsing(t *testing.T) {
+	files := os.DirFS("../..")
+	userID := uuid.New()
+	sigs := &mockSignatureRepo{}
+	rules := &mockRuleRepo{}
+	mailSvc := &mockMailService{}
+
+	server, err := web.New(files, contactService{}, calendarService{}, mailSvc, testSessionService{userID: userID}, testUserService{userID: userID}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.SetMailSettings(sigs, rules)
+
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux)
+
+	csrfToken := "test-csrf"
+
+	form := url.Values{
+		"name":            {"Multi Action Parse Rule"},
+		"match_mode":      {"all"},
+		"cond_field[]":    {"subject"},
+		"cond_op[]":       {"contains"},
+		"cond_val[]":      {"multi"},
+		"action_type[]":   {"mark_read", "move_to_folder"},
+		"action_target[]": {"", "Archive"},
+		"stop_processing": {"on"},
+		"_csrf":           {csrfToken},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/mail/settings/rules", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+	req.AddCookie(&http.Cookie{Name: "csrf", Value: csrfToken})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("POST create rule status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+
+	userRules, _ := rules.ListByUser(context.Background(), userID)
+	if len(userRules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(userRules))
+	}
+	rule := userRules[0]
+	if len(rule.Actions) != 2 {
+		t.Fatalf("expected 2 actions, got %d", len(rule.Actions))
+	}
+	if rule.Actions[0].Type != mail.RuleActionMarkRead || rule.Actions[0].Target != "" {
+		t.Errorf("expected first action to be mark_read with empty target, got %+v", rule.Actions[0])
+	}
+	if rule.Actions[1].Type != mail.RuleActionMoveToFolder || rule.Actions[1].Target != "Archive" {
+		t.Errorf("expected second action to be move_to_folder with Archive target, got %+v", rule.Actions[1])
+	}
+}

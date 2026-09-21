@@ -264,6 +264,17 @@ func (v *views) ruleSave(w http.ResponseWriter, r *http.Request) {
 
 	stopProcessing := r.PostFormValue("stop_processing") == "on" || r.PostFormValue("stop_processing") == "true"
 
+	priority := 1
+	if existingRules, err := v.rules.ListByUser(ctx, user.ID); err == nil {
+		maxPriority := 0
+		for _, r := range existingRules {
+			if r.Priority > maxPriority {
+				maxPriority = r.Priority
+			}
+		}
+		priority = maxPriority + 1
+	}
+
 	rule := &mail.Rule{
 		UserID:         user.ID,
 		Name:           name,
@@ -272,6 +283,7 @@ func (v *views) ruleSave(w http.ResponseWriter, r *http.Request) {
 		Conditions:     conds,
 		Actions:        acts,
 		StopProcessing: stopProcessing,
+		Priority:       priority,
 	}
 
 	if err := v.rules.Create(ctx, rule); err != nil {
