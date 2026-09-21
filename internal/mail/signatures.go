@@ -19,7 +19,7 @@ type Signature struct {
 
 type SignatureRepository interface {
 	Create(ctx context.Context, sig *Signature) error
-	GetByID(ctx context.Context, id uuid.UUID) (*Signature, error)
+	GetByID(ctx context.Context, userID, id uuid.UUID) (*Signature, error)
 	ListByUser(ctx context.Context, userID uuid.UUID) ([]Signature, error)
 	GetDefault(ctx context.Context, userID uuid.UUID) (*Signature, error)
 	Update(ctx context.Context, sig *Signature) error

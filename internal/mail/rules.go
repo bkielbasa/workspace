@@ -66,7 +66,7 @@ type Rule struct {
 
 type RuleRepository interface {
 	Create(ctx context.Context, rule *Rule) error
-	GetByID(ctx context.Context, id uuid.UUID) (*Rule, error)
+	GetByID(ctx context.Context, userID, id uuid.UUID) (*Rule, error)
 	ListByUser(ctx context.Context, userID uuid.UUID) ([]Rule, error)
 	ListEnabled(ctx context.Context, userID uuid.UUID) ([]Rule, error)
 	Update(ctx context.Context, rule *Rule) error

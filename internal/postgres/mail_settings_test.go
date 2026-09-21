@@ -79,12 +79,18 @@ func TestPostgresSignaturesAndRules(t *testing.T) {
 		}
 
 		// Verify GetByID
-		fetchedSig1, err := sigRepo.GetByID(ctx, sig1.ID)
+		fetchedSig1, err := sigRepo.GetByID(ctx, userA, sig1.ID)
 		if err != nil {
 			t.Fatalf("GetByID failed: %v", err)
 		}
 		if fetchedSig1.Name != sig1.Name || fetchedSig1.Content != sig1.Content {
 			t.Errorf("GetByID returned mismatching signature. Got Name: %q, Content: %q", fetchedSig1.Name, fetchedSig1.Content)
+		}
+
+		// User Isolation on GetByID: User B cannot retrieve User A's signature
+		_, err = sigRepo.GetByID(ctx, userB, sig1.ID)
+		if err == nil {
+			t.Error("Expected GetByID to fail when User B tries to retrieve User A's signature")
 		}
 
 		// Verify ListByUser (User Isolation check)
@@ -111,11 +117,11 @@ func TestPostgresSignaturesAndRules(t *testing.T) {
 		}
 
 		// Fetch updated signatures to check default flag
-		updatedSig1, err := sigRepo.GetByID(ctx, sig1.ID)
+		updatedSig1, err := sigRepo.GetByID(ctx, userA, sig1.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		updatedSig2, err := sigRepo.GetByID(ctx, sig2.ID)
+		updatedSig2, err := sigRepo.GetByID(ctx, userA, sig2.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -149,7 +155,7 @@ func TestPostgresSignaturesAndRules(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Update signature failed: %v", err)
 		}
-		fetchedSig1Updated, err := sigRepo.GetByID(ctx, sig1.ID)
+		fetchedSig1Updated, err := sigRepo.GetByID(ctx, userA, sig1.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -163,7 +169,7 @@ func TestPostgresSignaturesAndRules(t *testing.T) {
 			t.Error("Expected error when User B tries to delete User A's signature")
 		}
 		// Confirm signature is not deleted
-		confirmSig1, err := sigRepo.GetByID(ctx, sig1.ID)
+		confirmSig1, err := sigRepo.GetByID(ctx, userA, sig1.ID)
 		if err != nil || confirmSig1 == nil {
 			t.Fatal("Signature was deleted by wrong user!")
 		}
@@ -173,7 +179,7 @@ func TestPostgresSignaturesAndRules(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Delete failed: %v", err)
 		}
-		_, err = sigRepo.GetByID(ctx, sig1.ID)
+		_, err = sigRepo.GetByID(ctx, userA, sig1.ID)
 		if err == nil {
 			t.Error("Expected GetByID to fail for deleted signature")
 		}
@@ -227,12 +233,18 @@ func TestPostgresSignaturesAndRules(t *testing.T) {
 		}
 
 		// GetByID
-		fetchedRule1, err := ruleRepo.GetByID(ctx, rule1.ID)
+		fetchedRule1, err := ruleRepo.GetByID(ctx, userA, rule1.ID)
 		if err != nil {
 			t.Fatalf("GetByID rule failed: %v", err)
 		}
 		if fetchedRule1.Name != rule1.Name || len(fetchedRule1.Conditions) != 1 || fetchedRule1.Conditions[0].Value != "buy now" {
 			t.Errorf("GetByID rule returned incorrect conditions/data: %+v", fetchedRule1)
+		}
+
+		// User Isolation on GetByID: User B cannot retrieve User A's rule
+		_, err = ruleRepo.GetByID(ctx, userB, rule1.ID)
+		if err == nil {
+			t.Error("Expected GetByID to fail when User B tries to retrieve User A's rule")
 		}
 
 		// ListByUser
@@ -296,7 +308,7 @@ func TestPostgresSignaturesAndRules(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Update rule failed: %v", err)
 		}
-		fetchedRule2Updated, err := ruleRepo.GetByID(ctx, rule2.ID)
+		fetchedRule2Updated, err := ruleRepo.GetByID(ctx, userA, rule2.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -309,7 +321,7 @@ func TestPostgresSignaturesAndRules(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when User B tries to delete User A's rule")
 		}
-		confirmRule2, err := ruleRepo.GetByID(ctx, rule2.ID)
+		confirmRule2, err := ruleRepo.GetByID(ctx, userA, rule2.ID)
 		if err != nil || confirmRule2 == nil {
 			t.Fatal("Rule 2 was deleted by wrong user!")
 		}
@@ -319,7 +331,7 @@ func TestPostgresSignaturesAndRules(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Delete rule failed: %v", err)
 		}
-		_, err = ruleRepo.GetByID(ctx, rule2.ID)
+		_, err = ruleRepo.GetByID(ctx, userA, rule2.ID)
 		if err == nil {
 			t.Error("Expected GetByID to fail for deleted rule")
 		}

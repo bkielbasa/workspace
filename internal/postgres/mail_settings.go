@@ -50,12 +50,12 @@ func (r *signatureRepository) Create(ctx context.Context, sig *mail.Signature) e
 	return nil
 }
 
-func (r *signatureRepository) GetByID(ctx context.Context, id uuid.UUID) (*mail.Signature, error) {
+func (r *signatureRepository) GetByID(ctx context.Context, userID, id uuid.UUID) (*mail.Signature, error) {
 	var sig mail.Signature
 	err := r.db.QueryRowContext(ctx, `
 		SELECT id, user_id, name, content, is_default, created_at, updated_at
-		FROM mail_signatures WHERE id = $1
-	`, id).Scan(&sig.ID, &sig.UserID, &sig.Name, &sig.Content, &sig.IsDefault, &sig.CreatedAt, &sig.UpdatedAt)
+		FROM mail_signatures WHERE user_id = $1 AND id = $2
+	`, userID, id).Scan(&sig.ID, &sig.UserID, &sig.Name, &sig.Content, &sig.IsDefault, &sig.CreatedAt, &sig.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, mail.ErrSignatureNotFound
@@ -123,21 +123,17 @@ func (r *signatureRepository) Update(ctx context.Context, sig *mail.Signature) e
 		}
 	}
 
-	result, err := tx.ExecContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		UPDATE mail_signatures
 		SET name = $1, content = $2, is_default = $3, updated_at = NOW()
 		WHERE id = $4 AND user_id = $5
-	`, sig.Name, sig.Content, sig.IsDefault, sig.ID, sig.UserID)
+		RETURNING updated_at
+	`, sig.Name, sig.Content, sig.IsDefault, sig.ID, sig.UserID).Scan(&sig.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return mail.ErrSignatureNotFound
+	}
 	if err != nil {
 		return fmt.Errorf("update signature: %w", err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("rows affected: %w", err)
-	}
-	if rows == 0 {
-		return mail.ErrSignatureNotFound
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -230,14 +226,14 @@ func (r *ruleRepository) Create(ctx context.Context, rule *mail.Rule) error {
 	return nil
 }
 
-func (r *ruleRepository) GetByID(ctx context.Context, id uuid.UUID) (*mail.Rule, error) {
+func (r *ruleRepository) GetByID(ctx context.Context, userID, id uuid.UUID) (*mail.Rule, error) {
 	var rule mail.Rule
 	var condsBytes, actsBytes []byte
 
 	err := r.db.QueryRowContext(ctx, `
 		SELECT id, user_id, name, priority, enabled, match_mode, conditions, actions, stop_processing, created_at, updated_at
-		FROM mail_rules WHERE id = $1
-	`, id).Scan(&rule.ID, &rule.UserID, &rule.Name, &rule.Priority, &rule.Enabled, &rule.MatchMode, &condsBytes, &actsBytes, &rule.StopProcessing, &rule.CreatedAt, &rule.UpdatedAt)
+		FROM mail_rules WHERE user_id = $1 AND id = $2
+	`, userID, id).Scan(&rule.ID, &rule.UserID, &rule.Name, &rule.Priority, &rule.Enabled, &rule.MatchMode, &condsBytes, &actsBytes, &rule.StopProcessing, &rule.CreatedAt, &rule.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, mail.ErrRuleNotFound
@@ -340,21 +336,17 @@ func (r *ruleRepository) Update(ctx context.Context, rule *mail.Rule) error {
 		return fmt.Errorf("marshal actions: %w", err)
 	}
 
-	result, err := r.db.ExecContext(ctx, `
+	err = r.db.QueryRowContext(ctx, `
 		UPDATE mail_rules
 		SET name = $1, priority = $2, enabled = $3, match_mode = $4, conditions = $5, actions = $6, stop_processing = $7, updated_at = NOW()
 		WHERE id = $8 AND user_id = $9
-	`, rule.Name, rule.Priority, rule.Enabled, rule.MatchMode, condsJSON, actsJSON, rule.StopProcessing, rule.ID, rule.UserID)
+		RETURNING updated_at
+	`, rule.Name, rule.Priority, rule.Enabled, rule.MatchMode, condsJSON, actsJSON, rule.StopProcessing, rule.ID, rule.UserID).Scan(&rule.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return mail.ErrRuleNotFound
+	}
 	if err != nil {
 		return fmt.Errorf("update rule: %w", err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("rows affected: %w", err)
-	}
-	if rows == 0 {
-		return mail.ErrRuleNotFound
 	}
 	return nil
 }

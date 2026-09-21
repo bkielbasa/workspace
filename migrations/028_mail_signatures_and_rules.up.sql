@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS mail_signatures (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_mail_signatures_user_id ON mail_signatures(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_signatures_user_default ON mail_signatures (user_id) WHERE (is_default = TRUE);
 
 CREATE TABLE IF NOT EXISTS mail_rules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
