@@ -168,8 +168,6 @@ type views struct {
 	contactEditT *template.Template
 	calendarT    *template.Template
 	mailT        *template.Template
-	mailSettingsT *template.Template
-	profileT     *template.Template
 	settingsT    *template.Template
 	driveT       *template.Template
 	galleryT     *template.Template
@@ -213,14 +211,6 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	if err != nil {
 		return nil, err
 	}
-	mailSettingsT, err := page("web/templates/mail_settings.html")
-	if err != nil {
-		return nil, err
-	}
-	profileT, err := page("web/templates/profile.html")
-	if err != nil {
-		return nil, err
-	}
 	settingsT, err := page("web/templates/settings.html")
 	if err != nil {
 		return nil, err
@@ -250,7 +240,7 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 		contacts: contactService, calendar: calendarService, mail: mailService,
 		sessions: sessions, users: users,
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
-		calendarT: calendarT, mailT: mailT, mailSettingsT: mailSettingsT, profileT: profileT, settingsT: settingsT, driveT: driveT, galleryT: galleryT, login: login,
+		calendarT: calendarT, mailT: mailT, settingsT: settingsT, driveT: driveT, galleryT: galleryT, login: login,
 		inviteT:      inviteT,
 		notesT:       notesT,
 		primaryDomain: "cloudlift.run",
