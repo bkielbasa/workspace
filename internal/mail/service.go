@@ -81,9 +81,18 @@ func (s *Service) ApplyRulesToInbox(ctx context.Context, userID uuid.UUID) (int,
 		return 0, err
 	}
 
-	msgs, err := s.messages.List(ctx, inbox.ID, 1000, 0)
-	if err != nil {
-		return 0, err
+	var msgs []Message
+	offset := 0
+	for {
+		batch, err := s.messages.List(ctx, inbox.ID, 500, offset)
+		if err != nil {
+			return 0, err
+		}
+		msgs = append(msgs, batch...)
+		if len(batch) < 500 {
+			break
+		}
+		offset += 500
 	}
 
 	affectedCount := 0
@@ -91,6 +100,14 @@ func (s *Service) ApplyRulesToInbox(ctx context.Context, userID uuid.UUID) (int,
 		body := extractTextBody(m.RawMessage)
 		hasAtt := len(ParseAttachments(m.RawMessage)) > 0
 		res := s.ruleEngine.Evaluate(rules, &m, body, hasAtt)
+
+		if res.Discard {
+			if err := s.messages.Delete(ctx, m.ID); err != nil {
+				obs.Log(ctx, slog.LevelWarn, "failed to delete message during rules processing", "message_id", m.ID, "error", err)
+			}
+			affectedCount++
+			continue
+		}
 
 		changed := false
 

@@ -152,7 +152,7 @@ func (e *RuleEngine) evaluateCondition(cond RuleCondition, msg *Message, parsedB
 	isNegated := cond.Operator == RuleOperatorNotContains || cond.Operator == RuleOperatorNotEquals
 	if isNegated {
 		if len(values) == 0 {
-			return false
+			return true
 		}
 		for _, v := range values {
 			if !match(v) {

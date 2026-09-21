@@ -250,6 +250,9 @@ func (v *views) ruleSave(w http.ResponseWriter, r *http.Request) {
 			if i < len(actionTargets) {
 				target = strings.TrimSpace(actionTargets[i])
 			}
+			if mail.RuleActionType(actType) != mail.RuleActionMoveToFolder {
+				target = ""
+			}
 			acts = append(acts, mail.RuleAction{
 				Type:   mail.RuleActionType(actType),
 				Target: target,

@@ -382,3 +382,31 @@ func TestRuleEngine_MultiValuedNegation(t *testing.T) {
 	}
 }
 
+func TestRuleEngine_MultiValuedNegation_Empty(t *testing.T) {
+	engine := NewRuleEngine()
+
+	// Rule to match if 'to' does not contain "spam.com"
+	rule := Rule{
+		ID:        uuid.New(),
+		Enabled:   true,
+		MatchMode: "all",
+		Conditions: []RuleCondition{
+			{
+				Field:    RuleFieldTo,
+				Operator: RuleOperatorNotContains,
+				Value:    "spam.com",
+			},
+		},
+		Actions: []RuleAction{{Type: RuleActionStar}},
+	}
+
+	// Case: Empty recipient list. It has no spam.com, so it should evaluate to true and match.
+	msg := &Message{
+		Recipients: []string{},
+	}
+	res := engine.Evaluate([]Rule{rule}, msg, "", false)
+	if !res.Star {
+		t.Error("expected to match empty recipient list when using negated operators")
+	}
+}
+

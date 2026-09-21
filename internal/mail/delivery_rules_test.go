@@ -118,7 +118,13 @@ func (m *mockMessageRepository) UpdateFlags(ctx context.Context, id uuid.UUID, s
 }
 
 func (m *mockMessageRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return nil
+	for i, msg := range m.messages {
+		if msg.ID == id {
+			m.messages = append(m.messages[:i], m.messages[i+1:]...)
+			return nil
+		}
+	}
+	return ErrMessageNotFound
 }
 
 func (m *mockMessageRepository) Move(ctx context.Context, id, mailboxID uuid.UUID) error {
@@ -465,5 +471,72 @@ func TestService_ApplyRulesToInbox(t *testing.T) {
 	}
 	if msg3.Flagged {
 		t.Error("expected boss message to not be starred")
+	}
+}
+
+func TestApplyRulesToInbox_Discard(t *testing.T) {
+	userID := uuid.New()
+	inboxID := uuid.New()
+
+	mbRepo := &mockMailboxRepository{
+		mailboxes: []Mailbox{
+			{ID: inboxID, UserID: userID, Name: "INBOX"},
+		},
+	}
+
+	msgID := uuid.New()
+	msgRepo := &mockMessageRepository{
+		messages: []Message{
+			{
+				ID:         msgID,
+				MailboxID:  inboxID,
+				Sender:     "spammer@example.com",
+				Subject:    "DELETE ME",
+				RawMessage: "Subject: DELETE ME\r\n\r\nThis is spam.",
+			},
+		},
+	}
+
+	ruleRepo := &mockRuleRepository{
+		rules: []Rule{
+			{
+				ID:        uuid.New(),
+				UserID:    userID,
+				Name:      "Spam Delete",
+				Enabled:   true,
+				Priority:  1,
+				MatchMode: "all",
+				Conditions: []RuleCondition{
+					{
+						Field:    RuleFieldSubject,
+						Operator: RuleOperatorContains,
+						Value:    "DELETE ME",
+					},
+				},
+				Actions: []RuleAction{
+					{
+						Type: RuleActionDelete,
+					},
+				},
+			},
+		},
+	}
+
+	svc := NewService(mbRepo, msgRepo, nil, nil, "localhost")
+	svc.SetRules(ruleRepo)
+
+	count, err := svc.ApplyRulesToInbox(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("ApplyRulesToInbox returned error: %v", err)
+	}
+
+	if count != 1 {
+		t.Errorf("expected 1 affected message, got %d", count)
+	}
+
+	// Verify message was deleted from repository
+	_, err = msgRepo.Get(context.Background(), msgID)
+	if err == nil {
+		t.Error("expected message to be deleted, but it was found in msgRepo")
 	}
 }

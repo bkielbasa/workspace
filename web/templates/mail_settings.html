@@ -236,6 +236,7 @@
                   <option value="from">From (Sender)</option>
                   <option value="to">To (Recipient)</option>
                   <option value="body">Body</option>
+                  <option value="has_attachment">Has attachments</option>
                 </select>
                 <select name="cond_op[]" style="flex: 1; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text);">
                   <option value="contains">Contains</option>
@@ -243,6 +244,8 @@
                   <option value="equals">Equals</option>
                   <option value="starts_with">Starts With</option>
                   <option value="ends_with">Ends With</option>
+                  <option value="is">Is</option>
+                  <option value="not_equals">Does Not Equal</option>
                 </select>
                 <input name="cond_val[]" type="text" required placeholder="Value to match..." style="flex: 2; margin: 0;">
                 <button type="button" class="btn btn-ghost" style="color: var(--error); margin: 0; padding: 10px;" onclick="removeRow(this)">Remove</button>
@@ -261,8 +264,9 @@
                 <select name="action_type[]" onchange="toggleActionTarget(this)" style="flex: 1; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text);">
                   <option value="move_to_folder">Move to Folder</option>
                   <option value="mark_read">Mark as Read</option>
-                  <option value="mark_flagged">Mark as Starred (Flagged)</option>
+                  <option value="star">Star message</option>
                   <option value="move_to_trash">Move to Trash</option>
+                  <option value="delete">Discard (Delete immediately)</option>
                 </select>
                 <select name="action_target[]" class="action-target-select" style="flex: 2; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text);">
                   <option value="">-- Select Folder --</option>
