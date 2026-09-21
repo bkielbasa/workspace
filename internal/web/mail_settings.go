@@ -267,9 +267,9 @@ func (v *views) ruleSave(w http.ResponseWriter, r *http.Request) {
 	priority := 1
 	if existingRules, err := v.rules.ListByUser(ctx, user.ID); err == nil {
 		maxPriority := 0
-		for _, r := range existingRules {
-			if r.Priority > maxPriority {
-				maxPriority = r.Priority
+		for _, er := range existingRules {
+			if er.Priority > maxPriority {
+				maxPriority = er.Priority
 			}
 		}
 		priority = maxPriority + 1
