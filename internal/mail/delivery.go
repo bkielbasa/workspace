@@ -189,6 +189,9 @@ func (d *Delivery) Deliver(ctx context.Context, recipient string, message *Messa
 				}
 				if err == nil && targetBox != nil {
 					message.MailboxID = targetBox.ID
+				} else {
+					obs.Log(ctx, slog.LevelWarn, "failed to get or create target mailbox, falling back to INBOX",
+						"target", res.TargetFolder, "error", err)
 				}
 			}
 		}

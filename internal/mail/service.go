@@ -100,7 +100,9 @@ func (s *Service) ApplyRulesToInbox(ctx context.Context, userID uuid.UUID) (int,
 				targetBox, err = s.mailboxes.Create(ctx, userID, res.TargetFolder)
 			}
 			if err == nil && targetBox != nil {
-				if err := s.messages.Move(ctx, m.ID, targetBox.ID); err == nil {
+				if err := s.messages.Move(ctx, m.ID, targetBox.ID); err != nil {
+					obs.Log(ctx, slog.LevelWarn, "failed to move message during rules processing", "message_id", m.ID, "target", targetBox.ID, "error", err)
+				} else {
 					changed = true
 				}
 			}
@@ -110,7 +112,9 @@ func (s *Service) ApplyRulesToInbox(ctx context.Context, userID uuid.UUID) (int,
 		flagged := m.Flagged || res.Star
 
 		if seen != m.Seen || flagged != m.Flagged {
-			if err := s.messages.UpdateFlags(ctx, m.ID, seen, flagged, m.Answered, m.Deleted, m.Draft); err == nil {
+			if err := s.messages.UpdateFlags(ctx, m.ID, seen, flagged, m.Answered, m.Deleted, m.Draft); err != nil {
+				obs.Log(ctx, slog.LevelWarn, "failed to update flags during rules processing", "message_id", m.ID, "error", err)
+			} else {
 				changed = true
 			}
 		}
