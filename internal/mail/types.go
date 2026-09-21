@@ -8,8 +8,10 @@ import (
 )
 
 var (
-	ErrMessageNotFound = errors.New("message not found")
-	ErrMailboxNotFound = errors.New("mailbox not found")
+	ErrMessageNotFound   = errors.New("message not found")
+	ErrMailboxNotFound   = errors.New("mailbox not found")
+	ErrSignatureNotFound = errors.New("signature not found")
+	ErrRuleNotFound      = errors.New("rule not found")
 )
 
 type Mailbox struct {
