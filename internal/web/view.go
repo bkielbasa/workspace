@@ -13,6 +13,7 @@ import (
 	"net/http"
 	netmail "net/mail"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -169,6 +170,7 @@ type views struct {
 	mailT        *template.Template
 	mailSettingsT *template.Template
 	profileT     *template.Template
+	settingsT    *template.Template
 	driveT       *template.Template
 	galleryT     *template.Template
 	inviteT      *template.Template
@@ -219,6 +221,10 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	if err != nil {
 		return nil, err
 	}
+	settingsT, err := page("web/templates/settings.html")
+	if err != nil {
+		return nil, err
+	}
 	driveT, err := page("web/templates/drive.html")
 	if err != nil {
 		return nil, err
@@ -244,13 +250,19 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 		contacts: contactService, calendar: calendarService, mail: mailService,
 		sessions: sessions, users: users,
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
-		calendarT: calendarT, mailT: mailT, mailSettingsT: mailSettingsT, profileT: profileT, driveT: driveT, galleryT: galleryT, login: login,
+		calendarT: calendarT, mailT: mailT, mailSettingsT: mailSettingsT, profileT: profileT, settingsT: settingsT, driveT: driveT, galleryT: galleryT, login: login,
 		inviteT:      inviteT,
 		notesT:       notesT,
 		primaryDomain: "cloudlift.run",
 		previewSlots: make(chan struct{}, 2),
 		previewing:   map[string]bool{},
 	}, nil
+}
+
+// NewView parses the templates from the filesystem and returns a views helper for testing.
+func NewView() (*views, error) {
+	files := os.DirFS("../..")
+	return newViews(files, nil, nil, nil, nil, nil)
 }
 
 func renderView(w http.ResponseWriter, r *http.Request, t *template.Template, name string, data any) {

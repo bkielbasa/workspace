@@ -1,0 +1,634 @@
+{{define "content"}}
+<div class="profile-container">
+  <div class="settings-page">
+    <!-- Sidebar Navigation -->
+    <div class="settings-sidebar card">
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-title">General</div>
+        <a href="/settings?section=profile" class="settings-nav-item {{if eq .Tab "profile"}}is-active{{end}}">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </span>
+          Profile
+        </a>
+        <a href="/settings?section=password" class="settings-nav-item {{if eq .Tab "password"}}is-active{{end}}">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </span>
+          Password
+        </a>
+      </div>
+
+      <div class="settings-nav-divider"></div>
+
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-title">Mail</div>
+        <a href="/settings?section=signatures" class="settings-nav-item {{if eq .Tab "signatures"}}is-active{{end}}">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </span>
+          Signatures
+        </a>
+        <a href="/settings?section=rules" class="settings-nav-item {{if eq .Tab "rules"}}is-active{{end}}">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          </span>
+          Mail Rules
+        </a>
+      </div>
+
+      <div class="settings-nav-divider"></div>
+
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-title">Devices & Clients</div>
+        <a href="/settings?section=iphone" class="settings-nav-item {{if eq .Tab "iphone"}}is-active{{end}}">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          </span>
+          iPhone Setup
+        </a>
+        {{if .DevicesReady}}
+        <a href="/settings?section=app-passwords" class="settings-nav-item {{if eq .Tab "app-passwords"}}is-active{{end}}">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.778-7.778zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          </span>
+          App Passwords
+        </a>
+        {{end}}
+      </div>
+
+      {{if .User.IsAdmin}}
+      <div class="settings-nav-divider"></div>
+
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-title">Administration</div>
+        <a href="/settings?section=invites" class="settings-nav-item {{if eq .Tab "invites"}}is-active{{end}}">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </span>
+          Family Invites
+        </a>
+      </div>
+      {{end}}
+    </div>
+
+    <!-- Settings Main Panel -->
+    <div class="settings-main">
+      {{if .Success}}
+      <div class="settings-alert success" role="status">
+        {{.Success}}
+      </div>
+      {{end}}
+
+      {{if .Error}}
+      <div class="settings-alert error" role="alert">
+        {{.Error}}
+      </div>
+      {{end}}
+
+      {{if eq .Tab "profile"}}
+      <!-- PROFILE PANEL -->
+      <section class="card profile-card">
+        <div class="settings-header">
+          <h2>Profile Details</h2>
+          <p class="subtitle">Your identity in this workspace</p>
+        </div>
+        <div class="card-body">
+          <form method="post" action="/settings/profile" class="profile-form">
+            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+
+            <label for="profile-email">Email address
+              <input id="profile-email" type="email" value="{{.User.Email}}" disabled readonly title="Email address cannot be changed">
+              <span class="field-hint">Primary email used for sign in and mail</span>
+            </label>
+
+            <label for="profile-username">Username
+              <input id="profile-username" type="text" value="{{.User.Username}}" disabled readonly title="Username cannot be changed">
+              <span class="field-hint">Usernames are permanent and define your primary email address.</span>
+            </label>
+
+            <label for="display-name">Display name
+              <input id="display-name" name="display_name" type="text" value="{{.User.DisplayName}}" maxlength="100" placeholder="e.g. Alice Smith" autocomplete="name">
+              <span class="field-hint">How your name appears in calendar, mail, and headers</span>
+            </label>
+
+            <div class="profile-meta">
+              <span class="profile-meta-label">Member since</span>
+              <span class="profile-meta-value">{{fmtDate .User.CreatedAt}}</span>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn">Save profile</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      {{else if eq .Tab "password"}}
+      <!-- PASSWORD PANEL -->
+      <section class="card profile-card">
+        <div class="settings-header">
+          <h2>Change Password</h2>
+          <p class="subtitle">Update your password to keep your account secure</p>
+        </div>
+        <div class="card-body">
+          <form method="post" action="/settings/password" class="profile-form">
+            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+
+            <label for="current-password">Current password
+              <input id="current-password" name="current_password" type="password" required autocomplete="current-password" placeholder="Enter your current password">
+            </label>
+
+            <label for="new-password">New password
+              <input id="new-password" name="new_password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters">
+              <span class="field-hint">Must be at least 8 characters</span>
+            </label>
+
+            <label for="confirm-password">Confirm new password
+              <input id="confirm-password" name="confirm_password" type="password" required minlength="8" autocomplete="new-password" placeholder="Re-enter your new password">
+            </label>
+
+            <div class="form-actions">
+              <button type="submit" class="btn">Change password</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      {{else if eq .Tab "signatures"}}
+      <!-- SIGNATURES PANEL -->
+      <section class="card profile-card">
+        <div class="settings-header">
+          <h2>Your Signatures</h2>
+          <p class="subtitle">Create and manage your professional signatures</p>
+        </div>
+        <div class="card-body">
+          {{if .Signatures}}
+          <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 32px;">
+            {{range .Signatures}}
+            <div class="card" style="padding: 16px; border: 1px solid var(--border); border-radius: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+                <div>
+                  <strong style="font-size: 1.1rem; color: var(--text);">{{.Name}}</strong>
+                  {{if .IsDefault}}
+                  <span style="background-color: var(--primary); color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; margin-left: 8px; font-weight: bold;">Default</span>
+                  {{end}}
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  {{if not .IsDefault}}
+                  <form method="post" action="/settings/signatures/{{.ID}}/default" style="margin: 0;">
+                    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                    <button type="submit" class="btn btn-ghost btn-sm">Set as Default</button>
+                  </form>
+                  {{end}}
+                  <button type="button" class="btn btn-ghost btn-sm"
+                    data-sig-id="{{.ID}}"
+                    data-sig-name="{{.Name}}"
+                    data-sig-content="{{.Content}}"
+                    data-sig-default="{{.IsDefault}}"
+                    onclick="editSignature(this)">Edit</button>
+                  <form method="post" action="/settings/signatures/{{.ID}}/delete" onsubmit="return confirm('Delete this signature?');" style="margin: 0;">
+                    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                    <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--error);">Delete</button>
+                  </form>
+                </div>
+              </div>
+              <pre style="background: var(--surface-hover); padding: 12px; border-radius: 6px; font-family: inherit; font-size: 0.9rem; white-space: pre-wrap; color: var(--text-muted); margin: 0; border: 1px solid var(--border);">{{.Content}}</pre>
+            </div>
+            {{end}}
+          </div>
+          {{else}}
+          <p style="color: var(--text-muted); margin-bottom: 32px;">You haven't created any signatures yet. Add one below!</p>
+          {{end}}
+
+          <hr style="border: 0; border-top: 1px solid var(--border); margin: 32px 0;">
+
+          <h3 id="sig-form-heading">Create New Signature</h3>
+          <form method="post" action="/settings/signatures" class="profile-form" style="margin-top: 16px;">
+            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+            <input type="hidden" name="id" id="signature-id" value="">
+
+            <label for="sig-name">Signature Name
+              <input id="sig-name" name="name" type="text" required placeholder="e.g. Work Signature, Personal, Casual" autocomplete="off">
+              <span class="field-hint">A helpful label to identify this signature</span>
+            </label>
+
+            <label for="sig-content">Signature Content
+              <textarea id="sig-content" name="content" rows="4" placeholder="Best regards,&#10;Alice Smith" required style="width: 100%; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text); font-family: inherit; font-size: 1rem;"></textarea>
+              <span class="field-hint">Markdown or plain text content inserted when composing emails</span>
+            </label>
+
+            <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;">
+              <input name="is_default" type="checkbox" id="sig-default">
+              <span>Set as default signature for new messages</span>
+            </label>
+
+            <div class="form-actions" style="margin-top: 24px; display: flex; gap: 8px;">
+              <button type="submit" class="btn" id="sig-submit-btn">Create signature</button>
+              <button type="button" class="btn btn-ghost" id="sig-cancel-btn" style="display: none;" onclick="cancelEditSignature()">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      {{else if eq .Tab "rules"}}
+      <!-- RULES PANEL -->
+      <section class="card profile-card">
+        <div class="settings-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+          <div>
+            <h2>Incoming Mail Rules</h2>
+            <p class="subtitle">Automate sorting, flagging, and deleting of inbound mail</p>
+          </div>
+          <div>
+            <form method="post" action="/settings/rules/apply-inbox">
+              <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+              <button type="submit" class="btn" style="background-color: var(--secondary); color: white; display: inline-flex; align-items: center; gap: 8px;">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="m23 4-6 6M1 20l6-6M3.5 9a9 9 0 0 1 14.8-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15"/></svg>
+                Apply Rules to Inbox Now
+              </button>
+            </form>
+          </div>
+        </div>
+        <div class="card-body">
+          {{if .Rules}}
+          <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 32px;">
+            {{range $index, $rule := .Rules}}
+            <div class="card" style="padding: 16px; border: 1px solid var(--border); border-radius: 8px; {{if not .Enabled}}opacity: 0.65; background-color: var(--surface-hover);{{end}}">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div>
+                  <strong style="font-size: 1.1rem; color: var(--text);">{{.Name}}</strong>
+                  <span style="font-size: 0.8rem; background-color: var(--border); color: var(--text-muted); padding: 2px 6px; border-radius: 4px; margin-left: 8px;">Priority {{.Priority}}</span>
+                  {{if .StopProcessing}}
+                  <span style="font-size: 0.8rem; background-color: var(--error); color: white; padding: 2px 6px; border-radius: 4px; margin-left: 4px;">Stop Processing</span>
+                  {{end}}
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <!-- Reorder buttons -->
+                  <form method="post" action="/settings/rules/reorder" style="display: inline;">
+                    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                    <input type="hidden" name="id" value="{{.ID}}">
+                    <input type="hidden" name="direction" value="up">
+                    <button type="submit" class="btn btn-ghost btn-sm" style="padding: 4px 8px;" title="Move Up" {{if eq $index 0}}disabled style="opacity: 0.3;"{{end}}>▲</button>
+                  </form>
+                  <form method="post" action="/settings/rules/reorder" style="display: inline;">
+                    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                    <input type="hidden" name="id" value="{{.ID}}">
+                    <input type="hidden" name="direction" value="down">
+                    <button type="submit" class="btn btn-ghost btn-sm" style="padding: 4px 8px;" title="Move Down" {{if eq $index (sub (len $.Rules) 1)}}disabled style="opacity: 0.3;"{{end}}>▼</button>
+                  </form>
+
+                  <!-- Status Toggle -->
+                  <form method="post" action="/settings/rules/{{.ID}}/toggle" style="display: inline;">
+                    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                    <input type="hidden" name="enabled" value="{{if .Enabled}}false{{else}}true{{end}}">
+                    <button type="submit" class="btn btn-ghost btn-sm">
+                      {{if .Enabled}}Disable{{else}}Enable{{end}}
+                    </button>
+                  </form>
+
+                  <!-- Delete -->
+                  <form method="post" action="/settings/rules/{{.ID}}/delete" onsubmit="return confirm('Delete this rule?');" style="display: inline;">
+                    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                    <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--error);">Delete</button>
+                  </form>
+                </div>
+              </div>
+
+              <!-- Conditions & Actions Summary -->
+              <div style="font-size: 0.9rem; margin-top: 8px;">
+                <div style="margin-bottom: 4px;">
+                  <span style="color: var(--text-muted); font-weight: 500;">When:</span>
+                  Matches <strong style="color: var(--primary);">{{.MatchMode}}</strong> of:
+                  <ul style="margin: 4px 0 8px 16px; padding: 0; list-style-type: disc;">
+                    {{range .Conditions}}
+                    <li>Field <code style="background-color: var(--surface); padding: 1px 4px; border-radius: 4px;">{{.Field}}</code> {{.Operator}} <strong style="color: var(--text);">"{{.Value}}"</strong></li>
+                    {{end}}
+                  </ul>
+                </div>
+                <div>
+                  <span style="color: var(--text-muted); font-weight: 500;">Then do:</span>
+                  <ul style="margin: 4px 0 0 16px; padding: 0; list-style-type: disc;">
+                    {{range .Actions}}
+                    <li>
+                      <strong style="color: var(--primary);">{{.Type}}</strong>
+                      {{if .Target}} to <code style="background-color: var(--surface); padding: 1px 4px; border-radius: 4px;">{{.Target}}</code>{{end}}
+                    </li>
+                    {{end}}
+                  </ul>
+                </div>
+              </div>
+            </div>
+            {{end}}
+          </div>
+          {{else}}
+          <p style="color: var(--text-muted); margin-bottom: 32px;">No mail rules defined yet. Create one below to automate your mailbox!</p>
+          {{end}}
+
+          <hr style="border: 0; border-top: 1px solid var(--border); margin: 32px 0;">
+
+          <h3>Create New Rule</h3>
+          <form method="post" action="/settings/rules" class="profile-form" style="margin-top: 16px;">
+            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+
+            <label for="rule-name">Rule Name
+              <input id="rule-name" name="name" type="text" required placeholder="e.g. Move Newsletters, Delete Spam" autocomplete="off">
+              <span class="field-hint">A helpful label to identify this rule</span>
+            </label>
+
+            <label for="rule-match-mode">Match Mode
+              <select id="rule-match-mode" name="match_mode" style="width: 100%; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text); font-family: inherit; font-size: 1rem; margin-top: 4px;">
+                <option value="all">All conditions must match (AND)</option>
+                <option value="any">Any condition can match (OR)</option>
+              </select>
+              <span class="field-hint">How to evaluate multiple conditions</span>
+            </label>
+
+            <!-- CONDITIONS BUILDER -->
+            <div style="margin-top: 16px; margin-bottom: 24px;">
+              <strong style="display: block; margin-bottom: 8px;">Conditions</strong>
+              <div id="conditions-container" style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; gap: 8px; align-items: center;" class="condition-row">
+                  <select name="cond_field[]" style="flex: 1; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text);">
+                    <option value="subject">Subject</option>
+                    <option value="from">From (Sender)</option>
+                    <option value="to">To (Recipient)</option>
+                    <option value="body">Body</option>
+                    <option value="has_attachment">Has attachments</option>
+                  </select>
+                  <select name="cond_op[]" style="flex: 1; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text);">
+                    <option value="contains">Contains</option>
+                    <option value="not_contains">Doesn't Contain</option>
+                    <option value="equals">Equals</option>
+                    <option value="starts_with">Starts With</option>
+                    <option value="ends_with">Ends With</option>
+                    <option value="is">Is</option>
+                    <option value="not_equals">Does Not Equal</option>
+                  </select>
+                  <input name="cond_val[]" type="text" required placeholder="Value to match..." style="flex: 2; margin: 0;">
+                  <button type="button" class="btn btn-ghost" style="color: var(--error); margin: 0; padding: 10px;" onclick="removeRow(this)">Remove</button>
+                </div>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" style="margin-top: 8px; display: inline-flex; align-items: center; gap: 4px;" onclick="addConditionRow()">
+                <span>+ Add Condition</span>
+              </button>
+            </div>
+
+            <!-- ACTIONS BUILDER -->
+            <div style="margin-top: 16px; margin-bottom: 24px;">
+              <strong style="display: block; margin-bottom: 8px;">Actions</strong>
+              <div id="actions-container" style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; gap: 8px; align-items: center;" class="action-row">
+                  <select name="action_type[]" onchange="toggleActionTarget(this)" style="flex: 1; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text);">
+                    <option value="move_to_folder">Move to Folder</option>
+                    <option value="mark_read">Mark as Read</option>
+                    <option value="star">Star message</option>
+                    <option value="move_to_trash">Move to Trash</option>
+                    <option value="delete">Discard (Delete immediately)</option>
+                  </select>
+                  <select name="action_target[]" class="action-target-select" style="flex: 2; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text);">
+                    <option value="">-- Select Folder --</option>
+                    {{range .Mailboxes}}
+                    <option value="{{.Name}}">{{mailboxTitle .Name}}</option>
+                    {{end}}
+                  </select>
+                  <button type="button" class="btn btn-ghost" style="color: var(--error); margin: 0; padding: 10px;" onclick="removeRow(this)">Remove</button>
+                </div>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" style="margin-top: 8px; display: inline-flex; align-items: center; gap: 4px;" onclick="addActionRow()">
+                <span>+ Add Action</span>
+              </button>
+            </div>
+
+            <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;">
+              <input name="stop_processing" type="checkbox" checked>
+              <span>Stop evaluating subsequent rules if this rule matches</span>
+            </label>
+
+            <div class="form-actions" style="margin-top: 24px;">
+              <button type="submit" class="btn">Create rule</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      {{else if eq .Tab "iphone"}}
+      <!-- IPHONE SETUP PANEL -->
+      <section class="card profile-card">
+        <div class="settings-header">
+          <h2>iPhone Setup</h2>
+          <p class="subtitle">Mail, contacts, calendar and files on Apple devices</p>
+        </div>
+        <div class="card-body">
+          <p>Open this link in Safari on your iPhone to install a configuration profile for <strong>{{.User.Email}}</strong>. iOS does not auto-discover these settings, so the profile writes the Mail, Contacts and Calendar accounts for you.</p>
+          <form method="post" action="/settings/iphone-profile" class="profile-form">
+            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+            <label for="device-name">Device name
+              <input id="device-name" name="name" type="text" value="iPhone" maxlength="50" autocomplete="off">
+              <span class="field-hint">Generates a dedicated app password and embeds it, so the iPhone asks for nothing</span>
+            </label>
+            <div class="form-actions">
+              <button type="submit" class="btn">Generate iPhone profile</button>
+            </div>
+          </form>
+          <p><a href="/apple/mail.mobileconfig?email={{.User.Email | urlquery}}">Download basic profile instead</a> (asks for passwords on install).</p>
+        </div>
+      </section>
+
+      {{else if eq .Tab "app-passwords"}}
+      <!-- APP PASSWORDS PANEL -->
+      {{if .DevicesReady}}
+      <section class="card profile-card">
+        <div class="settings-header">
+          <h2>App Passwords</h2>
+          <p class="subtitle">Per-device credentials for mail apps and DAV clients</p>
+        </div>
+        <div class="card-body">
+          <p>App passwords unlock Mail, Contacts, Calendar, Files and sending — never this web page. Losing one is harmless: revoke it here.</p>
+          {{if .NewAppPassword}}
+          <div class="profile-alert success" role="status">
+            App password for <strong>{{.NewAppPasswordName}}</strong> created.<br>
+            Copy it now, it will not be shown again:<br>
+            <code>{{.NewAppPassword}}</code>
+          </div>
+          {{end}}
+          <form method="post" action="/settings/app-passwords" class="profile-form">
+            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+            <label for="app-password-name">New password for
+              <input id="app-password-name" name="name" type="text" value="Uploader" maxlength="50" autocomplete="off">
+            </label>
+            <div class="form-actions">
+              <button type="submit" class="btn">Create app password</button>
+            </div>
+          </form>
+          {{if .AppPasswords}}
+          <ul class="app-passwords-list">
+            {{range .AppPasswords}}
+            <li class="app-password-item">
+              <div>
+                <strong>{{.Name}}</strong>
+                <span class="field-hint">created {{fmtDate .CreatedAt}}, last used {{fmtDateOpt .LastUsedAt}}</span>
+              </div>
+              <form class="inline-form" method="post" action="/settings/app-passwords/revoke">
+                <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <button type="submit" class="btn btn-ghost btn-sm">Revoke</button>
+              </form>
+            </li>
+            {{end}}
+          </ul>
+          {{else}}
+          <p>No app passwords yet — create one above or generate the iPhone profile.</p>
+          {{end}}
+        </div>
+      </section>
+      {{end}}
+
+      {{else if eq .Tab "invites"}}
+      <!-- INVITES PANEL -->
+      {{if .User.IsAdmin}}
+      <section class="card profile-card">
+        <div class="settings-header">
+          <h2>Family</h2>
+          <p class="subtitle">Invite members — they set their own password from the link</p>
+        </div>
+        <div class="card-body">
+          {{if .InviteLink}}
+          <div class="profile-alert success" role="status">
+            Invite for <strong>{{.InviteEmail}}</strong> created and emailed.<br>
+            One-time link (copy it now, it will not be shown again):<br>
+            <code>{{.InviteLink}}</code>
+          </div>
+          {{end}}
+          <form method="post" action="/settings/invites" class="profile-form">
+            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+            <label for="invite-email">Email address
+              <input id="invite-email" name="email" type="email" required placeholder="member@example.com" autocomplete="off">
+            </label>
+            <label for="invite-name">Display name
+              <input id="invite-name" name="display_name" type="text" maxlength="100" placeholder="e.g. Alice Smith" autocomplete="off">
+            </label>
+            <div class="form-actions">
+              <button type="submit" class="btn">Send invite</button>
+            </div>
+          </form>
+          {{if .Invites}}
+          <h3>Pending invites</h3>
+          <ul class="app-passwords-list">
+            {{range .Invites}}
+            <li class="app-password-item">
+              <div>
+                <strong>{{.Email}}</strong>
+                <span class="field-hint">expires {{formatDetailDate .ExpiresAt}}{{if .UsedAt}} · used{{end}}</span>
+              </div>
+              {{if not .UsedAt}}
+              <form class="inline-form" method="post" action="/settings/invites/revoke">
+                <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <button type="submit" class="btn btn-ghost btn-sm">Revoke</button>
+              </form>
+              {{end}}
+            </li>
+            {{end}}
+          </ul>
+          {{end}}
+          {{if .AdminUsers}}
+          <h3>Accounts</h3>
+          <ul class="app-passwords-list">
+            {{range .AdminUsers}}
+            <li class="app-password-item">
+              <div>
+                <strong>{{.Email}}</strong>
+                <span class="field-hint">{{.DisplayName}} · login: {{.Username}}{{if .IsAdmin}} · admin{{end}}{{if not .Enabled}} · disabled{{end}}</span>
+              </div>
+              {{if and (ne .ID $.User.ID) (not .IsAdmin)}}
+              <button type="button" class="btn btn-ghost btn-sm"
+                hx-delete="/admin/users/{{.ID}}"
+                hx-confirm="Delete {{.Email}} and all their mail?">Delete</button>
+              {{end}}
+            </li>
+            {{end}}
+          </ul>
+          {{end}}
+        </div>
+      </section>
+      {{end}}
+      {{end}}
+    </div>
+  </div>
+</div>
+
+<script>
+  function removeRow(btn) {
+    const row = btn.parentElement;
+    const container = row.parentElement;
+    if (container.children.length > 1) {
+      row.remove();
+    } else {
+      alert("At least one row is required!");
+    }
+  }
+
+  function addConditionRow() {
+    const container = document.getElementById("conditions-container");
+    const firstRow = container.querySelector(".condition-row");
+    const newRow = firstRow.cloneNode(true);
+    newRow.querySelector("input").value = "";
+    container.appendChild(newRow);
+  }
+
+  function addActionRow() {
+    const container = document.getElementById("actions-container");
+    const firstRow = container.querySelector(".action-row");
+    const newRow = firstRow.cloneNode(true);
+    
+    // Reset selections
+    newRow.querySelector("select").selectedIndex = 0;
+    const targetSelect = newRow.querySelector(".action-target-select");
+    targetSelect.selectedIndex = 0;
+    targetSelect.style.display = ""; // Reset visibility
+    
+    container.appendChild(newRow);
+  }
+
+  function toggleActionTarget(selectEl) {
+    const row = selectEl.parentElement;
+    const targetSelect = row.querySelector(".action-target-select");
+    if (selectEl.value === "move_to_folder") {
+      targetSelect.style.display = "";
+    } else {
+      targetSelect.value = "";
+      targetSelect.style.display = "none";
+    }
+  }
+
+  function editSignature(btn) {
+    const id = btn.getAttribute("data-sig-id");
+    const name = btn.getAttribute("data-sig-name");
+    const content = btn.getAttribute("data-sig-content");
+    const isDefault = btn.getAttribute("data-sig-default") === "true";
+
+    document.getElementById("signature-id").value = id;
+    document.getElementById("sig-name").value = name;
+    document.getElementById("sig-content").value = content;
+    document.getElementById("sig-default").checked = isDefault;
+
+    document.getElementById("sig-form-heading").innerText = "Edit Signature";
+    document.getElementById("sig-submit-btn").innerText = "Save Changes";
+    document.getElementById("sig-cancel-btn").style.display = "inline-block";
+    
+    // Scroll form into view
+    document.getElementById("sig-form-heading").scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function cancelEditSignature() {
+    document.getElementById("signature-id").value = "";
+    document.getElementById("sig-name").value = "";
+    document.getElementById("sig-content").value = "";
+    document.getElementById("sig-default").checked = false;
+
+    document.getElementById("sig-form-heading").innerText = "Create New Signature";
+    document.getElementById("sig-submit-btn").innerText = "Create signature";
+    document.getElementById("sig-cancel-btn").style.display = "none";
+  }
+</script>
+{{end}}
