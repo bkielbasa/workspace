@@ -25,7 +25,7 @@ func (e *RuleEngine) Evaluate(rules []Rule, msg *Message, parsedBody string, has
 	}
 
 	// 1. Filter enabled rules
-	var enabledRules []Rule
+	enabledRules := make([]Rule, 0, len(rules))
 	for _, r := range rules {
 		if r.Enabled {
 			enabledRules = append(enabledRules, r)
@@ -147,6 +147,19 @@ func (e *RuleEngine) evaluateCondition(cond RuleCondition, msg *Message, parsedB
 		default:
 			return false
 		}
+	}
+
+	isNegated := cond.Operator == RuleOperatorNotContains || cond.Operator == RuleOperatorNotEquals
+	if isNegated {
+		if len(values) == 0 {
+			return false
+		}
+		for _, v := range values {
+			if !match(v) {
+				return false
+			}
+		}
+		return true
 	}
 
 	for _, v := range values {

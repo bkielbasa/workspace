@@ -344,3 +344,41 @@ func TestRuleEngine_PrioritySortingAndStopProcessing(t *testing.T) {
 		t.Error("expected Discard to be true for ActionDelete")
 	}
 }
+
+func TestRuleEngine_MultiValuedNegation(t *testing.T) {
+	engine := NewRuleEngine()
+
+	// Rule to match if 'to' does not contain "spam.com"
+	rule := Rule{
+		ID:        uuid.New(),
+		Enabled:   true,
+		MatchMode: "all",
+		Conditions: []RuleCondition{
+			{
+				Field:    RuleFieldTo,
+				Operator: RuleOperatorNotContains,
+				Value:    "spam.com",
+			},
+		},
+		Actions: []RuleAction{{Type: RuleActionStar}},
+	}
+
+	// Case 1: ["alice@example.com", "bob@spam.com"] has a spam.com recipient, so it should NOT match.
+	msg1 := &Message{
+		Recipients: []string{"alice@example.com", "bob@spam.com"},
+	}
+	res1 := engine.Evaluate([]Rule{rule}, msg1, "", false)
+	if res1.Star {
+		t.Error("expected to not match when one recipient contains spam.com")
+	}
+
+	// Case 2: ["alice@example.com", "carol@example.com"] has no spam.com recipient, so it SHOULD match.
+	msg2 := &Message{
+		Recipients: []string{"alice@example.com", "carol@example.com"},
+	}
+	res2 := engine.Evaluate([]Rule{rule}, msg2, "", false)
+	if !res2.Star {
+		t.Error("expected to match when no recipient contains spam.com")
+	}
+}
+
