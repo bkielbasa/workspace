@@ -98,9 +98,14 @@ func main() {
 	if err != nil {
 		obs.Fatal(ctx, "photos store unavailable", "error", err)
 	}
+	mailSignatures := postgres.NewSignatureRepository(db)
+	mailRules := postgres.NewRuleRepository(db)
+
 	delivery := mail.NewDelivery(users, mailboxes, messages, outbox, threads, aliases, mailHostname)
+	delivery.SetRules(mailRules)
 	searchRepo := postgres.NewSearchRepository(db)
 	mailSvc := mail.NewService(mailboxes, messages, searchRepo, delivery, mailHostname)
+	mailSvc.SetRules(mailRules)
 
 	dkim := initDKIM()
 	var dkimSigner mail.DKIMSigner
@@ -181,6 +186,7 @@ func main() {
 	webUI.SetInvites(identity.NewInvites(postgres.NewInviteRepository(db), users))
 	webUI.SetNotes(notesSvc)
 	webUI.SetPrimaryDomain(cfg.primaryDomain)
+	webUI.SetMailSettings(mailSignatures, mailRules)
 	configureSSO(webUI, users, db)
 	(&discovery{mailHost: mailHostname, davHost: davHost, domains: domains}).register(mux)
 
