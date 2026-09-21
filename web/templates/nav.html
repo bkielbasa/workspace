@@ -8,10 +8,10 @@
     <a href="/notes" {{if eq .Section "notes"}}aria-current="page"{{end}}>Notes</a>
     <a href="/drive" {{if eq .Section "drive"}}aria-current="page"{{end}}>Files</a>
     <a href="/gallery" {{if eq .Section "photos"}}aria-current="page"{{end}}>Photos</a>
-    <a href="/profile" {{if eq .Section "profile"}}aria-current="page"{{end}}>Profile</a>
+    <a href="/settings" {{if eq .Section "settings"}}aria-current="page"{{end}}>Settings</a>
   </div>
   <div class="nav-user">
-    {{if .User}}<a href="/profile" class="nav-user-link" {{if eq .Section "profile"}}aria-current="page"{{end}} title="Account profile">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Email}}{{end}}</a>{{end}}
+    {{if .User}}<a href="/settings" class="nav-user-link" {{if eq .Section "settings"}}aria-current="page"{{end}} title="Account settings">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Email}}{{end}}</a>{{end}}
     <form class="inline-form" hx-post="/logout" hx-swap="none">
       <button type="submit" class="btn btn-ghost btn-sm">Sign out</button>
     </form>
