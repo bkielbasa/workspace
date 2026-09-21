@@ -1184,6 +1184,108 @@ func TestMailSettings_RulesCRUDAndApply(t *testing.T) {
 			t.Errorf("expected userID %v, got %v", userID, mailSvc.lastApplyUserID)
 		}
 	}
+
+	// 4. Reorder Rules
+	{
+		// Since we currently have 1 rule in the repo (ruleID), we create a second one.
+		form := url.Values{
+			"name":            {"Second Rule"},
+			"match_mode":      {"all"},
+			"cond_field[]":    {"subject"},
+			"cond_op[]":       {"contains"},
+			"cond_val[]":      {"second"},
+			"action_type[]":   {"mark_read"},
+			"action_target[]": {""},
+			"stop_processing": {"off"},
+			"_csrf":           {csrfToken},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/settings/rules", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+		req.AddCookie(&http.Cookie{Name: "csrf", Value: csrfToken})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("POST create second rule status = %d, want %d", rec.Code, http.StatusSeeOther)
+		}
+
+		userRules, _ := rules.ListByUser(context.Background(), userID)
+		if len(userRules) != 2 {
+			t.Fatalf("expected 2 rules, got %d", len(userRules))
+		}
+
+		// rule1 (originally ruleID) and rule2 (the newly created one)
+		rule1ID := ruleID
+		rule2ID := userRules[1].ID
+
+		// Call POST /settings/rules/reorder to move rule2 up
+		reorderForm := url.Values{
+			"id":        {rule2ID.String()},
+			"direction": {"up"},
+			"_csrf":     {csrfToken},
+		}
+		reorderReq := httptest.NewRequest(http.MethodPost, "/settings/rules/reorder", strings.NewReader(reorderForm.Encode()))
+		reorderReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		reorderReq.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+		reorderReq.AddCookie(&http.Cookie{Name: "csrf", Value: csrfToken})
+		reorderRec := httptest.NewRecorder()
+		mux.ServeHTTP(reorderRec, reorderReq)
+
+		if reorderRec.Code != http.StatusSeeOther {
+			t.Fatalf("POST reorder status = %d, want %d", reorderRec.Code, http.StatusSeeOther)
+		}
+
+		location := reorderRec.Header().Get("Location")
+		if !strings.HasPrefix(location, "/settings?section=rules") {
+			t.Errorf("expected redirect to /settings?section=rules, got %q", location)
+		}
+
+		// Assert priorities are updated in the repository
+		updatedRules, _ := rules.ListByUser(context.Background(), userID)
+		var r1, r2 mail.Rule
+		for _, r := range updatedRules {
+			if r.ID == rule1ID {
+				r1 = r
+			} else if r.ID == rule2ID {
+				r2 = r
+			}
+		}
+
+		if r2.Priority >= r1.Priority {
+			t.Errorf("expected rule2 (priority %d) to be ordered before rule1 (priority %d)", r2.Priority, r1.Priority)
+		}
+	}
+
+	// 5. Delete Rules
+	{
+		userRules, _ := rules.ListByUser(context.Background(), userID)
+		for _, rule := range userRules {
+			form := url.Values{
+				"_csrf": {csrfToken},
+			}
+			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/settings/rules/%s/delete", rule.ID), strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.AddCookie(&http.Cookie{Name: "session", Value: "valid-session"})
+			req.AddCookie(&http.Cookie{Name: "csrf", Value: csrfToken})
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusSeeOther {
+				t.Fatalf("POST delete rule status = %d, want %d", rec.Code, http.StatusSeeOther)
+			}
+
+			location := rec.Header().Get("Location")
+			if !strings.HasPrefix(location, "/settings?section=rules") {
+				t.Errorf("expected redirect to /settings?section=rules, got %q", location)
+			}
+		}
+
+		finalRules, _ := rules.ListByUser(context.Background(), userID)
+		if len(finalRules) != 0 {
+			t.Errorf("expected 0 rules after delete, got %d", len(finalRules))
+		}
+	}
 }
 
 func TestMailSettings_AuthAndCSRF(t *testing.T) {
@@ -1290,31 +1392,4 @@ func TestMailSettings_MultiActionRuleParsing(t *testing.T) {
 	if rule.Actions[1].Type != mail.RuleActionMoveToFolder || rule.Actions[1].Target != "Archive" {
 		t.Errorf("expected second action to be move_to_folder with Archive target, got %+v", rule.Actions[1])
 	}
-}
-
-func TestSettingsHandlers(t *testing.T) {
-	t.Run("GET /settings renders profile", func(t *testing.T) {
-		TestProfilePageRenders(t)
-	})
-	t.Run("GET /settings?section=signatures renders signatures", func(t *testing.T) {
-		TestMailSettings_Get(t)
-	})
-	t.Run("GET /settings?section=rules renders rules", func(t *testing.T) {
-		TestMailSettings_Get(t)
-	})
-	t.Run("POST /settings/profile updates name", func(t *testing.T) {
-		TestProfileUpdate(t)
-	})
-	t.Run("POST /settings/password changes password", func(t *testing.T) {
-		TestProfileChangePasswordSuccess(t)
-	})
-	t.Run("POST /settings/signatures creates signature", func(t *testing.T) {
-		TestMailSettings_SignaturesCRUD(t)
-	})
-	t.Run("POST /settings/rules creates rule", func(t *testing.T) {
-		TestMailSettings_RulesCRUDAndApply(t)
-	})
-	t.Run("POST /settings/rules/apply-inbox triggers rules", func(t *testing.T) {
-		TestMailSettings_RulesCRUDAndApply(t)
-	})
 }
