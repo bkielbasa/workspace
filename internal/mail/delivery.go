@@ -1,11 +1,15 @@
 package mail
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"log/slog"
+	"mime/multipart"
 	"net"
+	netmail "net/mail"
 	"net/smtp"
 	"sort"
 	"strings"
@@ -13,6 +17,7 @@ import (
 
 	"github.com/bklimczak/workspace/internal/identity"
 	"github.com/bklimczak/workspace/internal/obs"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -26,14 +31,16 @@ type aliasLookup interface {
 }
 
 type Delivery struct {
-	users     userLookup
-	mailboxes *Mailboxes
-	mail      *Mail
-	outbox    *Outbox
-	threads   *Threads
-	aliases   aliasLookup
-	hostname  string
-	tracer    trace.Tracer
+	users      userLookup
+	mailboxes  *Mailboxes
+	mail       *Mail
+	outbox     *Outbox
+	threads    *Threads
+	aliases    aliasLookup
+	hostname   string
+	tracer     trace.Tracer
+	rules      RuleRepository
+	ruleEngine *RuleEngine
 }
 
 func NewDelivery(
@@ -48,9 +55,82 @@ func NewDelivery(
 	return &Delivery{
 		users: users, mailboxes: mailboxes, mail: messages, outbox: outbox,
 		threads: threads, aliases: aliases, hostname: hostname,
-		tracer: otel.Tracer("delivery"),
+		tracer:     otel.Tracer("delivery"),
+		ruleEngine: NewRuleEngine(),
 	}
 }
+
+func (d *Delivery) SetRules(repo RuleRepository) {
+	d.rules = repo
+}
+
+func extractTextBody(raw string) string {
+	msg, err := netmail.ReadMessage(strings.NewReader(raw))
+	if err != nil {
+		return raw
+	}
+	mediaType, params, err := parseMediaType(msg.Header.Get("Content-Type"))
+	if err != nil {
+		mediaType = "text/plain"
+	}
+
+	bodyBytes, err := io.ReadAll(msg.Body)
+	if err != nil {
+		return ""
+	}
+
+	if strings.HasPrefix(mediaType, "multipart/") {
+		boundary := params["boundary"]
+		if boundary == "" {
+			return string(bodyBytes)
+		}
+		var findTextPlain func(body []byte, mediaType string, params map[string]string) string
+		findTextPlain = func(body []byte, mediaType string, params map[string]string) string {
+			if strings.HasPrefix(mediaType, "multipart/") {
+				bnd := params["boundary"]
+				if bnd == "" {
+					return ""
+				}
+				reader := multipart.NewReader(bytes.NewReader(body), bnd)
+				for {
+					p, err := reader.NextPart()
+					if err != nil {
+						break
+					}
+					pBody, err := io.ReadAll(p)
+					if err != nil {
+						continue
+					}
+					pType, pParams, _ := parseMediaType(p.Header.Get("Content-Type"))
+					if strings.HasPrefix(pType, "multipart/") {
+						if res := findTextPlain(pBody, pType, pParams); res != "" {
+							return res
+						}
+					} else if pType == "text/plain" || pType == "" {
+						decoded, err := decodePartBody(pBody, p.Header.Get("Content-Transfer-Encoding"))
+						if err == nil {
+							return string(decoded)
+						}
+						return string(pBody)
+					}
+				}
+				return ""
+			}
+			return ""
+		}
+		if res := findTextPlain(bodyBytes, mediaType, params); res != "" {
+			return res
+		}
+		return string(bodyBytes)
+	}
+
+	decoded, err := decodePartBody(bodyBytes, msg.Header.Get("Content-Transfer-Encoding"))
+	if err == nil {
+		return string(decoded)
+	}
+	return string(bodyBytes)
+}
+
 
 func (d *Delivery) IsLocal(ctx context.Context, recipient string) error {
 	ctx, span := d.tracer.Start(ctx, "delivery.is_local")
@@ -85,11 +165,43 @@ func (d *Delivery) Deliver(ctx context.Context, recipient string, message *Messa
 	if err != nil {
 		return d.outbox.Enqueue(ctx, recipient, message.RawMessage)
 	}
-	mailbox, err := d.mailboxes.GetByName(ctx, user.ID, "INBOX")
-	if err != nil {
-		return fmt.Errorf("find inbox: %w", err)
+
+	if d.rules != nil {
+		rules, err := d.rules.ListEnabled(ctx, user.ID)
+		if err == nil && len(rules) > 0 {
+			body := extractTextBody(message.RawMessage)
+			hasAtt := len(ParseAttachments(message.RawMessage)) > 0
+			res := d.ruleEngine.Evaluate(rules, message, body, hasAtt)
+			if res.Discard {
+				obs.Log(ctx, slog.LevelInfo, "message discarded by rule", "message_id", message.MessageID)
+				return nil
+			}
+			if res.MarkRead {
+				message.Seen = true
+			}
+			if res.Star {
+				message.Flagged = true
+			}
+			if res.TargetFolder != "" {
+				targetBox, err := d.mailboxes.GetByName(ctx, user.ID, res.TargetFolder)
+				if err != nil {
+					targetBox, err = d.mailboxes.Create(ctx, user.ID, res.TargetFolder)
+				}
+				if err == nil && targetBox != nil {
+					message.MailboxID = targetBox.ID
+				}
+			}
+		}
 	}
-	message.MailboxID = mailbox.ID
+
+	if message.MailboxID == uuid.Nil {
+		mailbox, err := d.mailboxes.GetByName(ctx, user.ID, "INBOX")
+		if err != nil {
+			return fmt.Errorf("find inbox: %w", err)
+		}
+		message.MailboxID = mailbox.ID
+	}
+
 	if message.ReceivedAt.IsZero() {
 		message.ReceivedAt = time.Now()
 	}

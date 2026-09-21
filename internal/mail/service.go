@@ -25,12 +25,14 @@ type deliverer interface {
 
 // Service unifies mailboxes, messages, search, and delivery into a domain service.
 type Service struct {
-	mailboxes MailboxRepository
-	messages  MessageRepository
-	search    SearchRepository
-	delivery  deliverer
-	hostname  string
-	tracer    trace.Tracer
+	mailboxes  MailboxRepository
+	messages   MessageRepository
+	search     SearchRepository
+	delivery   deliverer
+	hostname   string
+	tracer     trace.Tracer
+	rules      RuleRepository
+	ruleEngine *RuleEngine
 }
 
 func NewService(
@@ -41,14 +43,86 @@ func NewService(
 	hostname string,
 ) *Service {
 	return &Service{
-		mailboxes: mailboxes,
-		messages:  messages,
-		search:    search,
-		delivery:  delivery,
-		hostname:  hostname,
-		tracer:    otel.Tracer("mail.service"),
+		mailboxes:  mailboxes,
+		messages:   messages,
+		search:     search,
+		delivery:   delivery,
+		hostname:   hostname,
+		tracer:     otel.Tracer("mail.service"),
+		ruleEngine: NewRuleEngine(),
 	}
 }
+
+func (s *Service) SetRules(repo RuleRepository) {
+	s.rules = repo
+	if s.ruleEngine == nil {
+		s.ruleEngine = NewRuleEngine()
+	}
+}
+
+func (s *Service) ApplyRulesToInbox(ctx context.Context, userID uuid.UUID) (int, error) {
+	ctx, span := s.tracer.Start(ctx, "mail.apply_rules_to_inbox")
+	defer span.End()
+
+	if s.rules == nil {
+		return 0, nil
+	}
+
+	rules, err := s.rules.ListEnabled(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	if len(rules) == 0 {
+		return 0, nil
+	}
+
+	inbox, err := s.mailboxes.GetByName(ctx, userID, "INBOX")
+	if err != nil {
+		return 0, err
+	}
+
+	msgs, err := s.messages.List(ctx, inbox.ID, 1000, 0)
+	if err != nil {
+		return 0, err
+	}
+
+	affectedCount := 0
+	for _, m := range msgs {
+		body := extractTextBody(m.RawMessage)
+		hasAtt := len(ParseAttachments(m.RawMessage)) > 0
+		res := s.ruleEngine.Evaluate(rules, &m, body, hasAtt)
+
+		changed := false
+
+		if res.TargetFolder != "" && !strings.EqualFold(res.TargetFolder, "INBOX") {
+			targetBox, err := s.mailboxes.GetByName(ctx, userID, res.TargetFolder)
+			if err != nil {
+				targetBox, err = s.mailboxes.Create(ctx, userID, res.TargetFolder)
+			}
+			if err == nil && targetBox != nil {
+				if err := s.messages.Move(ctx, m.ID, targetBox.ID); err == nil {
+					changed = true
+				}
+			}
+		}
+
+		seen := m.Seen || res.MarkRead
+		flagged := m.Flagged || res.Star
+
+		if seen != m.Seen || flagged != m.Flagged {
+			if err := s.messages.UpdateFlags(ctx, m.ID, seen, flagged, m.Answered, m.Deleted, m.Draft); err == nil {
+				changed = true
+			}
+		}
+
+		if changed {
+			affectedCount++
+		}
+	}
+
+	return affectedCount, nil
+}
+
 
 func (s *Service) EnsureDefaultMailboxes(ctx context.Context, userID uuid.UUID) error {
 	ctx, span := s.tracer.Start(ctx, "mail.ensure_default_mailboxes")
