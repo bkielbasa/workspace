@@ -1,0 +1,333 @@
+{{define "content"}}
+<div class="profile-container">
+  <div class="profile-header">
+    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+      <div>
+        <h1>Mail Settings</h1>
+        <p class="subtitle">Configure your signatures and incoming mail rules</p>
+      </div>
+      <div>
+        <a href="/mail" class="btn btn-ghost" style="display: inline-flex; align-items: center; gap: 8px;">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back to Mail
+        </a>
+      </div>
+    </div>
+  </div>
+
+  {{if .Success}}
+  <div class="profile-alert success" role="status">
+    {{.Success}}
+  </div>
+  {{end}}
+
+  {{if .Error}}
+  <div class="profile-alert error" role="alert">
+    {{.Error}}
+  </div>
+  {{end}}
+
+  <!-- Navigation Tabs -->
+  <div style="display: flex; gap: 16px; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+    <a href="/mail/settings?tab=signatures" class="btn {{if eq .Tab "signatures"}}btn-primary{{else}}btn-ghost{{end}}" style="font-weight: 500;">
+      Signatures
+    </a>
+    <a href="/mail/settings?tab=rules" class="btn {{if eq .Tab "rules"}}btn-primary{{else}}btn-ghost{{end}}" style="font-weight: 500;">
+      Mail Rules
+    </a>
+  </div>
+
+  <div class="profile-grid">
+    {{if eq .Tab "signatures"}}
+    <!-- SIGNATURES TAB -->
+    <section class="card profile-card" style="grid-column: span 2;">
+      <div class="card-head">
+        <h2>Your Signatures</h2>
+        <p class="subtitle">Create and manage your professional signatures</p>
+      </div>
+      <div class="card-body">
+        {{if .Signatures}}
+        <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 32px;">
+          {{range .Signatures}}
+          <div class="card" style="padding: 16px; border: 1px solid var(--border); border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+              <div>
+                <strong style="font-size: 1.1rem; color: var(--text);">{{.Name}}</strong>
+                {{if .IsDefault}}
+                <span style="background-color: var(--primary); color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; margin-left: 8px; font-weight: bold;">Default</span>
+                {{end}}
+              </div>
+              <div style="display: flex; gap: 8px;">
+                {{if not .IsDefault}}
+                <form method="post" action="/mail/settings/signatures/{{.ID}}/default">
+                  <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                  <button type="submit" class="btn btn-ghost btn-sm">Set as Default</button>
+                </form>
+                {{end}}
+                <form method="post" action="/mail/settings/signatures/{{.ID}}/delete" onsubmit="return confirm('Delete this signature?');">
+                  <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                  <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--error);">Delete</button>
+                </form>
+              </div>
+            </div>
+            <pre style="background: var(--surface-hover); padding: 12px; border-radius: 6px; font-family: inherit; font-size: 0.9rem; white-space: pre-wrap; color: var(--text-muted); margin: 0; border: 1px solid var(--border);">{{.Content}}</pre>
+          </div>
+          {{end}}
+        </div>
+        {{else}}
+        <p style="color: var(--text-muted); margin-bottom: 32px;">You haven't created any signatures yet. Add one below!</p>
+        {{end}}
+
+        <hr style="border: 0; border-top: 1px solid var(--border); margin: 32px 0;">
+
+        <h3>Create New Signature</h3>
+        <form method="post" action="/mail/settings/signatures" class="profile-form" style="margin-top: 16px;">
+          <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+
+          <label for="sig-name">Signature Name
+            <input id="sig-name" name="name" type="text" required placeholder="e.g. Work Signature, Personal, Casual" autocomplete="off">
+            <span class="field-hint">A helpful label to identify this signature</span>
+          </label>
+
+          <label for="sig-content">Signature Content
+            <textarea id="sig-content" name="content" rows="4" placeholder="Best regards,&#10;Alice Smith" required style="width: 100%; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text); font-family: inherit; font-size: 1rem;"></textarea>
+            <span class="field-hint">Markdown or plain text content inserted when composing emails</span>
+          </label>
+
+          <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;">
+            <input name="is_default" type="checkbox">
+            <span>Set as default signature for new messages</span>
+          </label>
+
+          <div class="form-actions" style="margin-top: 24px;">
+            <button type="submit" class="btn">Create signature</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    {{else if eq .Tab "rules"}}
+    <!-- RULES TAB -->
+    <section class="card profile-card" style="grid-column: span 2;">
+      <div class="card-head" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <div>
+          <h2>Incoming Mail Rules</h2>
+          <p class="subtitle">Automate sorting, flagging, and deleting of inbound mail</p>
+        </div>
+        <div>
+          <form method="post" action="/mail/settings/rules/apply-inbox">
+            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+            <button type="submit" class="btn" style="background-color: var(--secondary); color: white; display: inline-flex; align-items: center; gap: 8px;">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="m23 4-6 6M1 20l6-6M3.5 9a9 9 0 0 1 14.8-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15"/></svg>
+              Apply Rules to Inbox Now
+            </button>
+          </form>
+        </div>
+      </div>
+      <div class="card-body">
+        {{if .Rules}}
+        <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 32px;">
+          {{range $index, $rule := .Rules}}
+          <div class="card" style="padding: 16px; border: 1px solid var(--border); border-radius: 8px; {{if not .Enabled}}opacity: 0.65; background-color: var(--surface-hover);{{end}}">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <div>
+                <strong style="font-size: 1.1rem; color: var(--text);">{{.Name}}</strong>
+                <span style="font-size: 0.8rem; background-color: var(--border); color: var(--text-muted); padding: 2px 6px; border-radius: 4px; margin-left: 8px;">Priority {{.Priority}}</span>
+                {{if .StopProcessing}}
+                <span style="font-size: 0.8rem; background-color: var(--error); color: white; padding: 2px 6px; border-radius: 4px; margin-left: 4px;">Stop Processing</span>
+                {{end}}
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <!-- Reorder buttons -->
+                <form method="post" action="/mail/settings/rules/reorder" style="display: inline;">
+                  <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                  <input type="hidden" name="id" value="{{.ID}}">
+                  <input type="hidden" name="direction" value="up">
+                  <button type="submit" class="btn btn-ghost btn-sm" style="padding: 4px 8px;" title="Move Up" {{if eq $index 0}}disabled style="opacity: 0.3;"{{end}}>▲</button>
+                </form>
+                <form method="post" action="/mail/settings/rules/reorder" style="display: inline;">
+                  <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                  <input type="hidden" name="id" value="{{.ID}}">
+                  <input type="hidden" name="direction" value="down">
+                  <button type="submit" class="btn btn-ghost btn-sm" style="padding: 4px 8px;" title="Move Down" {{if eq $index (sub (len $.Rules) 1)}}disabled style="opacity: 0.3;"{{end}}>▼</button>
+                </form>
+
+                <!-- Status Toggle Toggle -->
+                <form method="post" action="/mail/settings/rules/{{.ID}}/toggle" style="display: inline;">
+                  <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                  <input type="hidden" name="enabled" value="{{if .Enabled}}false{{else}}true{{end}}">
+                  <button type="submit" class="btn btn-ghost btn-sm">
+                    {{if .Enabled}}Disable{{else}}Enable{{end}}
+                  </button>
+                </form>
+
+                <!-- Delete -->
+                <form method="post" action="/mail/settings/rules/{{.ID}}/delete" onsubmit="return confirm('Delete this rule?');" style="display: inline;">
+                  <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                  <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--error);">Delete</button>
+                </form>
+              </div>
+            </div>
+
+            <!-- Conditions & Actions Summary -->
+            <div style="font-size: 0.9rem; margin-top: 8px;">
+              <div style="margin-bottom: 4px;">
+                <span style="color: var(--text-muted); font-weight: 500;">When:</span>
+                Matches <strong style="color: var(--primary);">{{.MatchMode}}</strong> of:
+                <ul style="margin: 4px 0 8px 16px; padding: 0; list-style-type: disc;">
+                  {{range .Conditions}}
+                  <li>Field <code style="background-color: var(--surface); padding: 1px 4px; border-radius: 4px;">{{.Field}}</code> {{.Operator}} <strong style="color: var(--text);">"{{.Value}}"</strong></li>
+                  {{end}}
+                </ul>
+              </div>
+              <div>
+                <span style="color: var(--text-muted); font-weight: 500;">Then do:</span>
+                <ul style="margin: 4px 0 0 16px; padding: 0; list-style-type: disc;">
+                  {{range .Actions}}
+                  <li>
+                    <strong style="color: var(--primary);">{{.Type}}</strong>
+                    {{if .Target}} to <code style="background-color: var(--surface); padding: 1px 4px; border-radius: 4px;">{{.Target}}</code>{{end}}
+                  </li>
+                  {{end}}
+                </ul>
+              </div>
+            </div>
+          </div>
+          {{end}}
+        </div>
+        {{else}}
+        <p style="color: var(--text-muted); margin-bottom: 32px;">No mail rules defined yet. Create one below to automate your mailbox!</p>
+        {{end}}
+
+        <hr style="border: 0; border-top: 1px solid var(--border); margin: 32px 0;">
+
+        <h3>Create New Rule</h3>
+        <form method="post" action="/mail/settings/rules" class="profile-form" style="margin-top: 16px;">
+          <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+
+          <label for="rule-name">Rule Name
+            <input id="rule-name" name="name" type="text" required placeholder="e.g. Move Newsletters, Delete Spam" autocomplete="off">
+            <span class="field-hint">A helpful label to identify this rule</span>
+          </label>
+
+          <label for="rule-match-mode">Match Mode
+            <select id="rule-match-mode" name="match_mode" style="width: 100%; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text); font-family: inherit; font-size: 1rem; margin-top: 4px;">
+              <option value="all">All conditions must match (AND)</option>
+              <option value="any">Any condition can match (OR)</option>
+            </select>
+            <span class="field-hint">How to evaluate multiple conditions</span>
+          </label>
+
+          <!-- CONDITIONS BUILDER -->
+          <div style="margin-top: 16px; margin-bottom: 24px;">
+            <strong style="display: block; margin-bottom: 8px;">Conditions</strong>
+            <div id="conditions-container" style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; gap: 8px; align-items: center;" class="condition-row">
+                <select name="cond_field[]" style="flex: 1; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text);">
+                  <option value="subject">Subject</option>
+                  <option value="from">From (Sender)</option>
+                  <option value="to">To (Recipient)</option>
+                  <option value="body">Body</option>
+                </select>
+                <select name="cond_op[]" style="flex: 1; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text);">
+                  <option value="contains">Contains</option>
+                  <option value="not_contains">Doesn't Contain</option>
+                  <option value="equals">Equals</option>
+                  <option value="starts_with">Starts With</option>
+                  <option value="ends_with">Ends With</option>
+                </select>
+                <input name="cond_val[]" type="text" required placeholder="Value to match..." style="flex: 2; margin: 0;">
+                <button type="button" class="btn btn-ghost" style="color: var(--error); margin: 0; padding: 10px;" onclick="removeRow(this)">Remove</button>
+              </div>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" style="margin-top: 8px; display: inline-flex; align-items: center; gap: 4px;" onclick="addConditionRow()">
+              <span>+ Add Condition</span>
+            </button>
+          </div>
+
+          <!-- ACTIONS BUILDER -->
+          <div style="margin-top: 16px; margin-bottom: 24px;">
+            <strong style="display: block; margin-bottom: 8px;">Actions</strong>
+            <div id="actions-container" style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; gap: 8px; align-items: center;" class="action-row">
+                <select name="action_type[]" onchange="toggleActionTarget(this)" style="flex: 1; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text);">
+                  <option value="move_to_folder">Move to Folder</option>
+                  <option value="mark_read">Mark as Read</option>
+                  <option value="mark_flagged">Mark as Starred (Flagged)</option>
+                  <option value="move_to_trash">Move to Trash</option>
+                </select>
+                <select name="action_target[]" class="action-target-select" style="flex: 2; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: var(--surface); color: var(--text);">
+                  {{range .Mailboxes}}
+                  <option value="{{.Name}}">{{mailboxTitle .Name}}</option>
+                  {{end}}
+                </select>
+                <button type="button" class="btn btn-ghost" style="color: var(--error); margin: 0; padding: 10px;" onclick="removeRow(this)">Remove</button>
+              </div>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" style="margin-top: 8px; display: inline-flex; align-items: center; gap: 4px;" onclick="addActionRow()">
+              <span>+ Add Action</span>
+            </button>
+          </div>
+
+          <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;">
+            <input name="stop_processing" type="checkbox" checked>
+            <span>Stop evaluating subsequent rules if this rule matches</span>
+          </label>
+
+          <div class="form-actions" style="margin-top: 24px;">
+            <button type="submit" class="btn">Create rule</button>
+          </div>
+        </form>
+      </div>
+    </section>
+    {{end}}
+  </div>
+</div>
+
+<script>
+  function removeRow(btn) {
+    const row = btn.parentElement;
+    const container = row.parentElement;
+    if (container.children.length > 1) {
+      row.remove();
+    } else {
+      alert("At least one row is required!");
+    }
+  }
+
+  function addConditionRow() {
+    const container = document.getElementById("conditions-container");
+    const firstRow = container.querySelector(".condition-row");
+    const newRow = firstRow.cloneNode(true);
+    newRow.querySelector("input").value = "";
+    container.appendChild(newRow);
+  }
+
+  function addActionRow() {
+    const container = document.getElementById("actions-container");
+    const firstRow = container.querySelector(".action-row");
+    const newRow = firstRow.cloneNode(true);
+    
+    // Reset selections
+    newRow.querySelector("select").selectedIndex = 0;
+    const targetSelect = newRow.querySelector(".action-target-select");
+    targetSelect.selectedIndex = 0;
+    targetSelect.style.display = ""; // Reset visibility
+    targetSelect.removeAttribute("disabled");
+    
+    container.appendChild(newRow);
+  }
+
+  function toggleActionTarget(selectEl) {
+    const row = selectEl.parentElement;
+    const targetSelect = row.querySelector(".action-target-select");
+    if (selectEl.value === "move_to_folder") {
+      targetSelect.style.display = "";
+      targetSelect.removeAttribute("disabled");
+    } else {
+      targetSelect.style.display = "none";
+      targetSelect.setAttribute("disabled", "true");
+    }
+  }
+</script>
+{{end}}

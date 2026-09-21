@@ -46,6 +46,7 @@ type mailService interface {
 	SendMessage(context.Context, *identity.User, string, string, string) (*mail.Message, error)
 	SendMessageWithAttachments(context.Context, *identity.User, string, string, string, []mail.Attachment) (*mail.Message, error)
 	SendInvite(context.Context, *identity.User, string, string, string, string, string) (*mail.Message, error)
+	ApplyRulesToInbox(context.Context, uuid.UUID) (int, error)
 }
 
 type sessionsService interface {
@@ -210,6 +211,12 @@ func (s *Server) SetPhotoAlbums(store photoAlbumStore) {
 	s.views.albumStore = store
 }
 
+// SetMailSettings registers the signature and rule repositories.
+func (s *Server) SetMailSettings(sigs mail.SignatureRepository, rules mail.RuleRepository) {
+	s.views.signatures = sigs
+	s.views.rules = rules
+}
+
 // New constructs the web server from the root embedded filesystem and services.
 // files must contain the existing web/templates and web/static directories.
 func New(files fs.FS, contacts contactsService, calendars calendarService, mail mailService, sessions sessionsService, users usersService, secure bool) (*Server, error) {
@@ -291,6 +298,16 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /mail/message/{id}/toggle-star", s.RequireAuth(s.RequireCSRF(s.views.mailToggleStar)))
 	mux.HandleFunc("POST /mail/message/{id}/toggle-read", s.RequireAuth(s.RequireCSRF(s.views.mailToggleRead)))
 	mux.HandleFunc("POST /mail/message/{id}/delete", s.RequireAuth(s.RequireCSRF(s.views.mailDelete)))
+
+	mux.HandleFunc("GET /mail/settings", s.page(s.views.mailSettingsPage))
+	mux.HandleFunc("POST /mail/settings/signatures", s.RequireAuth(s.RequireCSRF(s.views.signatureSave)))
+	mux.HandleFunc("POST /mail/settings/signatures/{id}/delete", s.RequireAuth(s.RequireCSRF(s.views.signatureDelete)))
+	mux.HandleFunc("POST /mail/settings/signatures/{id}/default", s.RequireAuth(s.RequireCSRF(s.views.signatureSetDefault)))
+	mux.HandleFunc("POST /mail/settings/rules", s.RequireAuth(s.RequireCSRF(s.views.ruleSave)))
+	mux.HandleFunc("POST /mail/settings/rules/{id}/delete", s.RequireAuth(s.RequireCSRF(s.views.ruleDelete)))
+	mux.HandleFunc("POST /mail/settings/rules/{id}/toggle", s.RequireAuth(s.RequireCSRF(s.views.ruleToggle)))
+	mux.HandleFunc("POST /mail/settings/rules/reorder", s.RequireAuth(s.RequireCSRF(s.views.ruleReorder)))
+	mux.HandleFunc("POST /mail/settings/rules/apply-inbox", s.RequireAuth(s.RequireCSRF(s.views.ruleApplyInbox)))
 
 	mux.HandleFunc("GET /contacts", s.page(s.views.contactsPage))
 	mux.HandleFunc("GET /contacts/new", s.page(s.views.contactNewPage))

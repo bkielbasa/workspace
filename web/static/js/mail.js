@@ -13,14 +13,23 @@
     composeDock.hidden = false;
     composeDock.classList.add('is-open');
 
-    if (to && toInput) toInput.value = to;
-    if (subject && subjectInput) subjectInput.value = subject;
-    if (body && bodyInput) bodyInput.value = body;
+    if (toInput) toInput.value = to;
+    if (subjectInput) subjectInput.value = subject;
+
+    let finalBody = body;
+    if (!finalBody && bodyInput && bodyInput.dataset.defaultSignature) {
+      finalBody = "\n\n" + bodyInput.dataset.defaultSignature;
+    }
+    if (bodyInput) bodyInput.value = finalBody;
 
     if (toInput && !toInput.value) {
       toInput.focus();
     } else if (bodyInput) {
       bodyInput.focus();
+      // Set selection before signature or at beginning
+      if (bodyInput.setSelectionRange) {
+        bodyInput.setSelectionRange(0, 0);
+      }
     }
   }
 

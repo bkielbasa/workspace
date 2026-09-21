@@ -365,6 +365,9 @@ func (dummyMailService) SendMessageWithAttachments(context.Context, *identity.Us
 func (dummyMailService) SendInvite(context.Context, *identity.User, string, string, string, string, string) (*mail.Message, error) {
 	return nil, nil
 }
+func (dummyMailService) ApplyRulesToInbox(context.Context, uuid.UUID) (int, error) {
+	return 0, nil
+}
 
 func setupNotesTestServer(t *testing.T, user *identity.User, notesSvc notesService) (*Server, *http.ServeMux) {
 	t.Helper()

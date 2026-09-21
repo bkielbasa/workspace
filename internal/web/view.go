@@ -44,6 +44,7 @@ var templateFuncs = template.FuncMap{
 	"formatDetailDate":         formatDetailDate,
 	"formatBytes":              formatBytes,
 	"fmtDateOpt":               fmtDateOpt,
+	"sub":                      func(a, b int) int { return a - b },
 	"dict": func(values ...any) (map[string]any, error) {
 		if len(values)%2 != 0 {
 			return nil, errors.New("invalid dict call: odd number of arguments")
@@ -99,6 +100,7 @@ type viewData struct {
 	InviteLink    string
 	InviteEmail   string
 	PrimaryDomain string
+	DefaultSignature string
 	// NewAppPassword carries a freshly minted app password (shown once).
 	NewAppPassword     string
 	NewAppPasswordName string
@@ -107,6 +109,7 @@ type viewData struct {
 	DriveCrumbs []driveCrumb
 	DriveFiles  []driveFileItem
 	// Gallery state.
+	DriveReady  bool // dummy or not
 	PhotoMonths []photoMonth
 	// AllPhotoTags lists every tag the user ever used, for suggestions.
 	AllPhotoTags []string
@@ -124,17 +127,24 @@ type viewData struct {
 	AlbumsReady bool
 	// Notes dashboard state.
 	Notes       any
+	NotesReady  bool
 	PinnedNotes any
 	OtherNotes  any
 	HasPinned   bool
 	Tag         string
 	Archived    bool
+	// Settings tab (either "signatures" or "rules")
+	Tab        string
+	Signatures []mail.Signature
+	Rules      []mail.Rule
 }
 
 type views struct {
 	contacts    contactsService
 	calendar    calendarService
 	mail        mailService
+	signatures  mail.SignatureRepository
+	rules       mail.RuleRepository
 	files       filesService
 	photos      filesService
 	photoAuth   photoUploadAuth
@@ -157,6 +167,7 @@ type views struct {
 	contactEditT *template.Template
 	calendarT    *template.Template
 	mailT        *template.Template
+	mailSettingsT *template.Template
 	profileT     *template.Template
 	driveT       *template.Template
 	galleryT     *template.Template
@@ -200,6 +211,10 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	if err != nil {
 		return nil, err
 	}
+	mailSettingsT, err := page("web/templates/mail_settings.html")
+	if err != nil {
+		return nil, err
+	}
 	profileT, err := page("web/templates/profile.html")
 	if err != nil {
 		return nil, err
@@ -229,7 +244,7 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 		contacts: contactService, calendar: calendarService, mail: mailService,
 		sessions: sessions, users: users,
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
-		calendarT: calendarT, mailT: mailT, profileT: profileT, driveT: driveT, galleryT: galleryT, login: login,
+		calendarT: calendarT, mailT: mailT, mailSettingsT: mailSettingsT, profileT: profileT, driveT: driveT, galleryT: galleryT, login: login,
 		inviteT:      inviteT,
 		notesT:       notesT,
 		primaryDomain: "cloudlift.run",
@@ -855,6 +870,13 @@ func (v *views) mailPage(w http.ResponseWriter, r *http.Request, user *identity.
 	composeTo := r.URL.Query().Get("to")
 	composeSubject := r.URL.Query().Get("subject")
 
+	var defaultSig string
+	if v.signatures != nil {
+		if ds, err := v.signatures.GetDefault(r.Context(), user.ID); err == nil && ds != nil {
+			defaultSig = ds.Content
+		}
+	}
+
 	renderView(w, r, v.mailT, "layout", viewData{
 		Title:             "Mail",
 		Section:           "mail",
@@ -870,6 +892,7 @@ func (v *views) mailPage(w http.ResponseWriter, r *http.Request, user *identity.
 		ComposeTo:         composeTo,
 		ComposeSubject:    composeSubject,
 		ComposeRecipients: v.composeRecipients(r.Context(), user.ID),
+		DefaultSignature:  defaultSig,
 	})
 }
 

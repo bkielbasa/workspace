@@ -461,6 +461,10 @@ func (m *mailServiceStub) SendInvite(ctx context.Context, user *identity.User, t
 	return m.SendMessageWithAttachments(ctx, user, to, subject, body+icsData+icsMethod, nil)
 }
 
+func (m *mailServiceStub) ApplyRulesToInbox(ctx context.Context, userID uuid.UUID) (int, error) {
+	return 0, nil
+}
+
 func TestMailRoutes(t *testing.T) {
 	files := os.DirFS("../..")
 	userID := uuid.New()
