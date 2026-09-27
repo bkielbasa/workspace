@@ -89,6 +89,14 @@ func (m memUserRepo) Create(context.Context, string, string, string, string) (*U
 	return nil, nil
 }
 
+func (m memUserRepo) CreateWithOrg(context.Context, string, string, string, string, uuid.UUID) (*User, error) {
+	return nil, nil
+}
+
+func (m memUserRepo) SetOrganization(context.Context, uuid.UUID, uuid.UUID) error {
+	return nil
+}
+
 func (m memUserRepo) GetByUsername(context.Context, string) (*User, error) {
 	return nil, errors.New("not found")
 }

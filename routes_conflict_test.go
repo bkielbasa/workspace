@@ -106,6 +106,15 @@ func (dummyUserService) Delete(context.Context, uuid.UUID) error       { return 
 func (dummyUserService) SetUsername(context.Context, uuid.UUID, string) error {
 	return nil
 }
+func (dummyUserService) GetByEmail(context.Context, string) (*identity.User, error) {
+	return nil, nil
+}
+func (dummyUserService) CreateWithOrg(context.Context, string, string, uuid.UUID) (*identity.User, error) {
+	return nil, nil
+}
+func (dummyUserService) SetOrganization(context.Context, uuid.UUID, uuid.UUID) error {
+	return nil
+}
 
 func TestMuxRouteRegistrationNoConflict(t *testing.T) {
 	mux := http.NewServeMux()

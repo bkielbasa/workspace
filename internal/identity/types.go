@@ -34,15 +34,16 @@ var (
 )
 
 type User struct {
-	ID           uuid.UUID
-	Email        string
-	Username     string
-	PasswordHash string
-	DisplayName  string
-	Enabled      bool
-	IsAdmin      bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID             uuid.UUID
+	OrganizationID *uuid.UUID
+	Email          string
+	Username       string
+	PasswordHash   string
+	DisplayName    string
+	Enabled        bool
+	IsAdmin        bool
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type Session struct {

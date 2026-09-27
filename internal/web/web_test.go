@@ -226,6 +226,18 @@ func (u testUserService) Delete(context.Context, uuid.UUID) error {
 	return nil
 }
 
+func (u testUserService) GetByEmail(context.Context, string) (*identity.User, error) {
+	return &identity.User{ID: u.userID, Email: "alice@example.com", Enabled: true}, nil
+}
+
+func (u testUserService) CreateWithOrg(context.Context, string, string, uuid.UUID) (*identity.User, error) {
+	return &identity.User{ID: u.userID, Email: "alice@example.com", Enabled: true}, nil
+}
+
+func (u testUserService) SetOrganization(context.Context, uuid.UUID, uuid.UUID) error {
+	return nil
+}
+
 func (u testUserService) SetUsername(context.Context, uuid.UUID, string) error {
 	return nil
 }
@@ -362,6 +374,18 @@ func (userService) List(context.Context) ([]identity.User, error) {
 }
 
 func (userService) Delete(context.Context, uuid.UUID) error {
+	return nil
+}
+
+func (userService) GetByEmail(context.Context, string) (*identity.User, error) {
+	return &identity.User{}, nil
+}
+
+func (userService) CreateWithOrg(context.Context, string, string, uuid.UUID) (*identity.User, error) {
+	return &identity.User{}, nil
+}
+
+func (userService) SetOrganization(context.Context, uuid.UUID, uuid.UUID) error {
 	return nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -68,5 +69,64 @@ func TestAuthenticateUsernameVsOrgEmail(t *testing.T) {
 	}
 	if _, err := users.Authenticate(ctx, "bob@acme.corp", password); err != nil {
 		t.Errorf("Authenticate(bob@acme.corp) failed: %v", err)
+	}
+}
+
+func TestMemoryUserRepositoryAndOrgSupport(t *testing.T) {
+	ctx := context.Background()
+	repo := NewMemoryUserRepository()
+	users := NewUsers(repo, nil, "cloudlift.run")
+
+	orgID := uuid.New()
+
+	// 1. Create user with org
+	u, err := users.CreateWithOrg(ctx, "alice@acme.corp", "Alice Acme", orgID)
+	if err != nil {
+		t.Fatalf("CreateWithOrg failed: %v", err)
+	}
+	if u.OrganizationID == nil || *u.OrganizationID != orgID {
+		t.Fatalf("expected orgID %v, got %v", orgID, u.OrganizationID)
+	}
+	if u.Email != "alice@acme.corp" {
+		t.Errorf("expected email alice@acme.corp, got %s", u.Email)
+	}
+
+	// 2. Fetch by ID and Email
+	byID, err := repo.Get(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("repo.Get failed: %v", err)
+	}
+	if byID.OrganizationID == nil || *byID.OrganizationID != orgID {
+		t.Errorf("repo.Get orgID mismatch")
+	}
+
+	byEmail, err := repo.GetByEmail(ctx, "alice@acme.corp")
+	if err != nil {
+		t.Fatalf("repo.GetByEmail failed: %v", err)
+	}
+	if byEmail.ID != u.ID {
+		t.Errorf("repo.GetByEmail returned wrong user")
+	}
+
+	// 3. Set organization for another user
+	u2, err := repo.Create(ctx, "bob@example.com", "bob", "hash", "Bob")
+	if err != nil {
+		t.Fatalf("repo.Create failed: %v", err)
+	}
+	if u2.OrganizationID != nil {
+		t.Errorf("expected nil OrganizationID for user created without org")
+	}
+
+	newOrgID := uuid.New()
+	if err := users.SetOrganization(ctx, u2.ID, newOrgID); err != nil {
+		t.Fatalf("users.SetOrganization failed: %v", err)
+	}
+
+	updatedBob, err := repo.Get(ctx, u2.ID)
+	if err != nil {
+		t.Fatalf("repo.Get bob failed: %v", err)
+	}
+	if updatedBob.OrganizationID == nil || *updatedBob.OrganizationID != newOrgID {
+		t.Errorf("expected updatedBob orgID %v, got %v", newOrgID, updatedBob.OrganizationID)
 	}
 }

@@ -27,6 +27,27 @@ func (m *mockAuthUsers) Authenticate(_ context.Context, login, password string) 
 }
 
 func (m *mockAuthUsers) Get(context.Context, uuid.UUID) (*identity.User, error)   { return nil, nil }
+func (m *mockAuthUsers) GetByEmail(_ context.Context, email string) (*identity.User, error) {
+	u, ok := m.users[email]
+	if !ok {
+		return nil, identity.ErrUserNotFound
+	}
+	return u, nil
+}
+func (m *mockAuthUsers) CreateWithOrg(_ context.Context, email, name string, orgID uuid.UUID) (*identity.User, error) {
+	u := &identity.User{ID: uuid.New(), Email: email, DisplayName: name, OrganizationID: &orgID, Enabled: true}
+	m.users[email] = u
+	return u, nil
+}
+func (m *mockAuthUsers) SetOrganization(_ context.Context, userID, orgID uuid.UUID) error {
+	for _, u := range m.users {
+		if u.ID == userID {
+			u.OrganizationID = &orgID
+			return nil
+		}
+	}
+	return nil
+}
 func (m *mockAuthUsers) Update(context.Context, uuid.UUID, string, bool) error    { return nil }
 func (m *mockAuthUsers) ChangePassword(context.Context, uuid.UUID, string) error { return nil }
 func (m *mockAuthUsers) List(context.Context) ([]identity.User, error)            { return nil, nil }

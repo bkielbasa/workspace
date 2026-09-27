@@ -19,6 +19,7 @@ import (
 
 type UserRepository interface {
 	Create(ctx context.Context, email, username, passwordHash, displayName string) (*User, error)
+	CreateWithOrg(ctx context.Context, email, username, passwordHash, displayName string, orgID uuid.UUID) (*User, error)
 	Get(ctx context.Context, id uuid.UUID) (*User, error)
 	GetByEmail(ctx context.Context, email string) (*User, error)
 	GetByUsername(ctx context.Context, username string) (*User, error)
@@ -27,6 +28,7 @@ type UserRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	ChangePassword(ctx context.Context, id uuid.UUID, passwordHash string) error
 	SetUsername(ctx context.Context, id uuid.UUID, username string) error
+	SetOrganization(ctx context.Context, id, orgID uuid.UUID) error
 }
 
 type Users struct {
@@ -239,6 +241,41 @@ func (u *Users) Provision(ctx context.Context, claimedEmail, displayName string)
 		return nil, fmt.Errorf("hash bootstrap password: %w", err)
 	}
 	return u.repo.Create(ctx, email, username, string(passwordHashBytes), displayName)
+}
+
+// CreateWithOrg provisions a user associated with an organization.
+// Used by dynamic per-organization SSO JIT provisioning.
+func (u *Users) CreateWithOrg(ctx context.Context, email, displayName string, orgID uuid.UUID) (*User, error) {
+	ctx, span := u.tracer.Start(ctx, "users.create_with_org")
+	defer span.End()
+
+	cleanEmail := strings.ToLower(strings.TrimSpace(email))
+	username, err := u.deriveUsername(ctx, cleanEmail)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateUsername(username); err != nil {
+		return nil, err
+	}
+
+	var raw [24]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return nil, fmt.Errorf("generate bootstrap password: %w", err)
+	}
+	password := hex.EncodeToString(raw[:])
+	passwordHashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash bootstrap password: %w", err)
+	}
+
+	return u.repo.CreateWithOrg(ctx, cleanEmail, username, string(passwordHashBytes), displayName, orgID)
+}
+
+// SetOrganization associates a user with an organization.
+func (u *Users) SetOrganization(ctx context.Context, userID, orgID uuid.UUID) error {
+	ctx, span := u.tracer.Start(ctx, "users.set_organization")
+	defer span.End()
+	return u.repo.SetOrganization(ctx, userID, orgID)
 }
 
 // SetUsername sets the username for a user who does not have one yet.

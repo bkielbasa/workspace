@@ -37,6 +37,34 @@ func (m *mockSignupUsers) Get(_ context.Context, id uuid.UUID) (*identity.User, 
 	return nil, identity.ErrUserNotFound
 }
 
+func (m *mockSignupUsers) GetByEmail(_ context.Context, email string) (*identity.User, error) {
+	if u, ok := m.users[email]; ok {
+		return u, nil
+	}
+	for _, u := range m.users {
+		if strings.EqualFold(u.Email, email) {
+			return u, nil
+		}
+	}
+	return nil, identity.ErrUserNotFound
+}
+
+func (m *mockSignupUsers) CreateWithOrg(_ context.Context, email, name string, orgID uuid.UUID) (*identity.User, error) {
+	u := &identity.User{ID: uuid.New(), Email: email, DisplayName: name, OrganizationID: &orgID, Enabled: true}
+	m.users[email] = u
+	return u, nil
+}
+
+func (m *mockSignupUsers) SetOrganization(_ context.Context, userID, orgID uuid.UUID) error {
+	for _, u := range m.users {
+		if u.ID == userID {
+			u.OrganizationID = &orgID
+			return nil
+		}
+	}
+	return nil
+}
+
 func (m *mockSignupUsers) Update(context.Context, uuid.UUID, string, bool) error    { return nil }
 func (m *mockSignupUsers) ChangePassword(context.Context, uuid.UUID, string) error { return nil }
 func (m *mockSignupUsers) List(context.Context) ([]identity.User, error)            { return nil, nil }

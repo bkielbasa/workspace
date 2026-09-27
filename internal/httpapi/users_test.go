@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/bklimczak/workspace/internal/identity"
 	"github.com/google/uuid"
@@ -133,6 +134,42 @@ func (m *memUserStore) SetUsername(_ context.Context, id uuid.UUID, username str
 		return identity.ErrUserNotFound
 	}
 	u.Username = username
+	return nil
+}
+
+func (m *memUserStore) CreateWithOrg(_ context.Context, email, username, hash, name string, orgID uuid.UUID) (*identity.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, existing := range m.byID {
+		if existing.Username == username || existing.Email == email {
+			return nil, identity.ErrUserAlreadyExists
+		}
+	}
+	u := &identity.User{
+		ID:             uuid.New(),
+		OrganizationID: &orgID,
+		Email:          email,
+		Username:       username,
+		PasswordHash:   hash,
+		DisplayName:    name,
+		Enabled:        true,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	m.byID[u.ID] = u
+	m.byEmail[email] = u
+	cp := *u
+	return &cp, nil
+}
+
+func (m *memUserStore) SetOrganization(_ context.Context, id, orgID uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.byID[id]
+	if !ok {
+		return identity.ErrUserNotFound
+	}
+	u.OrganizationID = &orgID
 	return nil
 }
 

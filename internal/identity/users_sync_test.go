@@ -96,6 +96,28 @@ func (m *memUserStore) ChangePassword(_ context.Context, id uuid.UUID, hash stri
 	return nil
 }
 
+func (m *memUserStore) CreateWithOrg(_ context.Context, email, username, hash, name string, orgID uuid.UUID) (*User, error) {
+	for _, existing := range m.byID {
+		if existing.Username == username || existing.Email == email {
+			return nil, ErrUserAlreadyExists
+		}
+	}
+	u := &User{ID: uuid.New(), OrganizationID: &orgID, Email: email, Username: username, PasswordHash: hash, DisplayName: name, Enabled: true}
+	m.byID[u.ID] = u
+	m.byEmail[email] = u
+	cp := *u
+	return &cp, nil
+}
+
+func (m *memUserStore) SetOrganization(_ context.Context, id, orgID uuid.UUID) error {
+	u, ok := m.byID[id]
+	if !ok {
+		return ErrUserNotFound
+	}
+	u.OrganizationID = &orgID
+	return nil
+}
+
 type memSync struct {
 	passwords map[string]string
 	enabled   map[string]bool

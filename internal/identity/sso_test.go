@@ -82,6 +82,27 @@ func (m *memUsersRepo) ChangePassword(context.Context, uuid.UUID, string) error 
 
 func (m *memUsersRepo) SetUsername(context.Context, uuid.UUID, string) error { return nil }
 
+func (m *memUsersRepo) CreateWithOrg(_ context.Context, email, username, passwordHash, displayName string, orgID uuid.UUID) (*User, error) {
+	if _, ok := m.users[email]; ok {
+		return nil, ErrUserAlreadyExists
+	}
+	m.seq++
+	u := &User{ID: uuid.New(), OrganizationID: &orgID, Email: email, Username: username,
+		PasswordHash: passwordHash, DisplayName: displayName, Enabled: true}
+	m.users[email] = u
+	return u, nil
+}
+
+func (m *memUsersRepo) SetOrganization(_ context.Context, id, orgID uuid.UUID) error {
+	for _, u := range m.users {
+		if u.ID == id {
+			u.OrganizationID = &orgID
+			return nil
+		}
+	}
+	return ErrUserNotFound
+}
+
 func newSSOTest(t *testing.T, users map[string]*User) (*SSO, *memSSORepo, *memUsersRepo) {
 	t.Helper()
 	urepo := &memUsersRepo{users: users}

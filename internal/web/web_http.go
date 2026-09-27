@@ -101,6 +101,9 @@ type photoAlbumStore interface {
 type usersService interface {
 	Authenticate(context.Context, string, string) (*identity.User, error)
 	Get(context.Context, uuid.UUID) (*identity.User, error)
+	GetByEmail(context.Context, string) (*identity.User, error)
+	CreateWithOrg(context.Context, string, string, uuid.UUID) (*identity.User, error)
+	SetOrganization(context.Context, uuid.UUID, uuid.UUID) error
 	Update(context.Context, uuid.UUID, string, bool) error
 	ChangePassword(context.Context, uuid.UUID, string) error
 	List(context.Context) ([]identity.User, error)
@@ -131,8 +134,12 @@ type notesService interface {
 }
 
 type organizationsService interface {
+	Get(ctx context.Context, id uuid.UUID) (*identity.Organization, error)
 	GetByDomain(ctx context.Context, domain string) (*identity.Organization, *identity.OrganizationDomain, error)
 	GetSSO(ctx context.Context, orgID uuid.UUID) (*identity.OrganizationSSO, error)
+	AddMember(ctx context.Context, orgID, userID uuid.UUID, role string) error
+	GetMember(ctx context.Context, orgID, userID uuid.UUID) (*identity.OrganizationMember, error)
+	ListDomains(ctx context.Context, orgID uuid.UUID) ([]identity.OrganizationDomain, error)
 }
 
 // Server owns the web templates, assets, and cookie authentication policy.

@@ -124,13 +124,18 @@ const (
 
 // ssoLogin starts the authorization code + PKCE dance. With a single
 // configured provider it immediately redirects to the provider.
+// If ?domain= is present, it routes to dynamic per-organization SSO.
 func (s *Server) ssoLogin(w http.ResponseWriter, r *http.Request) {
-	if s.oidc == nil {
-		http.NotFound(w, r)
-		return
-	}
 	if s.validSession(r) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	if domain := strings.TrimSpace(r.URL.Query().Get("domain")); domain != "" {
+		s.orgSSOBegin(w, r, domain)
+		return
+	}
+	if s.oidc == nil {
+		http.NotFound(w, r)
 		return
 	}
 	s.ssoBegin(w, r)
@@ -158,12 +163,23 @@ func (s *Server) ssoBegin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(ssoCookieName)
+	if err == nil {
+		parts := strings.Split(cookie.Value, ".")
+		if len(parts) == 3 {
+			s.orgSSOCallback(w, r, cookie)
+			return
+		}
+	}
 	oc := s.oidc
 	if oc == nil {
+		if s.orgs != nil && err != nil {
+			s.ssoFail(w, r, "SSO sign-in expired or was not started. Please try again.")
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
-	cookie, err := r.Cookie(ssoCookieName)
 	if err != nil {
 		s.ssoFail(w, r, "SSO sign-in expired or was not started. Please try again.")
 		return

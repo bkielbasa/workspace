@@ -262,6 +262,24 @@ func (m *profileMockUserService) ChangePassword(ctx context.Context, id uuid.UUI
 	return nil
 }
 
+func (m *profileMockUserService) GetByEmail(ctx context.Context, email string) (*identity.User, error) {
+	if m.user != nil && strings.EqualFold(m.user.Email, email) {
+		return m.user, nil
+	}
+	return nil, identity.ErrUserNotFound
+}
+
+func (m *profileMockUserService) CreateWithOrg(ctx context.Context, email, name string, orgID uuid.UUID) (*identity.User, error) {
+	return &identity.User{ID: uuid.New(), Email: email, DisplayName: name, OrganizationID: &orgID, Enabled: true}, nil
+}
+
+func (m *profileMockUserService) SetOrganization(ctx context.Context, userID, orgID uuid.UUID) error {
+	if m.user != nil && m.user.ID == userID {
+		m.user.OrganizationID = &orgID
+	}
+	return nil
+}
+
 type profileMockSessionService struct {
 	testSessionService
 	sessions map[string]*identity.Session

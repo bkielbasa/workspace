@@ -296,6 +296,15 @@ func (u notesTestUserService) Delete(context.Context, uuid.UUID) error {
 func (u notesTestUserService) SetUsername(ctx context.Context, id uuid.UUID, username string) error {
 	return nil
 }
+func (u notesTestUserService) GetByEmail(context.Context, string) (*identity.User, error) {
+	return u.user, nil
+}
+func (u notesTestUserService) CreateWithOrg(context.Context, string, string, uuid.UUID) (*identity.User, error) {
+	return u.user, nil
+}
+func (u notesTestUserService) SetOrganization(context.Context, uuid.UUID, uuid.UUID) error {
+	return nil
+}
 
 type dummyContactsService struct{}
 

@@ -25,6 +25,14 @@ func NewUserRepository(db *sql.DB) identity.UserRepository {
 }
 
 func (r *userRepository) Create(ctx context.Context, email, username, passwordHash, displayName string) (*identity.User, error) {
+	return r.create(ctx, email, username, passwordHash, displayName, nil)
+}
+
+func (r *userRepository) CreateWithOrg(ctx context.Context, email, username, passwordHash, displayName string, orgID uuid.UUID) (*identity.User, error) {
+	return r.create(ctx, email, username, passwordHash, displayName, &orgID)
+}
+
+func (r *userRepository) create(ctx context.Context, email, username, passwordHash, displayName string, orgID *uuid.UUID) (*identity.User, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
@@ -41,16 +49,20 @@ func (r *userRepository) Create(ctx context.Context, email, username, passwordHa
 	}
 
 	user := &identity.User{}
+	var scannedOrgID uuid.NullUUID
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO users (email, username, password_hash, display_name)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, email, COALESCE(username, ''), password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
-	`, email, username, passwordHash, displayName).Scan(
-		&user.ID, &user.Email, &user.Username, &user.PasswordHash, &user.DisplayName,
+		INSERT INTO users (email, username, password_hash, display_name, organization_id)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, organization_id, email, COALESCE(username, ''), password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
+	`, email, username, passwordHash, displayName, orgID).Scan(
+		&user.ID, &scannedOrgID, &user.Email, &user.Username, &user.PasswordHash, &user.DisplayName,
 		&user.Enabled, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
+	}
+	if scannedOrgID.Valid {
+		user.OrganizationID = &scannedOrgID.UUID
 	}
 	if err := createDefaultMailboxes(ctx, tx, user.ID); err != nil {
 		return nil, fmt.Errorf("create mailboxes: %w", err)
@@ -78,12 +90,28 @@ func (r *userRepository) SetUsername(ctx context.Context, id uuid.UUID, username
 	return err
 }
 
+func (r *userRepository) SetOrganization(ctx context.Context, id, orgID uuid.UUID) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE users SET organization_id = $2, updated_at = NOW() WHERE id = $1`, id, orgID)
+	if err != nil {
+		return fmt.Errorf("set organization: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if rows == 0 {
+		return identity.ErrUserNotFound
+	}
+	return nil
+}
+
 func (r *userRepository) get(ctx context.Context, where string, arg any) (*identity.User, error) {
 	user := &identity.User{}
+	var orgID uuid.NullUUID
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, email, COALESCE(username, ''), password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
+		SELECT id, organization_id, email, COALESCE(username, ''), password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
 		FROM users `+where, arg).Scan(
-		&user.ID, &user.Email, &user.Username, &user.PasswordHash, &user.DisplayName,
+		&user.ID, &orgID, &user.Email, &user.Username, &user.PasswordHash, &user.DisplayName,
 		&user.Enabled, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -92,12 +120,15 @@ func (r *userRepository) get(ctx context.Context, where string, arg any) (*ident
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
+	if orgID.Valid {
+		user.OrganizationID = &orgID.UUID
+	}
 	return user, nil
 }
 
 func (r *userRepository) List(ctx context.Context) ([]identity.User, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, email, COALESCE(username, ''), password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
+		SELECT id, organization_id, email, COALESCE(username, ''), password_hash, display_name, enabled, COALESCE(is_admin, FALSE), created_at, updated_at
 		FROM users ORDER BY created_at
 	`)
 	if err != nil {
@@ -108,9 +139,13 @@ func (r *userRepository) List(ctx context.Context) ([]identity.User, error) {
 	users := make([]identity.User, 0)
 	for rows.Next() {
 		var user identity.User
-		if err := rows.Scan(&user.ID, &user.Email, &user.Username, &user.PasswordHash, &user.DisplayName,
+		var orgID uuid.NullUUID
+		if err := rows.Scan(&user.ID, &orgID, &user.Email, &user.Username, &user.PasswordHash, &user.DisplayName,
 			&user.Enabled, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
+		}
+		if orgID.Valid {
+			user.OrganizationID = &orgID.UUID
 		}
 		users = append(users, user)
 	}
