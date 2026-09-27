@@ -1,121 +1,79 @@
 # Workspace
 
-**Workspace** is a self-hosted personal communication and productivity suite written in Go. It combines a dark-themed, server-rendered web application with standard mail and synchronization protocols: a Gmail-inspired webmail client, an interactive calendar with drag-and-drop rescheduling, a contacts address book, Keep-style notes & checklists, account profile management, and native SMTP, IMAP, CalDAV, and CardDAV servers.
+**Workspace** is a self-hosted, private communication and productivity platform that gives you complete ownership of your personal, family, and team data. It serves as an all-in-one alternative to proprietary cloud ecosystems (such as Google Workspace, Microsoft 365, and Apple iCloud)—unifying email, calendars, contacts, notes, checklists, and file storage in a single cohesive dashboard.
 
 ---
 
-## Key Features
+## Why Workspace?
 
-### 1. Web Application (Server-Rendered + HTMX)
-- **Notes & Lists (Google Keep alternative)**:
-  - Card-grid dashboard with pinned and regular sections, color labeling (yellow, green, blue, purple, red, default), and tag filtering.
-  - Checklists with completed item separation, instant strike-through, inline item additions, and deletions.
-  - Plain text notes with auto-saving, archive management, and full-screen modal editing.
-  - Family sharing to collaborate on shared household notes and shopping lists.
-  - Real-time live synchronization across devices and tabs via Server-Sent Events (`/notes/live`).
-  - Native CalDAV task synchronization: lists expose as CalDAV VTODO collections for Apple Reminders, DAVx5, and Thunderbird.
-- **Mail (Gmail-inspired)**:
-  - Mailbox folders (`Inbox`, `Sent`, `Drafts`, `Trash`, `Spam`) with unread count badges.
-  - Search, star/unstar (`★`), mark read/unread, and deletion/trashing.
-  - Detailed message view with parsed RFC 5322 MIME headers and body formatting.
-  - Floating compose dock with keyboard shortcuts (`c` to compose, `Esc` to close) and reply support.
-- **Calendar**:
-  - Weekly view with time grid.
-  - Drag-and-drop event rescheduling.
-  - Double-click to edit events, plus event creation and deletion.
-  - CalDAV synchronization.
-- **Contacts**:
-  - Address book with search, full contact editing (names, company, title, structured emails, phone numbers, addresses, and notes).
-- **User Profile & Security**:
-  - Account details view (email, creation date).
-  - Display name editing.
-  - In-app password change with Argon2id hashing and automatic session revocation/rotation.
-- **Authentication**:
-  - Cookie sessions (SHA-256 hashed tokens, 24-hour TTL, background cleanup).
-  - CSRF protection via double-submit cookies (`X-CSRF-Token` header / `_csrf` form field).
-  - Rate-limited sign-in attempts.
-
-### 2. Mail Services (SMTP & IMAP)
-- **SMTP Server**: Port `2525` (plain) and `2465` (SMTPS with TLS) for receiving and routing mail.
-- **IMAP Server**: Port `1143` (plain) and `1993` (IMAPS with TLS) for desktop/mobile email clients.
-- **Delivery Worker**: Background worker handling queued outbound email delivery.
-
-### 3. Sync & Client Autodiscovery
-- **CalDAV** (`/cal/`, `/.well-known/caldav`): Calendar syncing (events) and task list syncing (VTODO collections) for Apple Reminders, Apple Calendar, Thunderbird, DAVx5, etc.
-- **CardDAV** (`/dav/`, `/.well-known/carddav`): Address book syncing.
-- **Client Autodiscovery**:
-  - Mozilla Thunderbird Autoconfig (`/mail/config-v1.1.xml`)
-  - Microsoft Outlook Autodiscover (`/autodiscover/autodiscover.xml`)
-  - Apple Mobileconfig profile generator (`/apple.mobileconfig`)
-
-### 4. REST API & Observability
-- HTTP REST API for user administration (`/users`), contacts, and message threads.
-- OpenTelemetry tracing and HTTP metrics.
+- **Data Sovereignty & Privacy**: Your messages, schedules, contacts, and personal notes stay entirely in your control. No third-party data mining, ad targeting, or recurring per-seat subscription fees.
+- **Unified Productivity Hub**: Eliminates tool fragmentation by bringing everyday personal, household, and team organization tools into one clean, responsive interface.
+- **Real-Time Collaboration**: Share household checklists, grocery lists, and notes with family or team members with instant multi-device synchronization.
+- **Universal Ecosystem Compatibility**: Works out of the box with the native client apps you already use on iOS, macOS, Android, Windows, and Linux via standard protocols (IMAP, SMTP, CalDAV, CardDAV).
+- **Zero-Friction Device Onboarding**: Generate ready-to-install configuration profiles for Apple devices and automatic discovery for desktop clients to get connected in seconds without manual setup headaches.
+- **Lightweight & Low Maintenance**: Designed for minimal operational overhead, delivering fast performance and high reliability from a single lightweight service backed by PostgreSQL.
 
 ---
 
-## Getting Started
+## Core Capabilities
 
-### Prerequisites
-- **Go** 1.22+
-- **PostgreSQL** database
+### 📬 Mail & Communications
+- Responsive webmail client with message search, folder management, and quick keyboard navigation.
+- Personalized email signatures and automated inbox filtering rules to keep correspondence organized.
+- Standard mail protocol support (SMTP & IMAP) for Apple Mail, Thunderbird, Outlook, and mobile clients.
 
-### Running
+### 📅 Calendar & Scheduling
+- Visual weekly calendar planner with intuitive drag-and-drop rescheduling.
+- Seamless bi-directional synchronization with Apple Calendar, Thunderbird, and mobile devices via CalDAV.
+
+### 📝 Notes & Checklists
+- Visual card dashboard with color labeling, tagging, and pinned notes for quick access.
+- Interactive checklists with real-time updates and family sharing for grocery lists and household tasks.
+- Native task synchronization with Apple Reminders and standard task managers via CalDAV.
+
+### 👥 Contacts & Address Book
+- Centralized address book keeping personal and professional contacts organized.
+- Continuous CardDAV synchronization across all connected smartphones, tablets, and computers.
+
+### 📁 Files & Storage
+- Integrated network file sharing (Samba/SMB) for convenient document and media access across your local network.
+
+### ⚙️ Centralized Settings & Security
+- Unified settings hub to easily manage personal profiles, account security, email signatures, filtering rules, and domain configuration in one place.
+
+---
+
+## Quick Start
+
+### Running with Docker Compose
 ```bash
+docker compose up -d
+```
+
+### Manual Setup
+**Prerequisites:** Go 1.22+ and PostgreSQL.
+
+```bash
+# Configure database connection
+export DATABASE_URL="postgres://user:password@localhost:5432/workspace?sslmode=disable"
+
+# Start the application
 go run main.go
 ```
 
-On startup, the server connects to PostgreSQL (with retry logic), initializes the database services, and launches SMTP, IMAP, HTTP/Web UI, and the outbound delivery worker.
+The web dashboard will be available at `http://localhost:8080`.
 
 ---
 
 ## Configuration
 
-Configured via environment variables:
+Workspace is configured using environment variables:
 
-| Variable | Description | Default |
+| Variable | Purpose | Default |
 |---|---|---|
-| `DATABASE_URL` | PostgreSQL connection URL | required |
-| `HTTP_ADDR` | Web UI and HTTP API listen address | `:8080` |
-| `MAIL_HOSTNAME` | Hostname for SMTP/IMAP HELO and autodiscovery | `localhost` |
-| `TLS_CERT_FILE` | Path to TLS certificate file (enables SMTPS & IMAPS) | _optional_ |
-| `TLS_KEY_FILE` | Path to TLS private key file | _optional_ |
-| `COOKIE_SECURE` | Force `Secure` flag on session and CSRF cookies (`true`/`false`) | `false` |
-
----
-
-## Key Routes Overview
-
-### Web UI
-- `GET /login`, `POST /login` – Sign in
-- `POST /logout` – Sign out
-- `GET /` – Home dashboard
-- `GET /mail` – Webmail client
-- `GET /mail/message/{id}` – Message view
-- `POST /mail/send` – Compose and send email
-- `POST /mail/message/{id}/toggle-star` – Star / unstar message
-- `POST /mail/message/{id}/toggle-read` – Mark read / unread
-- `POST /mail/message/{id}/delete` – Delete message
-- `GET /calendars`, `POST /calendars`, `POST /calendars/{id}`, `DELETE /calendars/{id}` – Calendar
-- `GET /contacts`, `POST /contacts`, `GET /contacts/{id}`, `POST /contacts/{id}`, `DELETE /contacts/{id}` – Contacts
-- `GET /notes` – Notes & lists dashboard
-- `GET /notes/live` – Real-time SSE updates stream
-- `POST /notes` – Create note or checklist
-- `GET /notes/{id}` – Get note details (JSON)
-- `POST /notes/{id}` – Update note title, content, color, kind, or archive status
-- `POST /notes/{id}/delete` – Delete note
-- `POST /notes/{id}/share` – Toggle family sharing
-- `POST /notes/{id}/toggle-pin` – Pin / unpin note
-- `POST /notes/{id}/items` – Add checklist item
-- `POST /notes/{id}/items/{item_id}/toggle` – Toggle checklist item completion
-- `POST /notes/{id}/items/{item_id}/delete` – Delete checklist item
-- `GET /profile`, `POST /profile`, `POST /profile/password` – Profile & password settings
-
-### Protocols & Discovery
-- `Port 2525` / `2465` – SMTP / SMTPS
-- `Port 1143` / `1993` – IMAP / IMAPS
-- `/cal/` – CalDAV
-- `/dav/` – CardDAV
-- `/mail/config-v1.1.xml` – Thunderbird autoconfig
-- `/autodiscover/autodiscover.xml` – Outlook Autodiscover
-- `/apple.mobileconfig` – Apple device configuration profile
+| `DATABASE_URL` | PostgreSQL connection string | *Required* |
+| `HTTP_ADDR` | Web interface and HTTP API address | `:8080` |
+| `MAIL_HOSTNAME` | Hostname used for mail services and autodiscovery | `localhost` |
+| `TLS_CERT_FILE` | Path to TLS certificate for secure connections | *Optional* |
+| `TLS_KEY_FILE` | Path to TLS private key | *Optional* |
+| `COOKIE_SECURE` | Enforce secure session cookies over HTTPS | `false` |
