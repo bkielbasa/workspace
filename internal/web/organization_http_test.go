@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -571,5 +572,109 @@ func TestOrganizationPermissions(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusSeeOther && resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 303 or 200 for owner inviting member, got %d", resp.StatusCode)
+	}
+}
+
+func TestNonAdminCannotSeeSecretOrVerificationAction(t *testing.T) {
+	h := setupOrgTestHarness(t)
+	ctx := context.Background()
+
+	owner, _ := h.createAuthenticatedUser(t, "owner@beta.io", "Owner", nil)
+	org, _, err := h.orgs.Create(ctx, owner.ID, "Beta Corp", "beta.io")
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	if err := h.users.SetOrganization(ctx, owner.ID, org.ID); err != nil {
+		t.Fatalf("set org: %v", err)
+	}
+
+	secret := "super-secret-oidc-token-xyz"
+	err = h.orgs.SaveSSO(ctx, &identity.OrganizationSSO{
+		OrganizationID: org.ID,
+		Name:           "Beta SSO",
+		Issuer:         "https://idp.beta.io",
+		ClientID:       "beta-client-id",
+		ClientSecret:   secret,
+		Enabled:        true,
+	})
+	if err != nil {
+		t.Fatalf("save sso: %v", err)
+	}
+
+	memberUser, memberToken := h.createAuthenticatedUser(t, "member@beta.io", "Member", &org.ID)
+	if err := h.orgs.AddMember(ctx, org.ID, memberUser.ID, identity.RoleMember); err != nil {
+		t.Fatalf("add member: %v", err)
+	}
+
+	resp, err := h.makeRequest("GET", "/settings/organization", memberToken, nil, nil)
+	if err != nil {
+		t.Fatalf("GET /settings/organization failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	body := string(bodyBytes)
+
+	if strings.Contains(body, secret) {
+		t.Errorf("expected secret %q NOT to appear in HTML for non-admin member, but it was found", secret)
+	}
+	if strings.Contains(body, "Verify DNS") {
+		t.Errorf("expected 'Verify DNS' button NOT to appear in HTML for non-admin member, but it was found")
+	}
+}
+
+func TestUpdateSSOConfiguration_RetainExistingSecret(t *testing.T) {
+	h := setupOrgTestHarness(t)
+	ctx := context.Background()
+
+	owner, token := h.createAuthenticatedUser(t, "admin@beta.io", "Admin", nil)
+	org, _, err := h.orgs.Create(ctx, owner.ID, "Beta Corp", "beta.io")
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	if err := h.users.SetOrganization(ctx, owner.ID, org.ID); err != nil {
+		t.Fatalf("set org: %v", err)
+	}
+
+	initialSecret := "initial-secret-12345"
+	err = h.orgs.SaveSSO(ctx, &identity.OrganizationSSO{
+		OrganizationID: org.ID,
+		Name:           "Beta SSO",
+		Issuer:         "https://idp.beta.io",
+		ClientID:       "beta-client-id",
+		ClientSecret:   initialSecret,
+		Enabled:        true,
+	})
+	if err != nil {
+		t.Fatalf("save initial sso: %v", err)
+	}
+
+	// Update SSO without passing client_secret (empty string)
+	form := url.Values{
+		"name":          {"Updated Beta SSO"},
+		"issuer":        {"https://idp.beta.io/v2"},
+		"client_id":     {"beta-client-id-updated"},
+		"client_secret": {""},
+		"enabled":       {"true"},
+	}
+
+	resp, err := h.makeRequest("POST", "/settings/organization/sso", token, form, nil)
+	if err != nil {
+		t.Fatalf("POST SSO update failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	sso, err := h.orgs.GetSSO(ctx, org.ID)
+	if err != nil {
+		t.Fatalf("GetSSO failed: %v", err)
+	}
+	if sso.ClientSecret != initialSecret {
+		t.Errorf("expected retained secret %q, got %q", initialSecret, sso.ClientSecret)
+	}
+	if sso.Name != "Updated Beta SSO" {
+		t.Errorf("expected name 'Updated Beta SSO', got %q", sso.Name)
 	}
 }

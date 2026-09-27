@@ -119,6 +119,13 @@ func (s *Server) settingsOrganizationPage(w http.ResponseWriter, r *http.Request
 
 	_, isOrgAdmin, _ := s.checkOrgAdmin(ctx, user)
 
+	// Redact SSO Client Secret if user is not an org admin
+	if !isOrgAdmin && sso != nil {
+		ssoCopy := *sso
+		ssoCopy.ClientSecret = ""
+		sso = &ssoCopy
+	}
+
 	data := viewData{
 		Title:        "Organization Settings",
 		Tab:          "organization",
@@ -441,12 +448,19 @@ func (s *Server) settingsOrganizationSSOSave(w http.ResponseWriter, r *http.Requ
 		req.Scopes = []string{"openid", "profile", "email"}
 	}
 
+	clientSecret := strings.TrimSpace(req.ClientSecret)
+	if clientSecret == "" {
+		if existing, err := s.orgs.GetSSO(r.Context(), orgID); err == nil && existing != nil {
+			clientSecret = existing.ClientSecret
+		}
+	}
+
 	sso := &identity.OrganizationSSO{
 		OrganizationID: orgID,
 		Name:           strings.TrimSpace(req.Name),
 		Issuer:         strings.TrimSpace(req.Issuer),
 		ClientID:       strings.TrimSpace(req.ClientID),
-		ClientSecret:   strings.TrimSpace(req.ClientSecret),
+		ClientSecret:   clientSecret,
 		Scopes:         req.Scopes,
 		EnforceSSO:     req.EnforceSSO,
 		AutoProvision:  req.AutoProvision,

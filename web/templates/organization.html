@@ -102,7 +102,7 @@
                   <span class="badge badge-warning" style="margin-left: 0.5rem; background: #f59e0b; color: white; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.8rem;">Pending Verification</span>
                   {{end}}
                 </div>
-                {{if not .VerifiedAt}}
+                {{if and (not .VerifiedAt) $.IsOrgAdmin}}
                 <form method="post" action="/settings/organization/domains/{{.ID}}/verify" style="margin: 0;">
                   <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
                   <button type="submit" class="btn btn-sm">Verify DNS</button>
@@ -186,7 +186,7 @@
             </label>
 
             <label for="sso-client-secret">Client Secret
-              <input id="sso-client-secret" name="client_secret" type="password" value="{{if .SSO}}{{.SSO.ClientSecret}}{{end}}" placeholder="Client Secret from IdP" {{if not .IsOrgAdmin}}disabled readonly{{end}}>
+              <input id="sso-client-secret" name="client_secret" type="password" value="{{if and .SSO $.IsOrgAdmin}}{{.SSO.ClientSecret}}{{end}}" placeholder="{{if and .SSO .SSO.ClientSecret}}•••••••• (leave blank to keep existing){{else}}Client Secret from IdP{{end}}" {{if not .IsOrgAdmin}}disabled readonly{{end}}>
             </label>
 
             <label for="sso-scopes">Scopes
