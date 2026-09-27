@@ -1,9 +1,13 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -83,6 +87,134 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"user": toUserResponse(user), "csrf": csrf})
+}
+
+type signupViewData struct {
+	Error         string
+	PrimaryDomain string
+}
+
+func (s *Server) signupPage(w http.ResponseWriter, r *http.Request) {
+	if s.validSession(r) {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	primaryDomain := s.primaryDomain
+	if primaryDomain == "" {
+		primaryDomain = "cloudlift.run"
+	}
+	data := signupViewData{
+		Error:         r.URL.Query().Get("error"),
+		PrimaryDomain: primaryDomain,
+	}
+	renderView(w, r, s.views.signup, "signup", data)
+}
+
+type userCreator interface {
+	Create(ctx context.Context, loginOrUsername, password, displayName string) (*identity.User, error)
+}
+
+type signupRequest struct {
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	DisplayName string `json:"display_name"`
+}
+
+func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
+	isJSON := strings.Contains(r.Header.Get("Content-Type"), "application/json") || r.Header.Get("Accept") == "application/json"
+
+	var req signupRequest
+	if isJSON {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	} else {
+		if err := r.ParseForm(); err != nil {
+			http.Redirect(w, r, "/signup?error=invalid+form+data", http.StatusSeeOther)
+			return
+		}
+		req.Username = r.FormValue("username")
+		req.Password = r.FormValue("password")
+		req.DisplayName = r.FormValue("display_name")
+	}
+
+	username := identity.NormalizeUsername(req.Username)
+	if err := identity.ValidateUsername(username); err != nil {
+		if isJSON {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+		} else {
+			http.Redirect(w, r, "/signup?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		}
+		return
+	}
+
+	if err := identity.ValidatePassword(req.Password); err != nil {
+		if isJSON {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+		} else {
+			http.Redirect(w, r, "/signup?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		}
+		return
+	}
+
+	primaryDomain := s.primaryDomain
+	if primaryDomain == "" {
+		primaryDomain = "cloudlift.run"
+	}
+	email := fmt.Sprintf("%s@%s", username, primaryDomain)
+
+	creator, ok := s.users.(userCreator)
+	if !ok {
+		if isJSON {
+			writeJSONError(w, http.StatusInternalServerError, "user creation not supported")
+		} else {
+			http.Redirect(w, r, "/signup?error=user+creation+not+supported", http.StatusSeeOther)
+		}
+		return
+	}
+
+	user, err := creator.Create(r.Context(), email, req.Password, strings.TrimSpace(req.DisplayName))
+	if err != nil {
+		if errors.Is(err, identity.ErrUserAlreadyExists) {
+			if isJSON {
+				writeJSONError(w, http.StatusConflict, "username is already taken")
+			} else {
+				http.Redirect(w, r, "/signup?error=username+is+already+taken", http.StatusSeeOther)
+			}
+			return
+		}
+		if errors.Is(err, identity.ErrInvalidUsername) || errors.Is(err, identity.ErrInvalidPassword) {
+			if isJSON {
+				writeJSONError(w, http.StatusBadRequest, err.Error())
+			} else {
+				http.Redirect(w, r, "/signup?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+			}
+			return
+		}
+		if isJSON {
+			writeJSONError(w, http.StatusInternalServerError, "could not create user")
+		} else {
+			http.Redirect(w, r, "/signup?error=could+not+create+user", http.StatusSeeOther)
+		}
+		return
+	}
+
+	csrf, err := s.establishSession(w, r, user)
+	if err != nil {
+		if isJSON {
+			writeJSONError(w, http.StatusInternalServerError, "could not start session")
+		} else {
+			http.Redirect(w, r, "/signup?error=could+not+start+session", http.StatusSeeOther)
+		}
+		return
+	}
+
+	if isJSON {
+		writeJSON(w, http.StatusOK, map[string]any{"user": toUserResponse(user), "csrf": csrf})
+	} else {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}
 }
 
 // establishSession issues a session token and CSRF nonce as cookies for user.

@@ -174,6 +174,7 @@ type views struct {
 	inviteT      *template.Template
 	notesT       *template.Template
 	login        *template.Template
+	signup       *template.Template
 	primaryDomain string
 }
 
@@ -227,6 +228,10 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	if err != nil {
 		return nil, fmt.Errorf("web: parse login template: %w", err)
 	}
+	signup, err := template.New("").Funcs(templateFuncs).ParseFS(files, "web/templates/signup.html")
+	if err != nil {
+		return nil, fmt.Errorf("web: parse signup template: %w", err)
+	}
 	inviteT, err := page("web/templates/invite.html")
 	if err != nil {
 		return nil, err
@@ -241,6 +246,7 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 		sessions: sessions, users: users,
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
 		calendarT: calendarT, mailT: mailT, settingsT: settingsT, driveT: driveT, galleryT: galleryT, login: login,
+		signup:       signup,
 		inviteT:      inviteT,
 		notesT:       notesT,
 		primaryDomain: "cloudlift.run",

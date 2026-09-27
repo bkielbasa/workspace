@@ -262,6 +262,8 @@ func New(files fs.FS, contacts contactsService, calendars calendarService, mail 
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
+	mux.HandleFunc("GET /signup", s.signupPage)
+	mux.HandleFunc("POST /signup", s.signup)
 	mux.HandleFunc("GET /login/sso", s.ssoLogin)
 	mux.HandleFunc("GET /login/sso/callback", s.ssoCallback)
 	mux.Handle("/static/", s.staticHandler())

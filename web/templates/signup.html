@@ -1,0 +1,70 @@
+{{define "signup"}}<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Create account &middot; Workspace</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+  </head>
+  <body>
+    <main class="auth">
+      <div class="card">
+        <h1>Workspace</h1>
+        <p class="subtitle">Create your account</p>
+        {{if .Error}}<p class="error msg">{{.Error}}</p>{{end}}
+        <form id="signup-form" class="login-form" method="post" action="/signup" autocomplete="on">
+          <label for="username">Username
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <input
+                id="username"
+                name="username"
+                type="text"
+                autocomplete="username"
+                autocapitalize="off"
+                spellcheck="false"
+                required
+                minlength="2"
+                maxlength="32"
+                pattern="[a-zA-Z0-9._+-]{2,32}"
+                placeholder="username"
+                autofocus
+                style="flex: 1;">
+              <span class="field-suffix" style="font-weight: 500; color: var(--text-muted, #666);">@{{if .PrimaryDomain}}{{.PrimaryDomain}}{{else}}cloudlift.run{{end}}</span>
+            </div>
+            <span class="field-hint" style="font-size: 0.75rem; color: var(--text-muted);">Your email will be username@{{if .PrimaryDomain}}{{.PrimaryDomain}}{{else}}cloudlift.run{{end}}</span>
+          </label>
+
+          <label for="display_name">Display name
+            <input
+              id="display_name"
+              name="display_name"
+              type="text"
+              autocomplete="name"
+              maxlength="100"
+              placeholder="e.g. Alice Smith">
+          </label>
+
+          <label for="password">Password
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="new-password"
+              required
+              minlength="8"
+              placeholder="At least 8 characters">
+          </label>
+
+          <p class="error" id="error" hidden></p>
+
+          <button type="submit" id="submit">Create account</button>
+        </form>
+
+        <p style="margin-top: 1.25rem; margin-bottom: 0; text-align: center; font-size: 0.85rem; color: var(--text-muted);">
+          Already have an account? <a href="/login" style="color: var(--accent-text); text-decoration: none;">Sign in</a>
+        </p>
+      </div>
+    </main>
+  </body>
+</html>
+{{end}}
