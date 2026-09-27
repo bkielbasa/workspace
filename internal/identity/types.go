@@ -21,8 +21,16 @@ var (
 	ErrInviteNotFound      = errors.New("invite not found")
 	ErrInviteExpired       = errors.New("invite expired")
 	ErrInviteUsed          = errors.New("invite already used")
-	ErrInvalidUsername     = errors.New("invalid username")
-	ErrInvalidPassword     = errors.New("invalid password")
+	ErrInvalidUsername           = errors.New("invalid username")
+	ErrInvalidPassword           = errors.New("invalid password")
+	ErrOrganizationNotFound      = errors.New("organization not found")
+	ErrOrganizationAlreadyExists = errors.New("organization already exists")
+	ErrOrgDomainNotFound         = errors.New("organization domain not found")
+	ErrOrgDomainAlreadyExists    = errors.New("organization domain already exists")
+	ErrMemberNotFound            = errors.New("organization member not found")
+	ErrMemberAlreadyExists       = errors.New("organization member already exists")
+	ErrInvalidRole               = errors.New("invalid organization role")
+	ErrSSONotFound               = errors.New("organization sso not found")
 )
 
 type User struct {
@@ -58,4 +66,50 @@ type Alias struct {
 	Destination string    `json:"destination"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+const (
+	RoleOwner  = "owner"
+	RoleAdmin  = "admin"
+	RoleMember = "member"
+)
+
+type Organization struct {
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type OrganizationDomain struct {
+	ID                uuid.UUID  `json:"id"`
+	OrganizationID    uuid.UUID  `json:"organization_id"`
+	Domain            string     `json:"domain"`
+	VerificationToken string     `json:"verification_token"`
+	VerifiedAt        *time.Time `json:"verified_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+}
+
+type OrganizationMember struct {
+	ID             uuid.UUID `json:"id"`
+	OrganizationID uuid.UUID `json:"organization_id"`
+	UserID         uuid.UUID `json:"user_id"`
+	Role           string    `json:"role"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type OrganizationSSO struct {
+	ID             uuid.UUID `json:"id"`
+	OrganizationID uuid.UUID `json:"organization_id"`
+	Name           string    `json:"name"`
+	Issuer         string    `json:"issuer"`
+	ClientID       string    `json:"client_id"`
+	ClientSecret   string    `json:"client_secret"`
+	Scopes         []string  `json:"scopes"`
+	EnforceSSO     bool      `json:"enforce_sso"`
+	AutoProvision  bool      `json:"auto_provision"`
+	Enabled        bool      `json:"enabled"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
