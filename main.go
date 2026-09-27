@@ -57,7 +57,11 @@ func main() {
 	defer db.Close()
 
 	mailboxes := mail.NewMailboxes(postgres.NewMailboxRepository(db))
-	domains := identity.NewDomains(postgres.NewDomainRepository(db))
+	domainRepo := postgres.NewDomainRepository(db)
+	domains := identity.NewDomains(domainRepo)
+	orgRepo := postgres.NewOrganizationRepository(db)
+	orgs := identity.NewOrganizations(orgRepo)
+	domainVerifier := identity.NewDomainVerifier(orgRepo, domainRepo, nil)
 	if exists, err := domains.Exists(ctx, cfg.primaryDomain); err != nil {
 		obs.Log(ctx, slog.LevelWarn, "failed to check primary domain existence", "domain", cfg.primaryDomain, "error", err)
 	} else if !exists {
@@ -187,6 +191,8 @@ func main() {
 	webUI.SetNotes(notesSvc)
 	webUI.SetPrimaryDomain(cfg.primaryDomain)
 	webUI.SetMailSettings(mailSignatures, mailRules)
+	webUI.SetOrganizations(orgs)
+	webUI.SetDomainVerifier(domainVerifier)
 	configureSSO(webUI, users, db)
 	(&discovery{mailHost: mailHostname, davHost: davHost, domains: domains}).register(mux)
 
