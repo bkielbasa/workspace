@@ -310,3 +310,116 @@ func TestSignupFormPost(t *testing.T) {
 	}
 }
 
+func TestSignupFormPostValidationErrors(t *testing.T) {
+	srv := newTestServer(t)
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	tests := []struct {
+		name        string
+		values      url.Values
+		errContains string
+	}{
+		{
+			name: "short password",
+			values: url.Values{
+				"username":     {"validuser"},
+				"password":     {"short"},
+				"display_name": {"User"},
+			},
+			errContains: "at least 8 characters",
+		},
+		{
+			name: "invalid username",
+			values: url.Values{
+				"username":     {"bad name"},
+				"password":     {"securepassword123"},
+				"display_name": {"User"},
+			},
+			errContains: "letters",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := client.PostForm(srv.URL+"/signup", tc.values)
+			if err != nil {
+				t.Fatalf("POST /signup failed: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusSeeOther {
+				t.Fatalf("expected 303 See Other, got %d", resp.StatusCode)
+			}
+			loc := resp.Header.Get("Location")
+			if !strings.HasPrefix(loc, "/signup?error=") {
+				t.Fatalf("expected redirect to /signup?error=..., got %q", loc)
+			}
+		})
+	}
+}
+
+func TestSignupRateLimiting(t *testing.T) {
+	srv := newTestServer(t)
+
+	// Default limit in newLoginLimiter is 30 attempts in 15 minutes.
+	// Exhaust the limit with invalid requests (short password).
+	for i := 0; i < 30; i++ {
+		resp, err := http.Post(srv.URL+"/signup", "application/json", strings.NewReader(`{"username":"user","password":"bad"}`))
+		if err != nil {
+			t.Fatalf("setup POST failed at iteration %d: %v", i, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected 400 at iteration %d, got %d", i, resp.StatusCode)
+		}
+	}
+
+	// 31st request should be rate-limited (JSON) -> 429 Too Many Requests
+	resp, err := http.Post(srv.URL+"/signup", "application/json", strings.NewReader(`{"username":"validuser","password":"validpassword123"}`))
+	if err != nil {
+		t.Fatalf("rate limited POST failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests, got %d", resp.StatusCode)
+	}
+
+	var errResp map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+	if !strings.Contains(errResp["error"], "too many sign-up attempts") {
+		t.Errorf("expected error message to mention 'too many sign-up attempts', got %q", errResp["error"])
+	}
+
+	// Test HTML form submission when rate-limited -> redirects to /signup?error=...
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	formResp, err := client.PostForm(srv.URL+"/signup", url.Values{
+		"username": {"another"},
+		"password": {"validpassword123"},
+	})
+	if err != nil {
+		t.Fatalf("form POST failed: %v", err)
+	}
+	defer formResp.Body.Close()
+
+	if formResp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected 303 See Other when rate limited, got %d", formResp.StatusCode)
+	}
+	loc := formResp.Header.Get("Location")
+	if !strings.Contains(loc, "too+many+sign-up+attempts") && !strings.Contains(loc, "too%20many%20sign-up%20attempts") {
+		t.Errorf("expected location to contain rate limit error, got %q", loc)
+	}
+}
+
+

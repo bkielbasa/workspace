@@ -121,16 +121,32 @@ type signupRequest struct {
 }
 
 func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
 	isJSON := strings.Contains(r.Header.Get("Content-Type"), "application/json") || r.Header.Get("Accept") == "application/json"
+
+	if s.limiter != nil && !s.limiter.allow(ip) {
+		if isJSON {
+			writeJSONError(w, http.StatusTooManyRequests, "too many sign-up attempts, please try again later")
+		} else {
+			http.Redirect(w, r, "/signup?error="+url.QueryEscape("too many sign-up attempts, please try again later"), http.StatusSeeOther)
+		}
+		return
+	}
 
 	var req signupRequest
 	if isJSON {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			if s.limiter != nil {
+				s.limiter.recordFailure(ip)
+			}
 			writeJSONError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
 	} else {
 		if err := r.ParseForm(); err != nil {
+			if s.limiter != nil {
+				s.limiter.recordFailure(ip)
+			}
 			http.Redirect(w, r, "/signup?error=invalid+form+data", http.StatusSeeOther)
 			return
 		}
@@ -141,6 +157,9 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 
 	username := identity.NormalizeUsername(req.Username)
 	if err := identity.ValidateUsername(username); err != nil {
+		if s.limiter != nil {
+			s.limiter.recordFailure(ip)
+		}
 		if isJSON {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
 		} else {
@@ -150,6 +169,9 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := identity.ValidatePassword(req.Password); err != nil {
+		if s.limiter != nil {
+			s.limiter.recordFailure(ip)
+		}
 		if isJSON {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
 		} else {
@@ -177,6 +199,9 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 	user, err := creator.Create(r.Context(), email, req.Password, strings.TrimSpace(req.DisplayName))
 	if err != nil {
 		if errors.Is(err, identity.ErrUserAlreadyExists) {
+			if s.limiter != nil {
+				s.limiter.recordFailure(ip)
+			}
 			if isJSON {
 				writeJSONError(w, http.StatusConflict, "username is already taken")
 			} else {
@@ -185,6 +210,9 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, identity.ErrInvalidUsername) || errors.Is(err, identity.ErrInvalidPassword) {
+			if s.limiter != nil {
+				s.limiter.recordFailure(ip)
+			}
 			if isJSON {
 				writeJSONError(w, http.StatusBadRequest, err.Error())
 			} else {
