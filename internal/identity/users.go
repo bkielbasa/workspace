@@ -282,7 +282,8 @@ func (u *Users) GetByLogin(ctx context.Context, login string) (*User, error) {
 	if strings.Contains(login, "@") {
 		return u.repo.GetByEmail(ctx, strings.ToLower(login))
 	}
-	return u.repo.GetByUsername(ctx, NormalizeUsername(login))
+	email := u.FormatEmail(login)
+	return u.repo.GetByEmail(ctx, email)
 }
 
 func (u *Users) Get(ctx context.Context, id uuid.UUID) (*User, error) {

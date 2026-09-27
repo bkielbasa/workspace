@@ -51,6 +51,25 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.Contains(request.Email, "@") && s.orgs != nil {
+		parts := strings.Split(request.Email, "@")
+		if len(parts) == 2 && parts[1] != "" {
+			domain := parts[1]
+			org, _, err := s.orgs.GetByDomain(r.Context(), domain)
+			if err == nil && org != nil {
+				sso, err := s.orgs.GetSSO(r.Context(), org.ID)
+				if err == nil && sso != nil && sso.Enabled && sso.EnforceSSO {
+					writeJSON(w, http.StatusForbidden, map[string]string{
+						"error":        "sso_required",
+						"redirect_url": "/login/sso?domain=" + domain,
+						"message":      "Your organization requires Single Sign-On.",
+					})
+					return
+				}
+			}
+		}
+	}
+
 	user, err := s.users.Authenticate(r.Context(), request.Email, request.Password)
 	if err != nil {
 		s.limiter.recordFailure(ip)

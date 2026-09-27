@@ -130,6 +130,11 @@ type notesService interface {
 	DeleteItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID) error
 }
 
+type organizationsService interface {
+	GetByDomain(ctx context.Context, domain string) (*identity.Organization, *identity.OrganizationDomain, error)
+	GetSSO(ctx context.Context, orgID uuid.UUID) (*identity.OrganizationSSO, error)
+}
+
 // Server owns the web templates, assets, and cookie authentication policy.
 type Server struct {
 	files    fs.FS
@@ -155,7 +160,13 @@ type Server struct {
 	invites invitesService
 	// notes backs the Keep-style notes and checklists dashboard.
 	notes notesService
+	orgs  organizationsService
 	primaryDomain string
+}
+
+// SetOrganizations registers the organizations service for multi-tenant domain and SSO inspection.
+func (s *Server) SetOrganizations(orgs organizationsService) {
+	s.orgs = orgs
 }
 
 // SetPrimaryDomain configures the primary domain for email addresses and accounts.
