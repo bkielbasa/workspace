@@ -29,6 +29,21 @@ func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request, user *iden
 	if section == "" {
 		section = "profile"
 	}
+	if section == "organization" {
+		target := "/settings/organization"
+		var params []string
+		if sVal := r.URL.Query().Get("success"); sVal != "" {
+			params = append(params, "success="+url.QueryEscape(sVal))
+		}
+		if eVal := r.URL.Query().Get("error"); eVal != "" {
+			params = append(params, "error="+url.QueryEscape(eVal))
+		}
+		if len(params) > 0 {
+			target += "?" + strings.Join(params, "&")
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
+		return
+	}
 
 	successVal := r.URL.Query().Get("success")
 	var successMsg string

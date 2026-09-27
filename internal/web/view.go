@@ -138,6 +138,20 @@ type viewData struct {
 	Tab        string
 	Signatures []mail.Signature
 	Rules      []mail.Rule
+	// Organization hub state.
+	Organization *identity.Organization
+	Domains      []identity.OrganizationDomain
+	SSO          *identity.OrganizationSSO
+	Members      []orgMemberView
+	IsOrgAdmin   bool
+}
+
+type orgMemberView struct {
+	UserID      uuid.UUID
+	Email       string
+	DisplayName string
+	Role        string
+	CreatedAt   time.Time
 }
 
 type views struct {
@@ -163,19 +177,21 @@ type views struct {
 	sessions   sessionsService
 	users      usersService
 
-	home         *template.Template
-	contactsT    *template.Template
-	contactEditT *template.Template
-	calendarT    *template.Template
-	mailT        *template.Template
-	settingsT    *template.Template
-	driveT       *template.Template
-	galleryT     *template.Template
-	inviteT      *template.Template
-	notesT       *template.Template
-	login        *template.Template
-	signup       *template.Template
-	primaryDomain string
+	home             *template.Template
+	contactsT        *template.Template
+	contactEditT     *template.Template
+	calendarT        *template.Template
+	mailT            *template.Template
+	settingsT        *template.Template
+	driveT           *template.Template
+	galleryT         *template.Template
+	inviteT          *template.Template
+	notesT           *template.Template
+	login            *template.Template
+	signup           *template.Template
+	organizationT    *template.Template
+	organizationNewT *template.Template
+	primaryDomain    string
 }
 
 func newViews(files fs.FS, contactService contactsService, calendarService calendarService, mailService mailService, sessions sessionsService, users usersService) (*views, error) {
@@ -240,18 +256,28 @@ func newViews(files fs.FS, contactService contactsService, calendarService calen
 	if err != nil {
 		return nil, err
 	}
+	organizationT, err := page("web/templates/organization.html")
+	if err != nil {
+		return nil, err
+	}
+	organizationNewT, err := page("web/templates/organization_new.html")
+	if err != nil {
+		return nil, err
+	}
 
 	return &views{
 		contacts: contactService, calendar: calendarService, mail: mailService,
 		sessions: sessions, users: users,
 		home: home, contactsT: contactsT, contactEditT: contactEditT,
 		calendarT: calendarT, mailT: mailT, settingsT: settingsT, driveT: driveT, galleryT: galleryT, login: login,
-		signup:       signup,
-		inviteT:      inviteT,
-		notesT:       notesT,
-		primaryDomain: "cloudlift.run",
-		previewSlots: make(chan struct{}, 2),
-		previewing:   map[string]bool{},
+		signup:           signup,
+		inviteT:          inviteT,
+		notesT:           notesT,
+		organizationT:    organizationT,
+		organizationNewT: organizationNewT,
+		primaryDomain:    "cloudlift.run",
+		previewSlots:     make(chan struct{}, 2),
+		previewing:       map[string]bool{},
 	}, nil
 }
 

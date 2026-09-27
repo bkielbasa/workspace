@@ -1,0 +1,268 @@
+{{define "content"}}
+<div class="profile-container">
+  <div class="settings-page">
+    <!-- Sidebar Navigation -->
+    <div class="settings-sidebar card">
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-title">General</div>
+        <a href="/settings?section=profile" class="settings-nav-item">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </span>
+          Profile
+        </a>
+        <a href="/settings?section=password" class="settings-nav-item">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </span>
+          Password
+        </a>
+        <a href="/settings/organization" class="settings-nav-item is-active">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M3 7v14M21 7v14M6 7V3h12v4M9 11h2M13 11h2M9 15h2M13 15h2"/></svg>
+          </span>
+          Organization
+        </a>
+      </div>
+
+      <div class="settings-nav-divider"></div>
+
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-title">Mail</div>
+        <a href="/settings?section=signatures" class="settings-nav-item">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </span>
+          Signatures
+        </a>
+        <a href="/settings?section=rules" class="settings-nav-item">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          </span>
+          Mail Rules
+        </a>
+      </div>
+
+      <div class="settings-nav-divider"></div>
+
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-title">Devices &amp; Clients</div>
+        <a href="/settings?section=iphone" class="settings-nav-item">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          </span>
+          iPhone Setup
+        </a>
+        <a href="/settings?section=app-passwords" class="settings-nav-item">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+          </span>
+          App Passwords
+        </a>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="settings-main">
+      {{if .Error}}
+      <div class="alert alert-error" style="margin-bottom: 1.5rem;">
+        {{.Error}}
+      </div>
+      {{end}}
+      {{if .Success}}
+      <div class="alert alert-success" style="margin-bottom: 1.5rem;">
+        {{.Success}}
+      </div>
+      {{end}}
+
+      <!-- Organization Header -->
+      <section class="card profile-card" style="margin-bottom: 1.5rem;">
+        <div class="settings-header">
+          <h2>{{.Organization.Name}}</h2>
+          <p class="subtitle">Organization ID: {{.Organization.ID}} &bull; Created {{fmtDate .Organization.CreatedAt}}</p>
+        </div>
+      </section>
+
+      <!-- CUSTOM DOMAINS -->
+      <section class="card profile-card" style="margin-bottom: 1.5rem;">
+        <div class="settings-header">
+          <h3>Custom Domains</h3>
+          <p class="subtitle">Configure and verify custom domains used for email and login</p>
+        </div>
+        <div class="card-body">
+          <div class="domain-list" style="margin-bottom: 1.5rem;">
+            {{range .Domains}}
+            <div class="domain-item card" style="padding: 1rem; margin-bottom: 1rem; background: var(--bg-secondary, #fafafa); border: 1px solid var(--border-color, #e5e7eb); border-radius: 6px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                <div>
+                  <strong style="font-size: 1.05rem;">{{.Domain}}</strong>
+                  {{if .VerifiedAt}}
+                  <span class="badge badge-success" style="margin-left: 0.5rem; background: #10b981; color: white; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.8rem;">Verified</span>
+                  {{else}}
+                  <span class="badge badge-warning" style="margin-left: 0.5rem; background: #f59e0b; color: white; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.8rem;">Pending Verification</span>
+                  {{end}}
+                </div>
+                {{if not .VerifiedAt}}
+                <form method="post" action="/settings/organization/domains/{{.ID}}/verify" style="margin: 0;">
+                  <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                  <button type="submit" class="btn btn-sm">Verify DNS</button>
+                </form>
+                {{end}}
+              </div>
+              {{if not .VerifiedAt}}
+              <div style="margin-top: 0.75rem; padding: 0.75rem; background: var(--bg-tertiary, #fff); border: 1px dashed var(--border-color, #d1d5db); border-radius: 4px; font-size: 0.875rem;">
+                <p style="margin: 0 0 0.5rem 0;">Add the following <strong>TXT record</strong> in your DNS provider:</p>
+                <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.75rem; font-family: monospace;">
+                  <span style="color: var(--text-muted, #6b7280);">Host / Name:</span>
+                  <code>@ (or {{.Domain}})</code>
+                  <span style="color: var(--text-muted, #6b7280);">TXT Value:</span>
+                  <code>workspace-verify={{.VerificationToken}}</code>
+                </div>
+              </div>
+              {{end}}
+            </div>
+            {{else}}
+            <p style="color: var(--text-muted, #6b7280);">No custom domains configured yet.</p>
+            {{end}}
+          </div>
+
+          {{if .IsOrgAdmin}}
+          <div style="border-top: 1px solid var(--border-color, #e5e7eb); padding-top: 1.25rem;">
+            <h4 style="margin-top: 0; margin-bottom: 0.5rem;">Add Custom Domain</h4>
+            <form method="post" action="/settings/organization/domains" class="profile-form" style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap;">
+              <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+              <label style="flex: 1; min-width: 200px; margin: 0;">Domain name
+                <input name="domain" type="text" placeholder="example.com" required autocomplete="off" spellcheck="false">
+              </label>
+              <button type="submit" class="btn" style="height: fit-content;">Add Domain</button>
+            </form>
+          </div>
+          {{end}}
+        </div>
+      </section>
+
+      <!-- SINGLE SIGN-ON (SSO) -->
+      <section class="card profile-card" style="margin-bottom: 1.5rem;">
+        <div class="settings-header">
+          <h3>Single Sign-On (SSO)</h3>
+          <p class="subtitle">OpenID Connect (OIDC) identity provider configuration</p>
+        </div>
+        <div class="card-body">
+          <form method="post" action="/settings/organization/sso" class="profile-form">
+            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem;">
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" name="enabled" value="true" {{if and .SSO .SSO.Enabled}}checked{{end}} {{if not .IsOrgAdmin}}disabled{{end}}>
+                <strong>Enable Single Sign-On</strong>
+              </label>
+              <span class="field-hint" style="margin-top: -0.25rem; margin-left: 1.5rem;">Allows organization members to sign in with your identity provider</span>
+
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" name="enforce_sso" value="true" {{if and .SSO .SSO.EnforceSSO}}checked{{end}} {{if not .IsOrgAdmin}}disabled{{end}}>
+                <strong>Enforce Single Sign-On</strong>
+              </label>
+              <span class="field-hint" style="margin-top: -0.25rem; margin-left: 1.5rem;">Disallows standard password login for users with organization email addresses</span>
+
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" name="auto_provision" value="true" {{if and .SSO .SSO.AutoProvision}}checked{{end}} {{if not .IsOrgAdmin}}disabled{{end}}>
+                <strong>Auto-provision Users (JIT)</strong>
+              </label>
+              <span class="field-hint" style="margin-top: -0.25rem; margin-left: 1.5rem;">Automatically create organization accounts upon first successful SSO login</span>
+            </div>
+
+            <label for="sso-name">Provider Name
+              <input id="sso-name" name="name" type="text" value="{{if .SSO}}{{.SSO.Name}}{{end}}" placeholder="e.g. Okta or Google Workspace" {{if not .IsOrgAdmin}}disabled readonly{{end}}>
+              <span class="field-hint">Human-readable label for the sign-in button</span>
+            </label>
+
+            <label for="sso-issuer">OIDC Issuer URL
+              <input id="sso-issuer" name="issuer" type="url" value="{{if .SSO}}{{.SSO.Issuer}}{{end}}" placeholder="https://accounts.google.com" {{if not .IsOrgAdmin}}disabled readonly{{end}}>
+              <span class="field-hint">Base URL of your OIDC identity provider (must support .well-known/openid-configuration)</span>
+            </label>
+
+            <label for="sso-client-id">Client ID
+              <input id="sso-client-id" name="client_id" type="text" value="{{if .SSO}}{{.SSO.ClientID}}{{end}}" placeholder="Client ID from IdP" {{if not .IsOrgAdmin}}disabled readonly{{end}}>
+            </label>
+
+            <label for="sso-client-secret">Client Secret
+              <input id="sso-client-secret" name="client_secret" type="password" value="{{if .SSO}}{{.SSO.ClientSecret}}{{end}}" placeholder="Client Secret from IdP" {{if not .IsOrgAdmin}}disabled readonly{{end}}>
+            </label>
+
+            <label for="sso-scopes">Scopes
+              <input id="sso-scopes" name="scopes" type="text" value="{{if and .SSO .SSO.Scopes}}{{joinRecipients .SSO.Scopes}}{{else}}openid, profile, email{{end}}" placeholder="openid, profile, email" {{if not .IsOrgAdmin}}disabled readonly{{end}}>
+              <span class="field-hint">Comma-separated OIDC scopes (defaults to openid, profile, email)</span>
+            </label>
+
+            {{if .IsOrgAdmin}}
+            <div class="form-actions">
+              <button type="submit" class="btn">Save SSO Configuration</button>
+            </div>
+            {{end}}
+          </form>
+        </div>
+      </section>
+
+      <!-- MEMBERS -->
+      <section class="card profile-card">
+        <div class="settings-header">
+          <h3>Members</h3>
+          <p class="subtitle">Users who belong to this organization</p>
+        </div>
+        <div class="card-body">
+          <div class="member-list" style="margin-bottom: 1.5rem;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--border-color, #e5e7eb);">
+                  <th style="padding: 0.5rem 0;">User</th>
+                  <th style="padding: 0.5rem 0;">Role</th>
+                  <th style="padding: 0.5rem 0;">Joined</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{range .Members}}
+                <tr style="border-bottom: 1px solid var(--border-color, #f3f4f6);">
+                  <td style="padding: 0.75rem 0;">
+                    <div><strong>{{if .DisplayName}}{{.DisplayName}}{{else}}{{.Email}}{{end}}</strong></div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted, #6b7280);">{{.Email}}</div>
+                  </td>
+                  <td style="padding: 0.75rem 0;">
+                    <span class="badge" style="text-transform: capitalize; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background: var(--bg-secondary, #e5e7eb);">{{.Role}}</span>
+                  </td>
+                  <td style="padding: 0.75rem 0; font-size: 0.85rem; color: var(--text-muted, #6b7280);">
+                    {{fmtDate .CreatedAt}}
+                  </td>
+                </tr>
+                {{else}}
+                <tr>
+                  <td colspan="3" style="padding: 1rem 0; color: var(--text-muted, #6b7280);">No members found.</td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+
+          {{if .IsOrgAdmin}}
+          <div style="border-top: 1px solid var(--border-color, #e5e7eb); padding-top: 1.25rem;">
+            <h4 style="margin-top: 0; margin-bottom: 0.5rem;">Invite Team Member</h4>
+            <form method="post" action="/settings/organization/members/invite" class="profile-form" style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap;">
+              <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+              <label style="flex: 2; min-width: 200px; margin: 0;">Email address
+                <input name="email" type="email" placeholder="colleague@example.com" required autocomplete="off">
+              </label>
+              <label style="flex: 1; min-width: 120px; margin: 0;">Role
+                <select name="role" style="height: 38px;">
+                  <option value="member" selected>Member</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+              <button type="submit" class="btn" style="height: fit-content;">Invite Member</button>
+            </form>
+          </div>
+          {{end}}
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+{{end}}

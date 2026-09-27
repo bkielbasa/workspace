@@ -1,0 +1,106 @@
+{{define "content"}}
+<div class="profile-container">
+  <div class="settings-page">
+    <!-- Sidebar Navigation -->
+    <div class="settings-sidebar card">
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-title">General</div>
+        <a href="/settings?section=profile" class="settings-nav-item">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </span>
+          Profile
+        </a>
+        <a href="/settings?section=password" class="settings-nav-item">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </span>
+          Password
+        </a>
+        <a href="/settings/organization" class="settings-nav-item is-active">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M3 7v14M21 7v14M6 7V3h12v4M9 11h2M13 11h2M9 15h2M13 15h2"/></svg>
+          </span>
+          Organization
+        </a>
+      </div>
+
+      <div class="settings-nav-divider"></div>
+
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-title">Mail</div>
+        <a href="/settings?section=signatures" class="settings-nav-item">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </span>
+          Signatures
+        </a>
+        <a href="/settings?section=rules" class="settings-nav-item">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          </span>
+          Mail Rules
+        </a>
+      </div>
+
+      <div class="settings-nav-divider"></div>
+
+      <div class="settings-nav-group">
+        <div class="settings-nav-group-title">Devices &amp; Clients</div>
+        <a href="/settings?section=iphone" class="settings-nav-item">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          </span>
+          iPhone Setup
+        </a>
+        <a href="/settings?section=app-passwords" class="settings-nav-item">
+          <span class="settings-nav-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+          </span>
+          App Passwords
+        </a>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="settings-main">
+      {{if .Error}}
+      <div class="alert alert-error" style="margin-bottom: 1.5rem;">
+        {{.Error}}
+      </div>
+      {{end}}
+      {{if .Success}}
+      <div class="alert alert-success" style="margin-bottom: 1.5rem;">
+        {{.Success}}
+      </div>
+      {{end}}
+
+      <section class="card profile-card">
+        <div class="settings-header">
+          <h2>Create Organization</h2>
+          <p class="subtitle">Set up your company or organization to manage custom domains, single sign-on, and team members.</p>
+        </div>
+        <div class="card-body">
+          <form method="post" action="/settings/organization" class="profile-form">
+            <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+
+            <label for="org-name">Organization Name
+              <input id="org-name" name="name" type="text" required placeholder="e.g. Acme Corporation" autocomplete="organization">
+              <span class="field-hint">The name of your company or organization</span>
+            </label>
+
+            <label for="org-domain">Primary Custom Domain
+              <input id="org-domain" name="domain" type="text" required placeholder="e.g. acme.corp" autocomplete="off" spellcheck="false">
+              <span class="field-hint">Your team's custom email and identity domain</span>
+            </label>
+
+            <div class="form-actions">
+              <button type="submit" class="btn">Create Organization</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+{{end}}

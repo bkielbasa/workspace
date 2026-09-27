@@ -133,13 +133,21 @@ type notesService interface {
 	DeleteItem(ctx context.Context, userID uuid.UUID, noteID, itemID uuid.UUID) error
 }
 
+type domainVerifierService interface {
+	Verify(ctx context.Context, domainID uuid.UUID) error
+}
+
 type organizationsService interface {
+	Create(ctx context.Context, ownerID uuid.UUID, name, initialDomain string) (*identity.Organization, *identity.OrganizationDomain, error)
 	Get(ctx context.Context, id uuid.UUID) (*identity.Organization, error)
 	GetByDomain(ctx context.Context, domain string) (*identity.Organization, *identity.OrganizationDomain, error)
-	GetSSO(ctx context.Context, orgID uuid.UUID) (*identity.OrganizationSSO, error)
+	ListDomains(ctx context.Context, orgID uuid.UUID) ([]identity.OrganizationDomain, error)
+	CreateDomain(ctx context.Context, orgID uuid.UUID, domain string) (*identity.OrganizationDomain, error)
+	ListMembers(ctx context.Context, orgID uuid.UUID) ([]identity.OrganizationMember, error)
 	AddMember(ctx context.Context, orgID, userID uuid.UUID, role string) error
 	GetMember(ctx context.Context, orgID, userID uuid.UUID) (*identity.OrganizationMember, error)
-	ListDomains(ctx context.Context, orgID uuid.UUID) ([]identity.OrganizationDomain, error)
+	GetSSO(ctx context.Context, orgID uuid.UUID) (*identity.OrganizationSSO, error)
+	SaveSSO(ctx context.Context, sso *identity.OrganizationSSO) error
 }
 
 // Server owns the web templates, assets, and cookie authentication policy.
@@ -167,13 +175,19 @@ type Server struct {
 	invites invitesService
 	// notes backs the Keep-style notes and checklists dashboard.
 	notes notesService
-	orgs  organizationsService
-	primaryDomain string
+	orgs           organizationsService
+	domainVerifier domainVerifierService
+	primaryDomain  string
 }
 
 // SetOrganizations registers the organizations service for multi-tenant domain and SSO inspection.
 func (s *Server) SetOrganizations(orgs organizationsService) {
 	s.orgs = orgs
+}
+
+// SetDomainVerifier registers the domain verification service.
+func (s *Server) SetDomainVerifier(v domainVerifierService) {
+	s.domainVerifier = v
 }
 
 // SetPrimaryDomain configures the primary domain for email addresses and accounts.
@@ -295,6 +309,12 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/rules/{id}/toggle", s.RequireAuth(s.RequireCSRF(s.settingsRuleToggle)))
 	mux.HandleFunc("POST /settings/rules/reorder", s.RequireAuth(s.RequireCSRF(s.settingsRuleReorder)))
 	mux.HandleFunc("POST /settings/rules/apply-inbox", s.RequireAuth(s.RequireCSRF(s.settingsRuleApplyInbox)))
+	mux.HandleFunc("GET /settings/organization", s.page(s.settingsOrganizationPage))
+	mux.HandleFunc("POST /settings/organization", s.RequireAuth(s.RequireCSRF(s.settingsOrganizationCreate)))
+	mux.HandleFunc("POST /settings/organization/domains", s.RequireAuth(s.RequireCSRF(s.settingsOrganizationDomainCreate)))
+	mux.HandleFunc("POST /settings/organization/domains/{id}/verify", s.RequireAuth(s.RequireCSRF(s.settingsOrganizationDomainVerify)))
+	mux.HandleFunc("POST /settings/organization/sso", s.RequireAuth(s.RequireCSRF(s.settingsOrganizationSSOSave)))
+	mux.HandleFunc("POST /settings/organization/members/invite", s.RequireAuth(s.RequireCSRF(s.settingsOrganizationMemberInvite)))
 
 	mux.HandleFunc("DELETE /admin/users/{id}", s.RequireAuth(s.RequireCSRF(s.adminUserDelete)))
 	mux.HandleFunc("GET /invite/accept", s.inviteAcceptPage)
