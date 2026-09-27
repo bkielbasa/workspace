@@ -288,6 +288,12 @@ func TestOrganizationSSO(t *testing.T) {
 	if err := orgs.SaveSSO(ctx, sso); err != nil {
 		t.Fatalf("SaveSSO failed: %v", err)
 	}
+	if sso.ID == uuid.Nil {
+		t.Errorf("expected sso.ID to be populated after save")
+	}
+	if sso.CreatedAt.IsZero() || sso.UpdatedAt.IsZero() {
+		t.Errorf("expected sso timestamps to be populated after save")
+	}
 
 	saved, err := orgs.GetSSO(ctx, org.ID)
 	if err != nil {

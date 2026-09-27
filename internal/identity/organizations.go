@@ -388,6 +388,11 @@ func (m *MemoryOrganizationRepository) SaveSSO(_ context.Context, sso *Organizat
 		copied.Scopes = []string{"openid", "profile", "email"}
 	}
 	m.sso[sso.OrganizationID] = copied
+	sso.ID = copied.ID
+	sso.CreatedAt = copied.CreatedAt
+	sso.UpdatedAt = copied.UpdatedAt
+	sso.Name = copied.Name
+	sso.Scopes = copied.Scopes
 	return nil
 }
 
@@ -433,13 +438,13 @@ func (o *Organizations) Create(ctx context.Context, ownerID uuid.UUID, name, ini
 
 	domain, err := o.repo.CreateDomain(ctx, org.ID, initialDomain, token)
 	if err != nil {
-		_ = o.repo.DeleteOrganization(ctx, org.ID)
+		_ = o.repo.DeleteOrganization(context.WithoutCancel(ctx), org.ID)
 		return nil, nil, err
 	}
 
 	if ownerID != uuid.Nil {
 		if _, err := o.repo.AddMember(ctx, org.ID, ownerID, RoleOwner); err != nil {
-			_ = o.repo.DeleteOrganization(ctx, org.ID)
+			_ = o.repo.DeleteOrganization(context.WithoutCancel(ctx), org.ID)
 			return nil, nil, fmt.Errorf("assign owner: %w", err)
 		}
 	}
