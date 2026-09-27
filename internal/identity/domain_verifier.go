@@ -12,6 +12,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// ErrVerificationRecordNotFound is returned when the required DNS TXT record is missing.
+var ErrVerificationRecordNotFound = errors.New("DNS TXT verification record not found")
+
 // DNSResolver defines the interface for performing DNS TXT queries.
 type DNSResolver interface {
 	LookupTXT(ctx context.Context, domain string) ([]string, error)
@@ -19,6 +22,8 @@ type DNSResolver interface {
 
 // NetDNSResolver is a default DNSResolver implementation using net.Resolver.
 type NetDNSResolver struct{}
+
+var _ DNSResolver = (*NetDNSResolver)(nil)
 
 func (n *NetDNSResolver) LookupTXT(ctx context.Context, domain string) ([]string, error) {
 	var r net.Resolver
@@ -156,14 +161,7 @@ func (v *DomainVerifier) Verify(ctx context.Context, domainID uuid.UUID) error {
 	}
 
 	if dom.VerifiedAt != nil {
-		if exists, err := v.globalDomains.Exists(ctx, dom.Domain); err != nil {
-			return fmt.Errorf("check global domain: %w", err)
-		} else if !exists {
-			if _, err := v.globalDomains.Create(ctx, dom.Domain); err != nil && !errors.Is(err, ErrDomainAlreadyExists) {
-				return fmt.Errorf("sync global domain: %w", err)
-			}
-		}
-		return nil
+		return v.syncGlobalDomain(ctx, dom.Domain)
 	}
 
 	records, err := v.resolver.LookupTXT(ctx, dom.Domain)
@@ -180,7 +178,7 @@ func (v *DomainVerifier) Verify(ctx context.Context, domainID uuid.UUID) error {
 		}
 	}
 	if !found {
-		return fmt.Errorf("DNS TXT verification record not found for %s", dom.Domain)
+		return fmt.Errorf("%w for %s", ErrVerificationRecordNotFound, dom.Domain)
 	}
 
 	now := time.Now().UTC()
@@ -189,13 +187,18 @@ func (v *DomainVerifier) Verify(ctx context.Context, domainID uuid.UUID) error {
 		return fmt.Errorf("update domain: %w", err)
 	}
 
-	if exists, err := v.globalDomains.Exists(ctx, dom.Domain); err != nil {
+	return v.syncGlobalDomain(ctx, dom.Domain)
+}
+
+func (v *DomainVerifier) syncGlobalDomain(ctx context.Context, domain string) error {
+	exists, err := v.globalDomains.Exists(ctx, domain)
+	if err != nil {
 		return fmt.Errorf("check global domain: %w", err)
-	} else if !exists {
-		if _, err := v.globalDomains.Create(ctx, dom.Domain); err != nil && !errors.Is(err, ErrDomainAlreadyExists) {
+	}
+	if !exists {
+		if _, err := v.globalDomains.Create(ctx, domain); err != nil && !errors.Is(err, ErrDomainAlreadyExists) {
 			return fmt.Errorf("sync global domain: %w", err)
 		}
 	}
-
 	return nil
 }

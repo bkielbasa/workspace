@@ -84,6 +84,9 @@ func TestDomainVerificationMissingRecord(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected verification to fail due to missing record, got nil")
 	}
+	if !errors.Is(err, identity.ErrVerificationRecordNotFound) {
+		t.Fatalf("expected ErrVerificationRecordNotFound, got: %v", err)
+	}
 	if !strings.Contains(err.Error(), "record not found") {
 		t.Fatalf("expected error to mention record not found, got: %v", err)
 	}
