@@ -23,6 +23,7 @@ type OrganizationRepository interface {
 	GetOrganization(ctx context.Context, id uuid.UUID) (*Organization, error)
 	GetOrganizationBySlug(ctx context.Context, slug string) (*Organization, error)
 	GetOrganizationByDomain(ctx context.Context, domain string) (*Organization, *OrganizationDomain, error)
+	GetVerifiedByDomain(ctx context.Context, domain string) (*Organization, *OrganizationDomain, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
 	DeleteOrganization(ctx context.Context, id uuid.UUID) error
 
@@ -130,6 +131,17 @@ func (m *MemoryOrganizationRepository) GetOrganizationByDomain(_ context.Context
 		return nil, nil, ErrOrganizationNotFound
 	}
 	return copyOrg(org), copyDomain(d), nil
+}
+
+func (m *MemoryOrganizationRepository) GetVerifiedByDomain(ctx context.Context, domain string) (*Organization, *OrganizationDomain, error) {
+	org, dom, err := m.GetOrganizationByDomain(ctx, domain)
+	if err != nil {
+		return nil, nil, err
+	}
+	if dom.VerifiedAt == nil {
+		return nil, nil, ErrOrgDomainNotFound
+	}
+	return org, dom, nil
 }
 
 func (m *MemoryOrganizationRepository) ListOrganizations(_ context.Context) ([]Organization, error) {
@@ -483,6 +495,12 @@ func (o *Organizations) GetByDomain(ctx context.Context, domain string) (*Organi
 // GetOrganizationByDomain is an alias for GetByDomain.
 func (o *Organizations) GetOrganizationByDomain(ctx context.Context, domain string) (*Organization, *OrganizationDomain, error) {
 	return o.GetByDomain(ctx, domain)
+}
+
+func (o *Organizations) GetVerifiedByDomain(ctx context.Context, domain string) (*Organization, *OrganizationDomain, error) {
+	ctx, span := o.tracer.Start(ctx, "organizations.get_verified_by_domain")
+	defer span.End()
+	return o.repo.GetVerifiedByDomain(ctx, strings.ToLower(strings.TrimSpace(domain)))
 }
 
 func (o *Organizations) List(ctx context.Context) ([]Organization, error) {

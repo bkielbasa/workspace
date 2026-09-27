@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/bklimczak/workspace/internal/identity"
 	"github.com/bklimczak/workspace/internal/web"
@@ -81,9 +82,14 @@ func TestLogin_SSOEnforced(t *testing.T) {
 
 	// Create org Acme Corp with domain acme.corp and enforced SSO
 	ownerID := uuid.New()
-	org, _, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
+	org, dom, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
 	if err != nil {
 		t.Fatalf("failed to create org: %v", err)
+	}
+	now := time.Now()
+	dom.VerifiedAt = &now
+	if err := orgs.UpdateDomain(ctx, dom); err != nil {
+		t.Fatalf("failed to update domain to verified: %v", err)
 	}
 
 	err = orgs.SaveSSO(ctx, &identity.OrganizationSSO{
@@ -135,6 +141,123 @@ func TestLogin_SSOEnforced(t *testing.T) {
 	}
 	if res["message"] != "Your organization requires Single Sign-On." {
 		t.Errorf("expected message 'Your organization requires Single Sign-On.', got %q", res["message"])
+	}
+}
+
+func TestLogin_UnverifiedDomain_DoesNotEnforceSSO(t *testing.T) {
+	ctx := context.Background()
+	_, mux, users, orgs := setupTestServer(t)
+
+	// Create org Acme Corp with unverified domain
+	ownerID := uuid.New()
+	org, dom, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
+	if err != nil {
+		t.Fatalf("failed to create org: %v", err)
+	}
+	if dom.VerifiedAt != nil {
+		t.Fatalf("expected new domain to be unverified")
+	}
+
+	// Enable enforced SSO
+	err = orgs.SaveSSO(ctx, &identity.OrganizationSSO{
+		OrganizationID: org.ID,
+		Name:           "Acme Okta",
+		Issuer:         "https://acme.okta.com",
+		ClientID:       "client-id",
+		ClientSecret:   "client-secret",
+		Scopes:         []string{"openid", "email"},
+		EnforceSSO:     true,
+		Enabled:        true,
+	})
+	if err != nil {
+		t.Fatalf("failed to save sso: %v", err)
+	}
+
+	users.users["bob@acme.corp"] = &identity.User{
+		ID:       uuid.New(),
+		Email:    "bob@acme.corp",
+		Username: "bob",
+		Enabled:  true,
+	}
+
+	// Password login should NOT be intercepted because the domain is unverified
+	body, _ := json.Marshal(map[string]string{
+		"email":    "bob@acme.corp",
+		"password": "secret123",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 OK for unverified domain, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLogin_SSOEnforced_BreakGlassDirect(t *testing.T) {
+	ctx := context.Background()
+	_, mux, users, orgs := setupTestServer(t)
+
+	ownerID := uuid.New()
+	org, dom, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
+	if err != nil {
+		t.Fatalf("failed to create org: %v", err)
+	}
+	now := time.Now()
+	dom.VerifiedAt = &now
+	if err := orgs.UpdateDomain(ctx, dom); err != nil {
+		t.Fatalf("failed to verify domain: %v", err)
+	}
+
+	err = orgs.SaveSSO(ctx, &identity.OrganizationSSO{
+		OrganizationID: org.ID,
+		Name:           "Acme Okta",
+		Issuer:         "https://acme.okta.com",
+		ClientID:       "client-id",
+		ClientSecret:   "client-secret",
+		Scopes:         []string{"openid", "email"},
+		EnforceSSO:     true,
+		Enabled:        true,
+	})
+	if err != nil {
+		t.Fatalf("failed to save sso: %v", err)
+	}
+
+	users.users["admin@acme.corp"] = &identity.User{
+		ID:       uuid.New(),
+		Email:    "admin@acme.corp",
+		Username: "admin",
+		Enabled:  true,
+	}
+
+	// Test 1: Break-glass via query parameter ?direct=true
+	body, _ := json.Marshal(map[string]string{
+		"email":    "admin@acme.corp",
+		"password": "secret123",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/login?direct=true", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 OK with ?direct=true, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	// Test 2: Break-glass via JSON payload direct=true
+	directBody, _ := json.Marshal(map[string]any{
+		"email":    "admin@acme.corp",
+		"password": "secret123",
+		"direct":   true,
+	})
+	req = httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(directBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 OK with json direct=true, got %d (body: %s)", rec.Code, rec.Body.String())
 	}
 }
 

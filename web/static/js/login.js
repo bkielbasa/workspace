@@ -33,6 +33,10 @@
           window.location.replace("/");
           return;
         }
+        if (result.data && result.data.redirect_url) {
+          window.location.href = result.data.redirect_url;
+          return;
+        }
         throw new Error(
           (result.data && result.data.error) || "Sign in failed."
         );

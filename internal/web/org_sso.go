@@ -25,9 +25,13 @@ func (s *Server) orgSSOBegin(w http.ResponseWriter, r *http.Request, domain stri
 	}
 
 	ctx := r.Context()
-	org, _, err := s.orgs.GetByDomain(ctx, cleanDomain)
+	org, dom, err := s.orgs.GetByDomain(ctx, cleanDomain)
 	if err != nil || org == nil {
 		s.ssoFail(w, r, "Organization not found.")
+		return
+	}
+	if dom == nil || dom.VerifiedAt == nil {
+		s.ssoFail(w, r, "Domain is not verified for Single Sign-On.")
 		return
 	}
 
@@ -197,6 +201,10 @@ func (s *Server) orgSSOCallback(w http.ResponseWriter, r *http.Request, cookie *
 
 	email := claimString(claims, "email")
 	name := claimString(claims, "name")
+	verified, known := claimBool(claims, "email_verified")
+	if !known {
+		verified, known = claimBool(claims, "EmailVerified")
+	}
 	if userInfo, err := provider.UserInfo(exchangeCtx, oauthCfg.TokenSource(exchangeCtx, token)); err == nil {
 		ui := map[string]any{}
 		if err := userInfo.Claims(&ui); err == nil {
@@ -206,7 +214,18 @@ func (s *Server) orgSSOCallback(w http.ResponseWriter, r *http.Request, cookie *
 			if name == "" {
 				name = claimString(ui, "name", "preferred_username")
 			}
+			if !known {
+				verified, known = claimBool(ui, "email_verified")
+				if !known {
+					verified, known = claimBool(ui, "EmailVerified")
+				}
+			}
 		}
+	}
+
+	if known && !verified {
+		s.ssoFail(w, r, "Email address is not verified with identity provider.")
+		return
 	}
 
 	cleanEmail := strings.ToLower(strings.TrimSpace(email))
@@ -222,18 +241,18 @@ func (s *Server) orgSSOCallback(w http.ResponseWriter, r *http.Request, cookie *
 	}
 	emailDomain := strings.ToLower(cleanEmail[atIdx+1:])
 
-	// Enforce email domain against organization domains
+	// Enforce email domain against organization domains (only verified domains allowed)
 	domainAllowed := false
 	if domains, err := s.orgs.ListDomains(ctx, org.ID); err == nil {
 		for _, d := range domains {
-			if strings.EqualFold(d.Domain, emailDomain) {
+			if strings.EqualFold(d.Domain, emailDomain) && d.VerifiedAt != nil {
 				domainAllowed = true
 				break
 			}
 		}
 	}
 	if !domainAllowed {
-		if lookupOrg, _, err := s.orgs.GetByDomain(ctx, emailDomain); err == nil && lookupOrg != nil && lookupOrg.ID == org.ID {
+		if lookupOrg, lookupDom, err := s.orgs.GetByDomain(ctx, emailDomain); err == nil && lookupOrg != nil && lookupOrg.ID == org.ID && lookupDom != nil && lookupDom.VerifiedAt != nil {
 			domainAllowed = true
 		}
 	}
@@ -269,7 +288,17 @@ func (s *Server) orgSSOCallback(w http.ResponseWriter, r *http.Request, cookie *
 			obs.Log(ctx, slog.LevelError, "org sso add member failed", "error", err)
 		}
 	} else {
-		if user.OrganizationID == nil || *user.OrganizationID != org.ID {
+		if user.OrganizationID != nil && *user.OrganizationID != org.ID {
+			obs.Log(ctx, slog.LevelWarn, "security warning: cross-tenant account takeover attempt blocked",
+				"email", cleanEmail,
+				"user_id", user.ID,
+				"user_org_id", *user.OrganizationID,
+				"sso_org_id", org.ID,
+			)
+			s.ssoFail(w, r, "User account already belongs to another organization.")
+			return
+		}
+		if user.OrganizationID == nil {
 			if err := s.users.SetOrganization(ctx, user.ID, org.ID); err != nil {
 				obs.Log(ctx, slog.LevelError, "org sso set organization failed", "error", err)
 			} else {

@@ -120,10 +120,13 @@ func TestDynamicOrgSSOBeginsWithOrgDomain(t *testing.T) {
 	srv := setupOrgSSOServer(t, users, orgs)
 
 	ownerID := uuid.New()
-	org, _, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
+	org, dom, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
 	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
+	now := time.Now()
+	dom.VerifiedAt = &now
+	_ = orgRepo.UpdateDomain(ctx, dom)
 
 	f := newFakeIdP(t)
 	err = orgs.SaveSSO(ctx, &identity.OrganizationSSO{
@@ -203,10 +206,13 @@ func TestOrgSSOCallbackJITProvisionsMember(t *testing.T) {
 	srv := setupOrgSSOServer(t, users, orgs)
 
 	ownerID := uuid.New()
-	org, _, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
+	org, dom, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
 	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
+	now := time.Now()
+	dom.VerifiedAt = &now
+	_ = orgRepo.UpdateDomain(ctx, dom)
 
 	f := newFakeIdP(t)
 	f.mu.Lock()
@@ -331,10 +337,13 @@ func TestDynamicOrgSSODomainMismatchRejected(t *testing.T) {
 	srv := setupOrgSSOServer(t, users, orgs)
 
 	ownerID := uuid.New()
-	org, _, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
+	org, dom, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
 	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
+	now := time.Now()
+	dom.VerifiedAt = &now
+	_ = orgRepo.UpdateDomain(ctx, dom)
 
 	f := newFakeIdP(t)
 	f.mu.Lock()
@@ -412,10 +421,13 @@ func TestDynamicOrgSSODisabledSSORejected(t *testing.T) {
 	srv := setupOrgSSOServer(t, users, orgs)
 
 	ownerID := uuid.New()
-	org, _, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
+	org, dom, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
 	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
+	now := time.Now()
+	dom.VerifiedAt = &now
+	_ = orgRepo.UpdateDomain(ctx, dom)
 
 	err = orgs.SaveSSO(ctx, &identity.OrganizationSSO{
 		OrganizationID: org.ID,
@@ -452,10 +464,13 @@ func TestOrgSSOCallbackExistingUserAssociatedWithOrg(t *testing.T) {
 	srv := setupOrgSSOServer(t, users, orgs)
 
 	ownerID := uuid.New()
-	org, _, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
+	org, dom, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
 	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
+	now := time.Now()
+	dom.VerifiedAt = &now
+	_ = orgRepo.UpdateDomain(ctx, dom)
 
 	// Bob exists before SSO, not associated with any org
 	existingUser := &identity.User{
@@ -555,10 +570,13 @@ func TestOrgSSOCallbackDisabledUserRejected(t *testing.T) {
 	srv := setupOrgSSOServer(t, users, orgs)
 
 	ownerID := uuid.New()
-	org, _, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
+	org, dom, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
 	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
+	now := time.Now()
+	dom.VerifiedAt = &now
+	_ = orgRepo.UpdateDomain(ctx, dom)
 
 	// Bob exists before SSO, but is disabled
 	existingUser := &identity.User{
@@ -630,5 +648,331 @@ func TestOrgSSOCallbackDisabledUserRejected(t *testing.T) {
 	loc := resp.Header.Get("Location")
 	if !strings.Contains(loc, "error=") || !strings.Contains(loc, "disabled") {
 		t.Fatalf("expected redirect to login with disabled error, got loc: %s (status %d)", loc, resp.StatusCode)
+	}
+}
+
+func TestOrgSSOBegin_UnverifiedDomain_Rejected(t *testing.T) {
+	ctx := context.Background()
+	users := newMockOrgSSOUsers()
+	orgRepo := identity.NewMemoryOrganizationRepository()
+	orgs := identity.NewOrganizations(orgRepo)
+	srv := setupOrgSSOServer(t, users, orgs)
+
+	ownerID := uuid.New()
+	org, dom, err := orgs.Create(ctx, ownerID, "Acme Corp", "unverified.corp")
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	if dom.VerifiedAt != nil {
+		t.Fatalf("expected domain to be unverified")
+	}
+
+	f := newFakeIdP(t)
+	err = orgs.SaveSSO(ctx, &identity.OrganizationSSO{
+		OrganizationID: org.ID,
+		Name:           "Acme Okta",
+		Issuer:         f.issuer,
+		ClientID:       f.clientID,
+		ClientSecret:   "secret",
+		Scopes:         []string{"openid", "profile", "email"},
+		Enabled:        true,
+		AutoProvision:  true,
+	})
+	if err != nil {
+		t.Fatalf("save sso: %v", err)
+	}
+
+	client := noFollowClient()
+	resp, err := client.Get(srv.URL + "/login/sso?domain=unverified.corp")
+	if err != nil {
+		t.Fatalf("get /login/sso: %v", err)
+	}
+	defer resp.Body.Close()
+
+	loc := resp.Header.Get("Location")
+	if !strings.Contains(loc, "/login?error=Domain+is+not+verified+for+Single+Sign-On.") {
+		t.Fatalf("expected redirect to /login with domain not verified error, got status %d, loc %q", resp.StatusCode, loc)
+	}
+}
+
+func TestOrgSSOCallback_UnverifiedDomain_Rejected(t *testing.T) {
+	ctx := context.Background()
+	users := newMockOrgSSOUsers()
+	orgRepo := identity.NewMemoryOrganizationRepository()
+	orgs := identity.NewOrganizations(orgRepo)
+	srv := setupOrgSSOServer(t, users, orgs)
+
+	ownerID := uuid.New()
+	org, dom, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	now := time.Now()
+	dom.VerifiedAt = &now
+	_ = orgRepo.UpdateDomain(ctx, dom)
+
+	f := newFakeIdP(t)
+	f.mu.Lock()
+	f.email = "alice@acme.corp"
+	f.name = "Alice Acme"
+	f.idName = "Alice Acme"
+	f.mu.Unlock()
+
+	err = orgs.SaveSSO(ctx, &identity.OrganizationSSO{
+		OrganizationID: org.ID,
+		Name:           "Acme Okta",
+		Issuer:         f.issuer,
+		ClientID:       f.clientID,
+		ClientSecret:   "secret",
+		Scopes:         []string{"openid", "profile", "email"},
+		Enabled:        true,
+		AutoProvision:  true,
+	})
+	if err != nil {
+		t.Fatalf("save sso: %v", err)
+	}
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{
+		Jar:           jar,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+
+	// 1. Initiate login
+	start, err := client.Get(srv.URL + "/login/sso?domain=acme.corp")
+	if err != nil {
+		t.Fatalf("start login: %v", err)
+	}
+	start.Body.Close()
+	if start.StatusCode != http.StatusFound && start.StatusCode != http.StatusSeeOther {
+		t.Fatalf("start expected redirect, got %d", start.StatusCode)
+	}
+
+	authURL, err := url.Parse(start.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Unverify domain before callback
+	dom.VerifiedAt = nil
+	_ = orgRepo.UpdateDomain(ctx, dom)
+
+	// 2. Complete IdP auth
+	authorize, err := client.Get(f.srv.URL + authURL.RequestURI())
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorize.Body.Close()
+
+	// 3. Callback
+	cb, err := url.Parse(authorize.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cbURL := srv.URL + "/login/sso/callback?" + cb.RawQuery
+	resp, err := client.Get(cbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	loc := resp.Header.Get("Location")
+	if !strings.Contains(loc, "error=") {
+		t.Fatalf("expected redirect to login with error for unverified domain callback, got loc %q", loc)
+	}
+}
+
+func TestOrgSSOCallback_CrossTenantTakeover_Rejected(t *testing.T) {
+	ctx := context.Background()
+	users := newMockOrgSSOUsers()
+	orgRepo := identity.NewMemoryOrganizationRepository()
+	orgs := identity.NewOrganizations(orgRepo)
+	srv := setupOrgSSOServer(t, users, orgs)
+
+	// Create Tenant A
+	tenantAOwner := uuid.New()
+	tenantA, domA, err := orgs.Create(ctx, tenantAOwner, "Tenant A", "tenanta.corp")
+	if err != nil {
+		t.Fatalf("create tenant A: %v", err)
+	}
+	now := time.Now()
+	domA.VerifiedAt = &now
+	_ = orgRepo.UpdateDomain(ctx, domA)
+
+	// User Bob belongs to Tenant A
+	bob := &identity.User{
+		ID:             uuid.New(),
+		Email:          "bob@tenantb.corp",
+		DisplayName:    "Bob Tenant A",
+		OrganizationID: &tenantA.ID,
+		Enabled:        true,
+	}
+	users.users[bob.Email] = bob
+
+	// Create Tenant B
+	tenantBOwner := uuid.New()
+	tenantB, domB, err := orgs.Create(ctx, tenantBOwner, "Tenant B", "tenantb.corp")
+	if err != nil {
+		t.Fatalf("create tenant B: %v", err)
+	}
+	domB.VerifiedAt = &now
+	_ = orgRepo.UpdateDomain(ctx, domB)
+
+	f := newFakeIdP(t)
+	f.mu.Lock()
+	f.email = "bob@tenantb.corp"
+	f.name = "Bob In Tenant B SSO"
+	f.idName = "Bob In Tenant B SSO"
+	f.mu.Unlock()
+
+	err = orgs.SaveSSO(ctx, &identity.OrganizationSSO{
+		OrganizationID: tenantB.ID,
+		Name:           "Tenant B SSO",
+		Issuer:         f.issuer,
+		ClientID:       f.clientID,
+		ClientSecret:   "secret",
+		Scopes:         []string{"openid", "profile", "email"},
+		Enabled:        true,
+		AutoProvision:  true,
+	})
+	if err != nil {
+		t.Fatalf("save sso: %v", err)
+	}
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{
+		Jar:           jar,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+
+	// 1. Initiate login for Tenant B
+	start, err := client.Get(srv.URL + "/login/sso?domain=tenantb.corp")
+	if err != nil {
+		t.Fatalf("start login: %v", err)
+	}
+	start.Body.Close()
+
+	authURL, err := url.Parse(start.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Complete IdP auth
+	authorize, err := client.Get(f.srv.URL + authURL.RequestURI())
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorize.Body.Close()
+
+	// 3. Callback
+	cb, err := url.Parse(authorize.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cbURL := srv.URL + "/login/sso/callback?" + cb.RawQuery
+	resp, err := client.Get(cbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	loc := resp.Header.Get("Location")
+	if !strings.Contains(loc, "/login?error=User+account+already+belongs+to+another+organization.") {
+		t.Fatalf("expected redirect to login with cross-tenant takeover error, got status %d, loc %q", resp.StatusCode, loc)
+	}
+
+	// Verify Bob's OrganizationID was NOT changed to Tenant B
+	if bob.OrganizationID == nil || *bob.OrganizationID != tenantA.ID {
+		t.Errorf("expected Bob to remain in Tenant A (%s), but got %v", tenantA.ID, bob.OrganizationID)
+	}
+}
+
+func TestOrgSSOCallback_EmailVerifiedFalse_Rejected(t *testing.T) {
+	ctx := context.Background()
+	users := newMockOrgSSOUsers()
+	orgRepo := identity.NewMemoryOrganizationRepository()
+	orgs := identity.NewOrganizations(orgRepo)
+	srv := setupOrgSSOServer(t, users, orgs)
+
+	ownerID := uuid.New()
+	org, dom, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	now := time.Now()
+	dom.VerifiedAt = &now
+	_ = orgRepo.UpdateDomain(ctx, dom)
+
+	f := newFakeIdP(t)
+	f.mu.Lock()
+	f.email = "alice@acme.corp"
+	f.name = "Alice Acme"
+	f.idName = "Alice Acme"
+	f.verified = false // email_verified is explicitly false
+	f.mu.Unlock()
+
+	err = orgs.SaveSSO(ctx, &identity.OrganizationSSO{
+		OrganizationID: org.ID,
+		Name:           "Acme Okta",
+		Issuer:         f.issuer,
+		ClientID:       f.clientID,
+		ClientSecret:   "secret",
+		Scopes:         []string{"openid", "profile", "email"},
+		Enabled:        true,
+		AutoProvision:  true,
+	})
+	if err != nil {
+		t.Fatalf("save sso: %v", err)
+	}
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{
+		Jar:           jar,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+
+	// 1. Initiate login
+	start, err := client.Get(srv.URL + "/login/sso?domain=acme.corp")
+	if err != nil {
+		t.Fatalf("start login: %v", err)
+	}
+	start.Body.Close()
+
+	authURL, err := url.Parse(start.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Complete IdP auth
+	authorize, err := client.Get(f.srv.URL + authURL.RequestURI())
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorize.Body.Close()
+
+	// 3. Callback
+	cb, err := url.Parse(authorize.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cbURL := srv.URL + "/login/sso/callback?" + cb.RawQuery
+	resp, err := client.Get(cbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	loc := resp.Header.Get("Location")
+	if !strings.Contains(loc, "/login?error=Email+address+is+not+verified+with+identity+provider.") {
+		t.Fatalf("expected redirect to login with unverified email error, got status %d, loc %q", resp.StatusCode, loc)
 	}
 }

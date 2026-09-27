@@ -6,8 +6,6 @@ CREATE TABLE IF NOT EXISTS organizations (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_organizations_slug ON organizations(slug);
-
 CREATE TABLE IF NOT EXISTS organization_domains (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

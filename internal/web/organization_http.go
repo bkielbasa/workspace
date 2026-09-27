@@ -147,6 +147,63 @@ type organizationCreateRequest struct {
 	Domain string `json:"domain"`
 }
 
+func (s *Server) validateCustomDomain(domain string) error {
+	domain = strings.TrimSpace(strings.ToLower(domain))
+	if domain == "" {
+		return errors.New("domain name is required")
+	}
+
+	primary := s.primaryDomain
+	if primary == "" {
+		primary = "cloudlift.run"
+	}
+
+	if domain == strings.ToLower(primary) {
+		return errors.New("cannot claim primary service domain")
+	}
+
+	if domain == "localhost" || domain == "127.0.0.1" || domain == "::1" || strings.HasPrefix(domain, "127.") {
+		return errors.New("cannot claim localhost or loopback domain")
+	}
+
+	if len(domain) > 253 {
+		return errors.New("invalid domain syntax: domain name too long")
+	}
+
+	parts := strings.Split(domain, ".")
+	if len(parts) < 2 {
+		return errors.New("invalid domain syntax: domain must contain at least one dot")
+	}
+
+	for _, part := range parts {
+		if len(part) == 0 || len(part) > 63 {
+			return errors.New("invalid domain syntax: label length must be between 1 and 63 characters")
+		}
+		if part[0] == '-' || part[len(part)-1] == '-' {
+			return errors.New("invalid domain syntax: label cannot start or end with a hyphen")
+		}
+		for _, ch := range part {
+			if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+				return errors.New("invalid domain syntax: invalid character in domain")
+			}
+		}
+	}
+
+	tld := parts[len(parts)-1]
+	allNumeric := true
+	for _, ch := range tld {
+		if ch < '0' || ch > '9' {
+			allNumeric = false
+			break
+		}
+	}
+	if allNumeric {
+		return errors.New("invalid domain syntax: top-level domain cannot be purely numeric")
+	}
+
+	return nil
+}
+
 func (s *Server) settingsOrganizationCreate(w http.ResponseWriter, r *http.Request) {
 	user := s.currentUser(r)
 	if user == nil {
@@ -188,6 +245,15 @@ func (s *Server) settingsOrganizationCreate(w http.ResponseWriter, r *http.Reque
 			writeJSONError(w, http.StatusBadRequest, "organization name and domain are required")
 		} else {
 			http.Redirect(w, r, "/settings/organization?error="+url.QueryEscape("organization name and domain are required"), http.StatusSeeOther)
+		}
+		return
+	}
+
+	if err := s.validateCustomDomain(domain); err != nil {
+		if isJSON {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+		} else {
+			http.Redirect(w, r, "/settings/organization?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		}
 		return
 	}
@@ -277,6 +343,15 @@ func (s *Server) settingsOrganizationDomainCreate(w http.ResponseWriter, r *http
 			writeJSONError(w, http.StatusBadRequest, "domain name is required")
 		} else {
 			http.Redirect(w, r, "/settings/organization?error="+url.QueryEscape("domain name is required"), http.StatusSeeOther)
+		}
+		return
+	}
+
+	if err := s.validateCustomDomain(domain); err != nil {
+		if isJSON {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+		} else {
+			http.Redirect(w, r, "/settings/organization?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		}
 		return
 	}

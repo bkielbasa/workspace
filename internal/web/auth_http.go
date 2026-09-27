@@ -35,6 +35,7 @@ func toUserResponse(user *identity.User) userResponse {
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	Direct   bool   `json:"direct"`
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -55,12 +56,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.Contains(request.Email, "@") && s.orgs != nil {
-		parts := strings.Split(request.Email, "@")
-		if len(parts) == 2 && parts[1] != "" {
-			domain := parts[1]
-			org, _, err := s.orgs.GetByDomain(r.Context(), domain)
-			if err == nil && org != nil {
+	isDirect := r.URL.Query().Get("direct") == "true" || request.Direct
+	if !isDirect && s.orgs != nil {
+		atIdx := strings.LastIndexByte(request.Email, '@')
+		if atIdx >= 0 && atIdx < len(request.Email)-1 {
+			domain := request.Email[atIdx+1:]
+			org, dom, err := s.orgs.GetByDomain(r.Context(), domain)
+			if err == nil && org != nil && dom != nil && dom.VerifiedAt != nil {
 				sso, err := s.orgs.GetSSO(r.Context(), org.ID)
 				if err == nil && sso != nil && sso.Enabled && sso.EnforceSSO {
 					writeJSON(w, http.StatusForbidden, map[string]string{

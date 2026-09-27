@@ -141,6 +141,7 @@ type organizationsService interface {
 	Create(ctx context.Context, ownerID uuid.UUID, name, initialDomain string) (*identity.Organization, *identity.OrganizationDomain, error)
 	Get(ctx context.Context, id uuid.UUID) (*identity.Organization, error)
 	GetByDomain(ctx context.Context, domain string) (*identity.Organization, *identity.OrganizationDomain, error)
+	GetVerifiedByDomain(ctx context.Context, domain string) (*identity.Organization, *identity.OrganizationDomain, error)
 	ListDomains(ctx context.Context, orgID uuid.UUID) ([]identity.OrganizationDomain, error)
 	CreateDomain(ctx context.Context, orgID uuid.UUID, domain string) (*identity.OrganizationDomain, error)
 	ListMembers(ctx context.Context, orgID uuid.UUID) ([]identity.OrganizationMember, error)

@@ -112,6 +112,35 @@ func (r *organizationRepository) GetOrganizationByDomain(ctx context.Context, do
 	return org, dom, nil
 }
 
+// GetVerifiedByDomain retrieves both the organization and the verified custom domain record.
+func (r *organizationRepository) GetVerifiedByDomain(ctx context.Context, domain string) (*identity.Organization, *identity.OrganizationDomain, error) {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	org := &identity.Organization{}
+	dom := &identity.OrganizationDomain{}
+	var verifiedAt sql.NullTime
+
+	err := r.db.QueryRowContext(ctx, `
+		SELECT o.id, o.name, o.slug, o.created_at, o.updated_at,
+		       d.id, d.organization_id, d.domain, d.verification_token, d.verified_at, d.created_at
+		FROM organizations o
+		JOIN organization_domains d ON o.id = d.organization_id
+		WHERE lower(d.domain) = lower($1) AND d.verified_at IS NOT NULL
+	`, domain).Scan(
+		&org.ID, &org.Name, &org.Slug, &org.CreatedAt, &org.UpdatedAt,
+		&dom.ID, &dom.OrganizationID, &dom.Domain, &dom.VerificationToken, &verifiedAt, &dom.CreatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, identity.ErrOrgDomainNotFound
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("get verified organization by domain: %w", err)
+	}
+	if verifiedAt.Valid {
+		dom.VerifiedAt = &verifiedAt.Time
+	}
+	return org, dom, nil
+}
+
 // ListOrganizations lists all organizations ordered by creation date.
 func (r *organizationRepository) ListOrganizations(ctx context.Context) ([]identity.Organization, error) {
 	rows, err := r.db.QueryContext(ctx, `

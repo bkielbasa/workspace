@@ -678,3 +678,138 @@ func TestUpdateSSOConfiguration_RetainExistingSecret(t *testing.T) {
 		t.Errorf("expected name 'Updated Beta SSO', got %q", sso.Name)
 	}
 }
+
+func TestOrganizationDomain_PrimaryDomainOrLocalhost_Rejected(t *testing.T) {
+	h := setupOrgTestHarness(t)
+	ctx := context.Background()
+
+	// 1. Try creating an organization with primaryDomain (cloudlift.run) via JSON
+	_, userToken := h.createAuthenticatedUser(t, "user1@example.com", "User 1", nil)
+	resp, err := h.makeRequest("POST", "/settings/organization", userToken, nil, map[string]string{
+		"name":   "Test Org",
+		"domain": "cloudlift.run",
+	})
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for primaryDomain, got %d", resp.StatusCode)
+	}
+
+	// 2. Try creating an organization with localhost
+	_, userToken2 := h.createAuthenticatedUser(t, "user2@example.com", "User 2", nil)
+	resp2, err := h.makeRequest("POST", "/settings/organization", userToken2, nil, map[string]string{
+		"name":   "Test Org 2",
+		"domain": "localhost",
+	})
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for localhost, got %d", resp2.StatusCode)
+	}
+
+	// 3. Try creating an organization with 127.0.0.1
+	_, userToken3 := h.createAuthenticatedUser(t, "user3@example.com", "User 3", nil)
+	resp3, err := h.makeRequest("POST", "/settings/organization", userToken3, nil, map[string]string{
+		"name":   "Test Org 3",
+		"domain": "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp3.Body.Close()
+	if resp3.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for 127.0.0.1, got %d", resp3.StatusCode)
+	}
+
+	// 4. Try adding primaryDomain as additional domain to existing organization
+	owner, ownerToken := h.createAuthenticatedUser(t, "admin@valid-corp.com", "Admin", nil)
+	org, _, err := h.orgs.Create(ctx, owner.ID, "Valid Corp", "valid-corp.com")
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	_ = h.users.SetOrganization(ctx, owner.ID, org.ID)
+
+	respAdd, err := h.makeRequest("POST", "/settings/organization/domains", ownerToken, nil, map[string]string{
+		"domain": "cloudlift.run",
+	})
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer respAdd.Body.Close()
+	if respAdd.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request when adding primaryDomain as domain, got %d", respAdd.StatusCode)
+	}
+
+	// 5. Try adding localhost as additional domain
+	respAddLocal, err := h.makeRequest("POST", "/settings/organization/domains", ownerToken, nil, map[string]string{
+		"domain": "localhost",
+	})
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer respAddLocal.Body.Close()
+	if respAddLocal.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request when adding localhost as domain, got %d", respAddLocal.StatusCode)
+	}
+}
+
+func TestAdminSSOClientSecret_NotEchoedInDOM(t *testing.T) {
+	h := setupOrgTestHarness(t)
+	ctx := context.Background()
+
+	owner, token := h.createAuthenticatedUser(t, "admin@secure-corp.com", "Admin", nil)
+	org, _, err := h.orgs.Create(ctx, owner.ID, "Secure Corp", "secure-corp.com")
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	if err := h.users.SetOrganization(ctx, owner.ID, org.ID); err != nil {
+		t.Fatalf("set org: %v", err)
+	}
+
+	rawSecret := "super-secret-shhhh-12345678"
+	err = h.orgs.SaveSSO(ctx, &identity.OrganizationSSO{
+		OrganizationID: org.ID,
+		Name:           "Secure SSO",
+		Issuer:         "https://idp.secure-corp.com",
+		ClientID:       "secure-client-id",
+		ClientSecret:   rawSecret,
+		Enabled:        true,
+	})
+	if err != nil {
+		t.Fatalf("save sso: %v", err)
+	}
+
+	// Request HTML page as organization admin
+	resp, err := h.makeRequest("GET", "/settings/organization", token, nil, nil)
+	if err != nil {
+		t.Fatalf("GET /settings/organization failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200 OK, got %d", resp.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	bodyStr := string(bodyBytes)
+
+	// Ensure plaintext client secret is NOT present anywhere in HTML
+	if strings.Contains(bodyStr, rawSecret) {
+		t.Errorf("security vulnerability: plaintext client secret %q found in HTML DOM!", rawSecret)
+	}
+
+	// Verify placeholder is present and value is empty
+	if !strings.Contains(bodyStr, `placeholder="•••••••• (leave blank to keep existing)"`) {
+		t.Errorf("expected placeholder with bullet mask for existing secret, body: %s", bodyStr)
+	}
+	if strings.Contains(bodyStr, `id="sso-client-secret" name="client_secret" type="password" value="`+rawSecret+`"`) {
+		t.Errorf("found raw client secret in value attribute")
+	}
+}
