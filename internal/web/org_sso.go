@@ -151,12 +151,16 @@ func (s *Server) orgSSOCallback(w http.ResponseWriter, r *http.Request, cookie *
 	}
 
 	verifierToken := provider.Verifier(&oidc.Config{ClientID: sso.ClientID})
+	scopes := sso.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{oidc.ScopeOpenID, "profile", "email"}
+	}
 	oauthCfg := &oauth2.Config{
 		ClientID:     sso.ClientID,
 		ClientSecret: sso.ClientSecret,
 		Endpoint:     provider.Endpoint(),
 		RedirectURL:  s.orgSSORedirectURL(r),
-		Scopes:       sso.Scopes,
+		Scopes:       scopes,
 	}
 
 	token, err := oauthCfg.Exchange(exchangeCtx, code, oauth2.VerifierOption(verifier))
@@ -244,6 +248,11 @@ func (s *Server) orgSSOCallback(w http.ResponseWriter, r *http.Request, cookie *
 	}
 
 	user, err := s.users.GetByEmail(ctx, cleanEmail)
+	if err != nil && !errors.Is(err, identity.ErrUserNotFound) {
+		obs.Log(ctx, slog.LevelError, "org sso get user failed", "error", err)
+		s.ssoFail(w, r, "SSO sign-in failed. Please try again.")
+		return
+	}
 	if errors.Is(err, identity.ErrUserNotFound) || user == nil {
 		if !sso.AutoProvision {
 			s.ssoFail(w, r, "No account exists for this email and automatic provisioning is disabled.")
@@ -273,6 +282,11 @@ func (s *Server) orgSSOCallback(w http.ResponseWriter, r *http.Request, cookie *
 				obs.Log(ctx, slog.LevelError, "org sso add member failed", "error", err)
 			}
 		}
+	}
+
+	if !user.Enabled {
+		s.ssoFail(w, r, "This account is disabled.")
+		return
 	}
 
 	if _, err := s.establishSession(w, r, user); err != nil {

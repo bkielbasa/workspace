@@ -546,3 +546,89 @@ func TestOrgSSOCallbackExistingUserAssociatedWithOrg(t *testing.T) {
 		t.Errorf("expected role member, got %s", member.Role)
 	}
 }
+
+func TestOrgSSOCallbackDisabledUserRejected(t *testing.T) {
+	ctx := context.Background()
+	users := newMockOrgSSOUsers()
+	orgRepo := identity.NewMemoryOrganizationRepository()
+	orgs := identity.NewOrganizations(orgRepo)
+	srv := setupOrgSSOServer(t, users, orgs)
+
+	ownerID := uuid.New()
+	org, _, err := orgs.Create(ctx, ownerID, "Acme Corp", "acme.corp")
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+
+	// Bob exists before SSO, but is disabled
+	existingUser := &identity.User{
+		ID:             uuid.New(),
+		Email:          "bob@acme.corp",
+		DisplayName:    "Bob Disabled",
+		OrganizationID: &org.ID,
+		Enabled:        false,
+	}
+	users.users["bob@acme.corp"] = existingUser
+
+	f := newFakeIdP(t)
+	f.mu.Lock()
+	f.email = "bob@acme.corp"
+	f.name = "Bob Disabled"
+	f.idName = "Bob Disabled"
+	f.mu.Unlock()
+
+	err = orgs.SaveSSO(ctx, &identity.OrganizationSSO{
+		OrganizationID: org.ID,
+		Name:           "Acme Okta",
+		Issuer:         f.issuer,
+		ClientID:       f.clientID,
+		ClientSecret:   "secret",
+		Scopes:         []string{"openid", "profile", "email"},
+		Enabled:        true,
+		AutoProvision:  true,
+	})
+	if err != nil {
+		t.Fatalf("save sso: %v", err)
+	}
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{
+		Jar:           jar,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+
+	start, err := client.Get(srv.URL + "/login/sso?domain=acme.corp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start.Body.Close()
+
+	authURL, err := url.Parse(start.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorize, err := client.Get(f.srv.URL + authURL.RequestURI())
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorize.Body.Close()
+
+	cb, err := url.Parse(authorize.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cbURL := srv.URL + "/login/sso/callback?" + cb.RawQuery
+	resp, err := client.Get(cbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	loc := resp.Header.Get("Location")
+	if !strings.Contains(loc, "error=") || !strings.Contains(loc, "disabled") {
+		t.Fatalf("expected redirect to login with disabled error, got loc: %s (status %d)", loc, resp.StatusCode)
+	}
+}
